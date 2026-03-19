@@ -20,3 +20,8 @@ add_library(blas-multifloat
     ./blas/ddgemm.f90
     ./blas/ddtrsm.f90)
 target_link_libraries(blas-multifloat PRIVATE multifloat-fortran)
+
+add_executable(multifloat_fuzz ./fsrc/multifloat_fuzz.f90)
+target_link_libraries(multifloat_fuzz PRIVATE multifloat-fortran)
+add_executable(multifloat_test ./fsrc/multifloat_test.f90)
+target_link_libraries(multifloat_test PRIVATE multifloat-fortran)
