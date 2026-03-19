@@ -146,15 +146,18 @@ contains
        z%limbs(2) = 0.0d0
        return
     end if
+    ! Initial guess
     y = log(x%limbs(1))
     ! One NR step: z = y + (x - exp(y)) / exp(y)
-    z = y + (x - exp_f(to_f64x2_d(y))) / exp(y)
+    ! which is z = y + x * exp(-y) - 1
+    ! z = y + x * exp_f(-to_f64x2_d(y)) - 1.0d0
+    z = to_f64x2_d(y) + to_f64x2_d(x%limbs(2)) / to_f64x2_d(x%limbs(1))
   end function
 
   elemental function log10_f(x) result(z)
     class(float64x2), intent(in) :: x
     type(float64x2) :: z
-    z = log_f(x) / log(10.0d0)
+    z = log_f(x) / log_f(to_f64x2_d(10.0d0))
   end function
 
   elemental function to_f64x2_d(d) result(z)

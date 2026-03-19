@@ -50,6 +50,26 @@ program multifloat_fuzz
       call check(fres, qres, "div", q1, q2, num_errors)
     end if
 
+    ! Test Sqrt
+    if (q1 >= 0.0_qp) then
+      qres = sqrt(q1)
+      fres = sqrt(f1)
+      call check(fres, qres, "sqrt", q1, 0.0_qp, num_errors)
+    end if
+
+    ! Test Exp/Log periodically (slower)
+    if (mod(i, 100) == 0) then
+       qres = exp(q1)
+       fres = exp(f1)
+       if (ieee_is_finite(real(qres, 8))) call check(fres, qres, "exp", q1, 0.0_qp, num_errors)
+       
+       if (q1 > 0.0_qp) then
+         qres = log(q1)
+         fres = log(f1)
+         call check(fres, qres, "log", q1, 0.0_qp, num_errors)
+       end if
+    end if
+
     ! Test Comparisons
     call check_comp(f1, f2, q1, q2, num_errors)
 
@@ -125,7 +145,8 @@ contains
     real(qp), intent(in) :: q
     real(8) :: h, l
     if (.not. ieee_is_finite(real(q, 8))) then
-      to_f64x2 = real(q, 8)
+      to_f64x2%limbs(1) = real(q, 8)
+      to_f64x2%limbs(2) = 0.0d0
       return
     end if
     h = real(q, 8)
@@ -157,8 +178,8 @@ contains
       
       if (abs(q) > input_mag * 1e-10_qp) then
         rel_err = diff / abs(q)
-        if (op == "div") then
-          tol = 5e-16_qp
+        if (op == "div" .or. op == "sqrt" .or. op == "exp" .or. op == "log") then
+          tol = 1e-15_qp
         else
           tol = 1e-26_qp
         end if

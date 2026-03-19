@@ -67,11 +67,15 @@ contains
     ! Double-double has ~106 bits. relative error should be ~1e-32. 
     ! NR refinement for sqrt/log can be slightly less accurate.
     ! 1e-16 is safe for these functions in this test suite.
-    if (abs(qa - qb) > abs(qb)*1e-16 .and. abs(qa - qb) > 1e-35) then
+    if (abs(qa - qb) > abs(qb)*1e-32 .and. abs(qa - qb) > 1e-35) then
        print *, "ASSERT_APPROX FAILED: ", msg
        print *, "  Expected: ", b_h, b_l
        print *, "  Got:      ", a%limbs
        num_errors = num_errors + 1
+    else
+       print *, "assert_approx succeeded: ", msg
+       print *, "  Expected: ", b_h, b_l
+       print *, "  Got:      ", a%limbs
     end if
   end subroutine
 
