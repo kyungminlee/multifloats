@@ -13,8 +13,8 @@ set_target_properties(multifloat-fortran PROPERTIES
 target_include_directories(multifloat-fortran PUBLIC
     ${CMAKE_BINARY_DIR}/modules)
 
-add_executable(test-fortran ./fsrc/test.f90)
-target_link_libraries(test-fortran PRIVATE multifloat-fortran)
+#add_executable(test-fortran ./fsrc/test.f90)
+#target_link_libraries(test-fortran PRIVATE multifloat-fortran)
 
 add_library(blas-multifloat
     ./blas/ddgemm.f90
