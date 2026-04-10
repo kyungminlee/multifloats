@@ -488,12 +488,16 @@ contains
     elemental function from_qp(v) result(res)
         real(qp), intent(in) :: v
         type(float64x2) :: res
+        real(dp) :: s, bprime
         if (.not. ieee_is_finite(v)) then
             res%limbs = [real(v, dp), real(v, dp)]
         else
             res%limbs(1) = real(v, dp)
             res%limbs(2) = real(v - real(res%limbs(1), qp), dp)
-            call renormalize(res)
+            s = res%limbs(1) + res%limbs(2)
+            bprime = s - res%limbs(1)
+            res%limbs(2) = res%limbs(2) - bprime
+            res%limbs(1) = s
         end if
     end function
 
@@ -508,141 +512,6 @@ contains
         type(complex128x2) :: res
         res%re = from_qp(real(v, qp))
         res%im = from_qp(aimag(v))
-    end function
-
-    elemental subroutine fast_two_sum_dp(a, b, s, e)
-        real(dp), intent(in) :: a, b
-        real(dp), intent(out) :: s, e
-        real(dp) :: bprime
-        s = a + b
-        bprime = s - a
-        e = b - bprime
-    end subroutine
-
-    elemental subroutine two_sum_dp(a, b, s, e)
-        real(dp), intent(in) :: a, b
-        real(dp), intent(out) :: s, e
-        real(dp) :: aprime, bprime, aerr, berr
-        s = a + b
-        aprime = s - b
-        bprime = s - aprime
-        aerr = a - aprime
-        berr = b - bprime
-        e = aerr + berr
-    end subroutine
-
-    elemental subroutine two_prod_dp(a, b, p, e)
-        real(dp), intent(in) :: a, b
-        real(dp), intent(out) :: p, e
-        p = a * b
-        e = ieee_fma(a, b, -p)
-    end subroutine
-
-    elemental function isfinite_mf(x) result(ok)
-        type(float64x2), intent(in) :: x
-        logical :: ok
-        ok = ieee_is_finite(x%limbs(1)) .and. ieee_is_finite(x%limbs(2))
-    end function
-
-    elemental subroutine renormalize(x)
-        type(float64x2), intent(inout) :: x
-        real(dp) :: hi, lo
-        if (.not. isfinite_mf(x)) then
-            x%limbs = [x%limbs(1), x%limbs(1)]
-            return
-        end if
-        call fast_two_sum_dp(x%limbs(1), x%limbs(2), hi, lo)
-        x%limbs = [hi, lo]
-    end subroutine
-
-    elemental function dd_scale(a, x) result(res)
-        real(dp), intent(in) :: a
-        type(float64x2), intent(in) :: x
-        type(float64x2) :: res
-        res%limbs = [a * x%limbs(1), a * x%limbs(2)]
-        call renormalize(res)
-    end function
-
-    elemental function dd_add(x, y) result(res)
-        type(float64x2), intent(in) :: x, y
-        type(float64x2) :: res
-        real(dp) :: a, b, c, d
-        if (.not. isfinite_mf(x) .or. .not. isfinite_mf(y)) then
-            res = from_qp(to_qp(x) + to_qp(y))
-            return
-        end if
-        call two_sum_dp(x%limbs(1), y%limbs(1), a, b)
-        call two_sum_dp(x%limbs(2), y%limbs(2), c, d)
-        call fast_two_sum_dp(a, c, a, c)
-        b = b + d + c
-        call fast_two_sum_dp(a, b, res%limbs(1), res%limbs(2))
-    end function
-
-    elemental function dd_sub(x, y) result(res)
-        type(float64x2), intent(in) :: x, y
-        type(float64x2) :: res, ny
-        ny%limbs = -y%limbs
-        res = dd_add(x, ny)
-    end function
-
-    elemental function dd_mul(x, y) result(res)
-        type(float64x2), intent(in) :: x, y
-        type(float64x2) :: res
-        real(dp) :: p00, e00, p01, p10
-        if (.not. isfinite_mf(x) .or. .not. isfinite_mf(y)) then
-            res = from_qp(to_qp(x) * to_qp(y))
-            return
-        end if
-        call two_prod_dp(x%limbs(1), y%limbs(1), p00, e00)
-        p01 = x%limbs(1) * y%limbs(2)
-        p10 = x%limbs(2) * y%limbs(1)
-        e00 = e00 + (p01 + p10)
-        call fast_two_sum_dp(p00, e00, res%limbs(1), res%limbs(2))
-    end function
-
-    elemental function dd_sqr(x) result(res)
-        type(float64x2), intent(in) :: x
-        type(float64x2) :: res
-        real(dp) :: p00, e00
-        if (.not. isfinite_mf(x)) then
-            res = from_qp(to_qp(x) * to_qp(x))
-            return
-        end if
-        call two_prod_dp(x%limbs(1), x%limbs(1), p00, e00)
-        e00 = ieee_fma(x%limbs(1), 2.0_dp * x%limbs(2), e00)
-        call fast_two_sum_dp(p00, e00, res%limbs(1), res%limbs(2))
-    end function
-
-    elemental function dd_div(x, y) result(res)
-        type(float64x2), intent(in) :: x, y
-        type(float64x2) :: res, q, residual, correction, u
-        if (.not. isfinite_mf(x) .or. .not. isfinite_mf(y) .or. y%limbs(1) == 0.0_dp) then
-            res = from_qp(to_qp(x) / to_qp(y))
-            return
-        end if
-        u = mf_from_dp(1.0_dp / y%limbs(1))
-        q = dd_mul(x, u)
-        residual = dd_sub(dd_mul(q, y), x)
-        correction = dd_mul(residual, u)
-        res = dd_sub(q, correction)
-    end function
-
-    elemental function dd_sqrt(x) result(res)
-        type(float64x2), intent(in) :: x
-        type(float64x2) :: res, root, residual, correction, u
-        if (.not. isfinite_mf(x) .or. x%limbs(1) < 0.0_dp) then
-            res = from_qp(sqrt(to_qp(x)))
-            return
-        end if
-        if (x%limbs(1) == 0.0_dp .and. x%limbs(2) == 0.0_dp) then
-            res = x
-            return
-        end if
-        u = mf_from_dp(1.0_dp / sqrt(x%limbs(1)))
-        root = dd_mul(x, u)
-        residual = dd_sub(dd_sqr(root), x)
-        correction = dd_mul(residual, dd_scale(0.5_dp, u))
-        res = dd_sub(root, correction)
     end function
 
     ! ================================================================
@@ -806,7 +675,7 @@ contains
     elemental function mf_neg(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
-        res = from_qp(-to_qp(x))
+        res%limbs = -x%limbs
     end function
 
     elemental function cx_neg(x) result(res)
@@ -823,7 +692,15 @@ contains
     elemental function mf_${func}$(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
+#:if func == 'abs'
+        if (x%limbs(1) < 0.0_dp .or. (x%limbs(1) == 0.0_dp .and. x%limbs(2) < 0.0_dp)) then
+            res%limbs = -x%limbs
+        else
+            res = x
+        end if
+#:else
         res = from_qp(${func}$(to_qp(x)))
+#:endif
     end function
 
 #:endfor
@@ -1608,14 +1485,77 @@ $:conv_loops(rank, 'tmp', 'harvest', 'from_qp')
         ${d2}$, intent(in) :: b
         ${'type(complex128x2)' if rc else 'type(float64x2)'}$ :: res
 #:if not rc
-#:if opname == 'add'
-        res = dd_add(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
-#:elif opname == 'sub'
-        res = dd_sub(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
+        type(float64x2) :: x, y, q, residual, correction, u
+        real(dp) :: s, e, t, aprime, bprime, aerr, berr
+        real(dp) :: p00, e00, p01, p10, c, d
+        x = ${MFCONV[n1].format('a')}$
+        y = ${MFCONV[n2].format('b')}$
+#:if opname == 'add' or opname == 'sub'
+#:if opname == 'sub'
+        y%limbs = -y%limbs
+#:endif
+        if (.not. (ieee_is_finite(x%limbs(1)) .and. ieee_is_finite(x%limbs(2)) .and. &
+     &             ieee_is_finite(y%limbs(1)) .and. ieee_is_finite(y%limbs(2)))) then
+            res = from_qp(to_qp(x) ${'+' if opname == 'add' else '-'}$ to_qp(${MFCONV[n2].format('b')}$))
+        else
+            s = x%limbs(1) + y%limbs(1)
+            aprime = s - y%limbs(1)
+            bprime = s - aprime
+            aerr = x%limbs(1) - aprime
+            berr = y%limbs(1) - bprime
+            e = aerr + berr
+            c = x%limbs(2) + y%limbs(2)
+            aprime = c - y%limbs(2)
+            bprime = c - aprime
+            aerr = x%limbs(2) - aprime
+            berr = y%limbs(2) - bprime
+            d = aerr + berr
+            t = s + c
+            bprime = t - s
+            c = c - bprime
+            e = e + d + c
+            res%limbs(1) = t + e
+            bprime = res%limbs(1) - t
+            res%limbs(2) = e - bprime
+        end if
 #:elif opname == 'mul'
-        res = dd_mul(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
+        if (.not. (ieee_is_finite(x%limbs(1)) .and. ieee_is_finite(x%limbs(2)) .and. &
+     &             ieee_is_finite(y%limbs(1)) .and. ieee_is_finite(y%limbs(2)))) then
+            res = from_qp(to_qp(x) * to_qp(y))
+        else
+            p00 = x%limbs(1) * y%limbs(1)
+            e00 = ieee_fma(x%limbs(1), y%limbs(1), -p00)
+            p01 = x%limbs(1) * y%limbs(2)
+            p10 = x%limbs(2) * y%limbs(1)
+            e00 = e00 + (p01 + p10)
+            res%limbs(1) = p00 + e00
+            bprime = res%limbs(1) - p00
+            res%limbs(2) = e00 - bprime
+        end if
 #:else
-        res = dd_div(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
+        if (.not. (ieee_is_finite(x%limbs(1)) .and. ieee_is_finite(x%limbs(2)) .and. &
+     &             ieee_is_finite(y%limbs(1)) .and. ieee_is_finite(y%limbs(2))) .or. y%limbs(1) == 0.0_dp) then
+            res = from_qp(to_qp(x) / to_qp(y))
+        else
+            u = mf_from_dp(1.0_dp / y%limbs(1))
+            p00 = x%limbs(1) * u%limbs(1)
+            e00 = ieee_fma(x%limbs(1), u%limbs(1), -p00) + x%limbs(1) * u%limbs(2) + x%limbs(2) * u%limbs(1)
+            q%limbs(1) = p00 + e00
+            bprime = q%limbs(1) - p00
+            q%limbs(2) = e00 - bprime
+            p00 = q%limbs(1) * y%limbs(1)
+            e00 = ieee_fma(q%limbs(1), y%limbs(1), -p00) + q%limbs(1) * y%limbs(2) + q%limbs(2) * y%limbs(1)
+            correction%limbs(1) = p00 + e00
+            bprime = correction%limbs(1) - p00
+            correction%limbs(2) = e00 - bprime
+            residual = x - correction
+            p00 = residual%limbs(1) * u%limbs(1)
+            e00 = ieee_fma(residual%limbs(1), u%limbs(1), -p00) + residual%limbs(1) * u%limbs(2) + residual%limbs(2) * u%limbs(1)
+            correction%limbs(1) = p00 + e00
+            bprime = correction%limbs(1) - p00
+            correction%limbs(2) = e00 - bprime
+            res = q - correction
+        end if
 #:endif
 #:else
         res = ${'from_cqp' if rc else 'from_qp'}$(${CONV[n1].format('a')}$ ${opsym}$ ${CONV[n2].format('b')}$)
@@ -1660,7 +1600,18 @@ $:conv_loops(rank, 'tmp', 'harvest', 'from_qp')
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
         logical :: res
+#:if not ISCPLX[n1] and not ISCPLX[n2]
+        type(float64x2) :: x, y
+        x = ${MFCONV[n1].format('a')}$
+        y = ${MFCONV[n2].format('b')}$
+#:if opname == 'eq'
+        res = x%limbs(1) == y%limbs(1) .and. x%limbs(2) == y%limbs(2)
+#:else
+        res = x%limbs(1) /= y%limbs(1) .or. x%limbs(2) /= y%limbs(2)
+#:endif
+#:else
         res = ${CONV[n1].format('a')}$ ${opsym}$ ${CONV[n2].format('b')}$
+#:endif
     end function
 
 #:endif
@@ -1679,7 +1630,18 @@ $:conv_loops(rank, 'tmp', 'harvest', 'from_qp')
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
         logical :: res
-        res = ${CONV[n1].format('a')}$ ${opsym}$ ${CONV[n2].format('b')}$
+        type(float64x2) :: x, y
+        x = ${MFCONV[n1].format('a')}$
+        y = ${MFCONV[n2].format('b')}$
+#:if opname == 'lt'
+        res = x%limbs(1) < y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) < y%limbs(2))
+#:elif opname == 'gt'
+        res = x%limbs(1) > y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) > y%limbs(2))
+#:elif opname == 'le'
+        res = x%limbs(1) < y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) <= y%limbs(2))
+#:else
+        res = x%limbs(1) > y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) >= y%limbs(2))
+#:endif
     end function
 
 #:endif

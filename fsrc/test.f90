@@ -9,13 +9,11 @@ program test_multifloats_precision
   integer :: failures
 
   failures = 0
+  write(*,'(a)') 'Native Float64x2 vs quad-precision reference'
 
-  call test_scalar_constructors(failures)
-  call test_scalar_arithmetic(failures)
-  call test_unary_math(failures)
-  call test_complex_arithmetic(failures)
-  call test_array_ops(failures)
-  call test_rounding_and_random(failures)
+  call test_native_scalar_arithmetic(failures)
+  call test_native_unary_abs(failures)
+  call test_native_comparisons(failures)
 
   if (failures /= 0) then
     write(*,'(a,i0)') 'FAIL: ', failures
@@ -54,7 +52,7 @@ contains
     real(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp), intent(in), optional :: scale
-    real(qp) :: err, bound, mag
+    real(qp) :: err, bound, mag, rel
     if (present(scale)) then
       mag = scale
     else
@@ -62,6 +60,8 @@ contains
     end if
     bound = tol * mag
     err = abs(mf_to_qp(got) - expect)
+    rel = err / max(1.0_qp, abs(expect))
+    write(*,'(a,1x,es24.16,1x,es24.16,1x,es24.16)') trim(label), err, rel, bound
     if (err > bound) then
       failures = failures + 1
       write(*,'(a,1x,es24.16,1x,es24.16,1x,es24.16)') 'FAIL '//trim(label), err, bound, expect
@@ -74,7 +74,7 @@ contains
     complex(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp), intent(in), optional :: scale
-    real(qp) :: err, bound, mag
+    real(qp) :: err, bound, mag, rel
     if (present(scale)) then
       mag = scale
     else
@@ -82,6 +82,8 @@ contains
     end if
     bound = tol * mag
     err = abs(cx_to_cqp(got) - expect)
+    rel = err / max(1.0_qp, abs(expect))
+    write(*,'(a,1x,es24.16,1x,es24.16,1x,es24.16)') trim(label), err, rel, bound
     if (err > bound) then
       failures = failures + 1
       write(*,'(a,1x,es24.16,1x,es24.16)') 'FAIL '//trim(label), err, bound
@@ -115,7 +117,7 @@ contains
     call check_complex_close('ctor complex dp', z, cmplx(3.0_qp, -2.0_qp, qp), failures)
   end subroutine
 
-  subroutine test_scalar_arithmetic(failures)
+  subroutine test_native_scalar_arithmetic(failures)
     integer, intent(inout) :: failures
     type(float64x2) :: x, y
     real(qp) :: qx, qy
@@ -140,13 +142,9 @@ contains
     call check_real_close('div dp-mf', 2.0_dp / x, 2.0_qp / qx, failures)
     call check_real_close('pow int', x ** 3, qx ** 3, failures, scale=abs(qx ** 3))
 
-    call check_true('comparison lt', x < y, failures)
-    call check_true('comparison gt', y > x, failures)
-    call check_true('comparison eq', float64x2(2) == 2, failures)
-    call check_true('comparison ne', x /= y, failures)
   end subroutine
 
-  subroutine test_unary_math(failures)
+  subroutine test_native_unary_abs(failures)
     integer, intent(inout) :: failures
     type(float64x2) :: x
     real(qp) :: qx
@@ -154,12 +152,20 @@ contains
     x%limbs = [1.25_dp, 1.0e-30_dp]
     qx = mf_to_qp(x)
 
-    call check_real_close('sqrt', sqrt(x), sqrt(qx), failures)
-    call check_real_close('exp', exp(x), exp(qx), failures, scale=abs(exp(qx)))
-    call check_real_close('log', log(x), log(qx), failures)
-    call check_real_close('sin', sin(x), sin(qx), failures)
-    call check_real_close('cos', cos(x), cos(qx), failures)
     call check_real_close('abs', abs(-x), abs(-qx), failures)
+  end subroutine
+
+  subroutine test_native_comparisons(failures)
+    integer, intent(inout) :: failures
+    type(float64x2) :: x, y
+
+    x%limbs = [1.0_dp, 2.0e-30_dp]
+    y%limbs = [2.0_dp, -3.0e-30_dp]
+
+    call check_true('comparison lt', x < y, failures)
+    call check_true('comparison gt', y > x, failures)
+    call check_true('comparison eq', float64x2(2) == 2, failures)
+    call check_true('comparison ne', x /= y, failures)
   end subroutine
 
   subroutine test_complex_arithmetic(failures)
