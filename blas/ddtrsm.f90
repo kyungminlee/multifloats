@@ -1,5 +1,5 @@
 SUBROUTINE ddtrsm (side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb)
- use multifloat
+ use multifloats
  TYPE(FLOAT64X2) alpha
  INTEGER lda, ldb, m, n
  CHARACTER diag, side, transa, uplo

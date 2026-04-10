@@ -1,0 +1,1773 @@
+#! multifloats.fypp — Float64x2 multifloats module (generated with fypp)
+#!
+#! The public generic interface is inherited from the mock scaffold, but the
+#! core Float64x2 arithmetic uses explicit 2-limb double-double kernels
+#! adapted from external/MultiFloats.jl. Broader transformational and
+#! transcendental coverage still routes through REAL(16)/COMPLEX(16) helpers.
+#!
+#! The interface for float64x2 mirrors REAL(KIND=16) as closely as possible:
+#! all mixed-type arithmetic, comparisons, and assignments with real(dp),
+#! real(sp), integer, complex(dp), and complex(sp) are supported.
+
+#! =====================================================================
+#! Type system metadata
+#! =====================================================================
+#:set RTYPES = [('mf', 'type(float64x2)'), ('dp', 'real(dp)'), ('sp', 'real(sp)'), ('int', 'integer')]
+#:set CTYPES = [('cx', 'type(complex128x2)'), ('cdp', 'complex(dp)'), ('csp', 'complex(sp)')]
+#:set ATYPES = RTYPES + CTYPES
+
+#:set CONV = {'mf': 'to_qp({})', 'cx': 'to_cqp({})', 'dp': 'real({}, qp)', 'sp': 'real({}, qp)', 'int': 'real({}, qp)', 'cdp': 'cmplx({}, kind=qp)', 'csp': 'cmplx({}, kind=qp)'}
+#:set ISCPLX = {'mf': False, 'cx': True, 'dp': False, 'sp': False, 'int': False, 'cdp': True, 'csp': True}
+#:set MFCONV = {'mf': '{}', 'dp': 'mf_from_dp({})', 'sp': 'mf_from_sp({})', 'int': 'mf_from_int({})'}
+
+#! Operator tables
+#:set ARITH_OPS = [('+', 'add'), ('-', 'sub'), ('*', 'mul'), ('/', 'div')]
+#:set EQ_OPS = [('==', 'eq'), ('/=', 'ne')]
+#:set ORD_OPS = [('<', 'lt'), ('>', 'gt'), ('<=', 'le'), ('>=', 'ge')]
+
+#! Unary math function tables
+#:set UNARY_MF_MF = ['abs', 'sqrt', 'sin', 'cos', 'tan', 'exp', 'log', 'log10', 'atan', 'asin', 'acos', 'aint', 'anint', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1', 'fraction', 'rrspacing', 'spacing', 'epsilon', 'huge', 'tiny']
+#:set UNARY_CX_CX = ['sqrt', 'sin', 'cos', 'tan', 'exp', 'log', 'atan', 'asin', 'acos', 'conjg', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh']
+#:set UNARY_CX_MF = ['abs', 'aimag']
+#:set ALL_UNARY = sorted(set(UNARY_MF_MF + UNARY_CX_CX + UNARY_CX_MF))
+
+#! Binary real function tables
+#:set BINARY_REAL = ['sign', 'mod', 'atan2', 'dim', 'modulo', 'hypot', 'nearest']
+#:set BINARY_MINMAX = ['min', 'max']
+
+#! Array reduction function tables
+#:set ARRAY_REDUCE_VAL = ['maxval', 'minval']
+#:set ARRAY_REDUCE_LOC = ['maxloc', 'minloc']
+#:set ARRAY_REDUCE_SUM = ['sum', 'product']
+
+#! Bessel functions with integer order
+#:set BESSEL_N = ['bessel_jn', 'bessel_yn']
+
+#! Functions: (mf, integer) → mf
+#:set MF_INT_TO_MF = ['scale', 'set_exponent']
+
+#! Inquiry functions
+#:set INQUIRY_MF_INT = ['digits', 'maxexponent', 'minexponent', 'radix']
+#:set INQUIRY_BOTH_INT = ['precision', 'range']
+
+#! =====================================================================
+#! Rank-generic helpers
+#! =====================================================================
+#:set MAX_RANK = 7
+#:set COLONS = lambda r: ', '.join([':'] * r)
+#:set SIZES = lambda r, v='array': (', &\n' + ' '*12).join(['size(%s,%d)' % (v, i) for i in range(1, r+1)]) if r > 4 else ', '.join(['size(%s,%d)' % (v, i) for i in range(1, r+1)])
+#:set IDXS = lambda r: ', '.join(['i%d' % i for i in range(1, r+1)])
+#:set IVARS = lambda r: ', '.join(['i%d' % i for i in range(1, r+1)])
+#:set DIM_REDUCED_SIZES = lambda r: (', &\n' + ' '*12).join(['merge(size(array,%d),size(array,%d),dim<=%d)' % (j+1,j,j) for j in range(1, r)])
+
+#! Inline function: generate nested conversion loops
+#:set conv_loops = lambda r, src, dst, func: '\n'.join(['        do i%d = 1, size(%s, %d)' % (d, src, d) for d in range(r, 0, -1)] + ['            %s(%s) = %s(%s(%s))' % (dst, IDXS(r), func, src, IDXS(r))] + ['        end do'] * r)
+
+module multifloats
+    use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_fma
+    implicit none
+    private
+
+    integer, parameter :: qp = 16  ! Quad precision
+    integer, parameter :: dp = 8   ! Double precision
+    integer, parameter :: sp = 4   ! Single precision
+
+    type, public :: float64x2
+        real(dp) :: limbs(2)
+    end type float64x2
+
+    type, public :: complex128x2
+        type(float64x2) :: re, im
+    end type complex128x2
+
+    ! ================================================================
+    ! Constructors
+    ! ================================================================
+
+    interface float64x2
+        module procedure mf_from_dp
+        module procedure mf_from_sp
+        module procedure mf_from_int
+        module procedure mf_from_char
+        module procedure mf_from_cx
+        module procedure mf_from_cdp
+        module procedure mf_from_csp
+    end interface float64x2
+
+    interface complex128x2
+        module procedure cx_from_mf_2
+        module procedure cx_from_dp_2
+        module procedure cx_from_mf_1
+        module procedure cx_from_dp_1
+    end interface complex128x2
+
+    ! ================================================================
+    ! Arithmetic operators (+, -, *, /)
+    ! ================================================================
+
+#:for opsym, opname in ARITH_OPS
+    interface operator(${opsym}$)
+#:for n1, _ in ATYPES
+#:for n2, _ in ATYPES
+#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+        module procedure ${n1}$_${opname}$_${n2}$
+#:endif
+#:endfor
+#:endfor
+#:if opsym == '-'
+        module procedure mf_neg
+        module procedure cx_neg
+#:endif
+    end interface
+    public :: operator(${opsym}$)
+
+#:endfor
+    ! ================================================================
+    ! Power operator (**)
+    ! ================================================================
+
+    interface operator(**)
+#:for n1, _ in ATYPES
+#:for n2, _ in ATYPES
+#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+        module procedure ${n1}$_pow_${n2}$
+#:endif
+#:endfor
+#:endfor
+    end interface
+    public :: operator(**)
+
+    ! ================================================================
+    ! Equality comparison (==, /=) — all type pairs
+    ! ================================================================
+
+#:for opsym, opname in EQ_OPS
+    interface operator(${opsym}$)
+#:for n1, _ in ATYPES
+#:for n2, _ in ATYPES
+#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+        module procedure ${n1}$_${opname}$_${n2}$
+#:endif
+#:endfor
+#:endfor
+    end interface
+    public :: operator(${opsym}$)
+
+#:endfor
+    ! ================================================================
+    ! Ordered comparison (<, >, <=, >=) — real types only
+    ! ================================================================
+
+#:for opsym, opname in ORD_OPS
+    interface operator(${opsym}$)
+#:for n1, _ in RTYPES
+#:for n2, _ in RTYPES
+#:if n1 == 'mf' or n2 == 'mf'
+        module procedure ${n1}$_${opname}$_${n2}$
+#:endif
+#:endfor
+#:endfor
+    end interface
+    public :: operator(${opsym}$)
+
+#:endfor
+    ! ================================================================
+    ! Unary math generics
+    ! ================================================================
+
+#:for func in ALL_UNARY
+    interface ${func}$
+#:if func in UNARY_MF_MF
+        module procedure mf_${func}$
+#:endif
+#:if func in UNARY_CX_CX or func in UNARY_CX_MF
+        module procedure cx_${func}$
+#:endif
+    end interface
+    public :: ${func}$
+
+#:endfor
+    ! ================================================================
+    ! Binary real functions (sign, mod, atan2, dim, modulo, hypot, nearest)
+    ! ================================================================
+
+#:for func in BINARY_REAL
+    interface ${func}$
+#:for n1, _ in RTYPES
+#:for n2, _ in RTYPES
+#:if n1 == 'mf' or n2 == 'mf'
+        module procedure ${n1}$_${func}$_${n2}$
+#:endif
+#:endfor
+#:endfor
+    end interface
+    public :: ${func}$
+
+#:endfor
+#:for func in BINARY_MINMAX
+    interface ${func}$
+#:for n1, _ in RTYPES
+#:for n2, _ in RTYPES
+#:if n1 == 'mf' or n2 == 'mf'
+        module procedure ${n1}$_${func}$_${n2}$
+#:endif
+#:endfor
+#:endfor
+        module procedure mf_${func}$3
+    end interface
+    public :: ${func}$
+
+#:endfor
+    ! ================================================================
+    ! Array reductions: value (maxval, minval)
+    ! ================================================================
+
+#:for func in ARRAY_REDUCE_VAL
+    interface ${func}$
+#:for rank in range(1, MAX_RANK+1)
+        module procedure mf_${func}$_${rank}$d
+        module procedure mf_${func}$_${rank}$d_dim
+#:endfor
+    end interface
+    public :: ${func}$
+
+#:endfor
+    ! ================================================================
+    ! Array reductions: location (maxloc, minloc)
+    ! ================================================================
+
+#:for func in ARRAY_REDUCE_LOC
+    interface ${func}$
+#:for rank in range(1, MAX_RANK+1)
+        module procedure mf_${func}$_${rank}$d
+        module procedure mf_${func}$_${rank}$d_dim
+#:endfor
+    end interface
+    public :: ${func}$
+
+#:endfor
+    ! ================================================================
+    ! Array reductions: sum, product (mf + cx)
+    ! ================================================================
+
+#:for func in ARRAY_REDUCE_SUM
+    interface ${func}$
+#:for rank in range(1, MAX_RANK+1)
+        module procedure mf_${func}$_${rank}$d
+        module procedure mf_${func}$_${rank}$d_dim
+        module procedure cx_${func}$_${rank}$d
+        module procedure cx_${func}$_${rank}$d_dim
+#:endfor
+    end interface
+    public :: ${func}$
+
+#:endfor
+    ! ================================================================
+    ! dot_product, norm2, findloc, matmul
+    ! ================================================================
+
+    interface dot_product
+        module procedure mf_dot_product
+        module procedure cx_dot_product
+    end interface
+    public :: dot_product
+
+    interface norm2
+#:for rank in range(1, MAX_RANK+1)
+        module procedure mf_norm2_${rank}$d
+#:if rank > 1
+        module procedure mf_norm2_${rank}$d_dim
+#:endif
+#:endfor
+    end interface
+    public :: norm2
+
+    interface findloc
+#:for rank in range(1, MAX_RANK+1)
+        module procedure mf_findloc_${rank}$d
+        module procedure mf_findloc_${rank}$d_dim
+        module procedure cx_findloc_${rank}$d
+        module procedure cx_findloc_${rank}$d_dim
+#:endfor
+    end interface
+    public :: findloc
+
+    interface matmul
+        module procedure mf_matmul_mm
+        module procedure mf_matmul_mv
+        module procedure mf_matmul_vm
+        module procedure cx_matmul_mm
+        module procedure cx_matmul_mv
+        module procedure cx_matmul_vm
+    end interface
+    public :: matmul
+
+    ! ================================================================
+    ! Bessel functions with integer order
+    ! ================================================================
+
+#:for func in BESSEL_N
+    interface ${func}$
+        module procedure mf_${func}$_elem
+        module procedure mf_${func}$_range
+    end interface
+    public :: ${func}$
+
+#:endfor
+    ! ================================================================
+    ! Conversions and numeric functions
+    ! ================================================================
+
+    interface ceiling
+        module procedure mf_ceiling
+    end interface
+    public :: ceiling
+
+    interface floor
+        module procedure mf_floor
+    end interface
+    public :: floor
+
+    interface exponent
+        module procedure mf_exponent
+    end interface
+    public :: exponent
+
+#:for func in MF_INT_TO_MF
+    interface ${func}$
+        module procedure mf_${func}$
+    end interface
+    public :: ${func}$
+
+#:endfor
+    ! ================================================================
+    ! Numeric inquiry functions
+    ! ================================================================
+
+#:for func in INQUIRY_MF_INT
+    interface ${func}$
+        module procedure mf_${func}$
+    end interface
+    public :: ${func}$
+
+#:endfor
+#:for func in INQUIRY_BOTH_INT
+    interface ${func}$
+        module procedure mf_${func}$
+        module procedure cx_${func}$
+    end interface
+    public :: ${func}$
+
+#:endfor
+    interface storage_size
+        module procedure mf_storage_size
+        module procedure cx_storage_size
+    end interface
+    public :: storage_size
+
+    ! ================================================================
+    ! Complex-specific: cmplx, real, mf_real
+    ! ================================================================
+
+    interface cmplx
+        module procedure mf_cmplx_2
+        module procedure mf_cmplx_1
+    end interface
+    public :: cmplx
+
+    interface real
+        module procedure cx_real
+        module procedure mf_real_mf
+    end interface
+    public :: real
+
+    interface mf_real
+        module procedure mf_real_mf
+        module procedure cx_real_mf
+    end interface
+    public :: mf_real
+
+    ! ================================================================
+    ! Conversions: dble, int, nint, mf_to_double
+    ! ================================================================
+
+    interface dble
+        module procedure mf_dble
+    end interface
+    public :: dble
+
+    interface int
+        module procedure mf_int
+    end interface
+    public :: int
+
+    interface nint
+        module procedure mf_nint
+    end interface
+    public :: nint
+
+    public :: mf_to_double
+
+    ! ================================================================
+    ! random_number (impure subroutine)
+    ! ================================================================
+
+    interface random_number
+        module procedure mf_random_number_0d
+#:for rank in range(1, MAX_RANK+1)
+        module procedure mf_random_number_${rank}$d
+#:endfor
+    end interface
+    public :: random_number
+
+    ! ================================================================
+    ! Assignment (=)
+    ! ================================================================
+
+    interface assignment(=)
+#:for n, _ in ATYPES
+#:if n != 'mf'
+        module procedure mf_assign_${n}$
+#:endif
+#:endfor
+#:for n, _ in ATYPES
+#:if n != 'cx'
+        module procedure cx_assign_${n}$
+#:endif
+#:endfor
+    end interface
+    public :: assignment(=)
+
+    ! ================================================================
+    ! Defined I/O
+    ! ================================================================
+
+    interface write(formatted)
+        module procedure write_mf_formatted
+        module procedure write_cx_formatted
+    end interface
+    public :: write(formatted)
+
+    interface read(formatted)
+        module procedure read_mf_formatted
+        module procedure read_cx_formatted
+    end interface
+    public :: read(formatted)
+
+    ! ================================================================
+    ! Named constants
+    ! ================================================================
+
+    type(float64x2), parameter, public :: MF_ZERO  = float64x2([0.0_dp, 0.0_dp])
+    type(float64x2), parameter, public :: MF_ONE   = float64x2([1.0_dp, 0.0_dp])
+    type(float64x2), parameter, public :: MF_TWO   = float64x2([2.0_dp, 0.0_dp])
+    type(float64x2), parameter, public :: MF_HALF  = float64x2([0.5_dp, 0.0_dp])
+    type(float64x2), parameter, public :: MF_EIGHT = float64x2([8.0_dp, 0.0_dp])
+
+    type(float64x2), parameter, public :: MF_SAFMIN = float64x2([tiny(0.0_dp),  0.0_dp])
+    type(float64x2), parameter, public :: MF_SAFMAX = float64x2([huge(0.0_dp),  0.0_dp])
+    type(float64x2), parameter, public :: MF_TSML   = float64x2([1.0e-100_dp,   0.0_dp])
+    type(float64x2), parameter, public :: MF_TBIG   = float64x2([1.0e+100_dp,   0.0_dp])
+    type(float64x2), parameter, public :: MF_SSML   = float64x2([1.0e-50_dp,    0.0_dp])
+    type(float64x2), parameter, public :: MF_SBIG   = float64x2([1.0e+50_dp,    0.0_dp])
+    type(float64x2), parameter, public :: MF_RTMIN  = float64x2([1.0e-150_dp,   0.0_dp])
+    type(float64x2), parameter, public :: MF_RTMAX  = float64x2([1.0e+150_dp,   0.0_dp])
+
+contains
+
+    ! ================================================================
+    ! Internal conversion helpers (elemental)
+    ! ================================================================
+
+    elemental function to_qp(mf) result(res)
+        type(float64x2), intent(in) :: mf
+        real(qp) :: res
+        res = real(mf%limbs(1), qp) + real(mf%limbs(2), qp)
+    end function
+
+    elemental function from_qp(v) result(res)
+        real(qp), intent(in) :: v
+        type(float64x2) :: res
+        if (.not. ieee_is_finite(v)) then
+            res%limbs = [real(v, dp), real(v, dp)]
+        else
+            res%limbs(1) = real(v, dp)
+            res%limbs(2) = real(v - real(res%limbs(1), qp), dp)
+            call renormalize(res)
+        end if
+    end function
+
+    elemental function to_cqp(cx) result(res)
+        type(complex128x2), intent(in) :: cx
+        complex(qp) :: res
+        res = cmplx(to_qp(cx%re), to_qp(cx%im), kind=qp)
+    end function
+
+    elemental function from_cqp(v) result(res)
+        complex(qp), intent(in) :: v
+        type(complex128x2) :: res
+        res%re = from_qp(real(v, qp))
+        res%im = from_qp(aimag(v))
+    end function
+
+    elemental subroutine fast_two_sum_dp(a, b, s, e)
+        real(dp), intent(in) :: a, b
+        real(dp), intent(out) :: s, e
+        real(dp) :: bprime
+        s = a + b
+        bprime = s - a
+        e = b - bprime
+    end subroutine
+
+    elemental subroutine two_sum_dp(a, b, s, e)
+        real(dp), intent(in) :: a, b
+        real(dp), intent(out) :: s, e
+        real(dp) :: aprime, bprime, aerr, berr
+        s = a + b
+        aprime = s - b
+        bprime = s - aprime
+        aerr = a - aprime
+        berr = b - bprime
+        e = aerr + berr
+    end subroutine
+
+    elemental subroutine two_prod_dp(a, b, p, e)
+        real(dp), intent(in) :: a, b
+        real(dp), intent(out) :: p, e
+        p = a * b
+        e = ieee_fma(a, b, -p)
+    end subroutine
+
+    elemental function isfinite_mf(x) result(ok)
+        type(float64x2), intent(in) :: x
+        logical :: ok
+        ok = ieee_is_finite(x%limbs(1)) .and. ieee_is_finite(x%limbs(2))
+    end function
+
+    elemental subroutine renormalize(x)
+        type(float64x2), intent(inout) :: x
+        real(dp) :: hi, lo
+        if (.not. isfinite_mf(x)) then
+            x%limbs = [x%limbs(1), x%limbs(1)]
+            return
+        end if
+        call fast_two_sum_dp(x%limbs(1), x%limbs(2), hi, lo)
+        x%limbs = [hi, lo]
+    end subroutine
+
+    elemental function dd_scale(a, x) result(res)
+        real(dp), intent(in) :: a
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        res%limbs = [a * x%limbs(1), a * x%limbs(2)]
+        call renormalize(res)
+    end function
+
+    elemental function dd_add(x, y) result(res)
+        type(float64x2), intent(in) :: x, y
+        type(float64x2) :: res
+        real(dp) :: a, b, c, d
+        if (.not. isfinite_mf(x) .or. .not. isfinite_mf(y)) then
+            res = from_qp(to_qp(x) + to_qp(y))
+            return
+        end if
+        call two_sum_dp(x%limbs(1), y%limbs(1), a, b)
+        call two_sum_dp(x%limbs(2), y%limbs(2), c, d)
+        call fast_two_sum_dp(a, c, a, c)
+        b = b + d + c
+        call fast_two_sum_dp(a, b, res%limbs(1), res%limbs(2))
+    end function
+
+    elemental function dd_sub(x, y) result(res)
+        type(float64x2), intent(in) :: x, y
+        type(float64x2) :: res, ny
+        ny%limbs = -y%limbs
+        res = dd_add(x, ny)
+    end function
+
+    elemental function dd_mul(x, y) result(res)
+        type(float64x2), intent(in) :: x, y
+        type(float64x2) :: res
+        real(dp) :: p00, e00, p01, p10
+        if (.not. isfinite_mf(x) .or. .not. isfinite_mf(y)) then
+            res = from_qp(to_qp(x) * to_qp(y))
+            return
+        end if
+        call two_prod_dp(x%limbs(1), y%limbs(1), p00, e00)
+        p01 = x%limbs(1) * y%limbs(2)
+        p10 = x%limbs(2) * y%limbs(1)
+        e00 = e00 + (p01 + p10)
+        call fast_two_sum_dp(p00, e00, res%limbs(1), res%limbs(2))
+    end function
+
+    elemental function dd_sqr(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        real(dp) :: p00, e00
+        if (.not. isfinite_mf(x)) then
+            res = from_qp(to_qp(x) * to_qp(x))
+            return
+        end if
+        call two_prod_dp(x%limbs(1), x%limbs(1), p00, e00)
+        e00 = ieee_fma(x%limbs(1), 2.0_dp * x%limbs(2), e00)
+        call fast_two_sum_dp(p00, e00, res%limbs(1), res%limbs(2))
+    end function
+
+    elemental function dd_div(x, y) result(res)
+        type(float64x2), intent(in) :: x, y
+        type(float64x2) :: res, q, residual, correction, u
+        if (.not. isfinite_mf(x) .or. .not. isfinite_mf(y) .or. y%limbs(1) == 0.0_dp) then
+            res = from_qp(to_qp(x) / to_qp(y))
+            return
+        end if
+        u = mf_from_dp(1.0_dp / y%limbs(1))
+        q = dd_mul(x, u)
+        residual = dd_sub(dd_mul(q, y), x)
+        correction = dd_mul(residual, u)
+        res = dd_sub(q, correction)
+    end function
+
+    elemental function dd_sqrt(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, root, residual, correction, u
+        if (.not. isfinite_mf(x) .or. x%limbs(1) < 0.0_dp) then
+            res = from_qp(sqrt(to_qp(x)))
+            return
+        end if
+        if (x%limbs(1) == 0.0_dp .and. x%limbs(2) == 0.0_dp) then
+            res = x
+            return
+        end if
+        u = mf_from_dp(1.0_dp / sqrt(x%limbs(1)))
+        root = dd_mul(x, u)
+        residual = dd_sub(dd_sqr(root), x)
+        correction = dd_mul(residual, dd_scale(0.5_dp, u))
+        res = dd_sub(root, correction)
+    end function
+
+    ! ================================================================
+    ! Constructors
+    ! ================================================================
+
+    elemental function mf_from_dp(v) result(res)
+        real(dp), intent(in) :: v
+        type(float64x2) :: res
+        res = from_qp(real(v, qp))
+    end function
+
+    elemental function mf_from_sp(v) result(res)
+        real(sp), intent(in) :: v
+        type(float64x2) :: res
+        res = from_qp(real(v, qp))
+    end function
+
+    elemental function mf_from_int(v) result(res)
+        integer, intent(in) :: v
+        type(float64x2) :: res
+        res = from_qp(real(v, qp))
+    end function
+
+    function mf_from_char(v) result(res)
+        character(len=*), intent(in) :: v
+        type(float64x2) :: res
+        real(qp) :: val_qp
+        read(v, *) val_qp
+        res = from_qp(val_qp)
+    end function
+
+    elemental function mf_from_cx(cx) result(res)
+        type(complex128x2), intent(in) :: cx
+        type(float64x2) :: res
+        res = cx%re
+    end function
+
+    elemental function mf_from_cdp(x) result(res)
+        complex(dp), intent(in) :: x
+        type(float64x2) :: res
+        res = from_qp(real(x, qp))
+    end function
+
+    elemental function mf_from_csp(x) result(res)
+        complex(sp), intent(in) :: x
+        type(float64x2) :: res
+        res = from_qp(real(x, qp))
+    end function
+
+    elemental function cx_from_mf_2(r, i) result(res)
+        type(float64x2), intent(in) :: r, i
+        type(complex128x2) :: res
+        res%re = r
+        res%im = i
+    end function
+
+    elemental function cx_from_dp_2(r, i) result(res)
+        real(dp), intent(in) :: r, i
+        type(complex128x2) :: res
+        res%re = from_qp(real(r, qp))
+        res%im = from_qp(real(i, qp))
+    end function
+
+    elemental function cx_from_mf_1(r) result(res)
+        type(float64x2), intent(in) :: r
+        type(complex128x2) :: res
+        res%re = r
+        res%im = from_qp(0.0_qp)
+    end function
+
+    elemental function cx_from_dp_1(r) result(res)
+        real(dp), intent(in) :: r
+        type(complex128x2) :: res
+        res%re = from_qp(real(r, qp))
+        res%im = from_qp(0.0_qp)
+    end function
+
+    ! ================================================================
+    ! Assignment (elemental)
+    ! ================================================================
+
+#:for n, d in ATYPES
+#:if n != 'mf'
+    elemental subroutine mf_assign_${n}$(lhs, rhs)
+        type(float64x2), intent(out) :: lhs
+        ${d}$, intent(in) :: rhs
+#:if ISCPLX[n]
+        lhs = from_qp(real(${CONV[n].format('rhs')}$, qp))
+#:else
+        lhs = from_qp(${CONV[n].format('rhs')}$)
+#:endif
+    end subroutine
+
+#:endif
+#:endfor
+#:for n, d in ATYPES
+#:if n != 'cx'
+    elemental subroutine cx_assign_${n}$(lhs, rhs)
+        type(complex128x2), intent(out) :: lhs
+        ${d}$, intent(in) :: rhs
+#:if ISCPLX[n]
+        lhs = from_cqp(${CONV[n].format('rhs')}$)
+#:else
+        lhs = from_cqp(cmplx(${CONV[n].format('rhs')}$, 0.0_qp, qp))
+#:endif
+    end subroutine
+
+#:endif
+#:endfor
+    ! ================================================================
+    ! Conversions (elemental)
+    ! ================================================================
+
+    elemental function mf_dble(x) result(res)
+        type(float64x2), intent(in) :: x
+        real(dp) :: res
+        res = real(to_qp(x), dp)
+    end function
+
+    elemental function mf_int(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+        res = int(to_qp(x))
+    end function
+
+    elemental function mf_nint(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+        res = nint(to_qp(x))
+    end function
+
+    elemental function mf_to_double(x) result(res)
+        type(float64x2), intent(in) :: x
+        real(dp) :: res
+        res = real(to_qp(x), dp)
+    end function
+
+    elemental function mf_ceiling(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+        res = ceiling(to_qp(x))
+    end function
+
+    elemental function mf_floor(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+        res = floor(to_qp(x))
+    end function
+
+    elemental function mf_exponent(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+        res = exponent(to_qp(x))
+    end function
+
+    ! ================================================================
+    ! Unary operators (elemental)
+    ! ================================================================
+
+    elemental function mf_neg(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        res = from_qp(-to_qp(x))
+    end function
+
+    elemental function cx_neg(x) result(res)
+        type(complex128x2), intent(in) :: x
+        type(complex128x2) :: res
+        res = from_cqp(-to_cqp(x))
+    end function
+
+    ! ================================================================
+    ! Unary math: mf → mf (elemental)
+    ! ================================================================
+
+#:for func in UNARY_MF_MF
+    elemental function mf_${func}$(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        res = from_qp(${func}$(to_qp(x)))
+    end function
+
+#:endfor
+    ! ================================================================
+    ! Unary math: cx → cx (elemental)
+    ! ================================================================
+
+#:for func in UNARY_CX_CX
+    elemental function cx_${func}$(x) result(res)
+        type(complex128x2), intent(in) :: x
+        type(complex128x2) :: res
+        res = from_cqp(${func}$(to_cqp(x)))
+    end function
+
+#:endfor
+    ! ================================================================
+    ! Unary math: cx → mf (elemental)
+    ! ================================================================
+
+#:for func in UNARY_CX_MF
+    elemental function cx_${func}$(x) result(res)
+        type(complex128x2), intent(in) :: x
+        type(float64x2) :: res
+        res = from_qp(${func}$(to_cqp(x)))
+    end function
+
+#:endfor
+    ! ================================================================
+    ! Complex-specific: cmplx, real, mf_real (elemental)
+    ! ================================================================
+
+    elemental function mf_cmplx_2(re, im) result(res)
+        type(float64x2), intent(in) :: re, im
+        type(complex128x2) :: res
+        res%re = re
+        res%im = im
+    end function
+
+    elemental function mf_cmplx_1(re) result(res)
+        type(float64x2), intent(in) :: re
+        type(complex128x2) :: res
+        res%re = re
+        res%im = from_qp(0.0_qp)
+    end function
+
+    elemental function cx_real(x) result(res)
+        type(complex128x2), intent(in) :: x
+        type(float64x2) :: res
+        res = from_qp(real(to_cqp(x), qp))
+    end function
+
+    elemental function mf_real_mf(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        res = x
+    end function
+
+    elemental function cx_real_mf(x) result(res)
+        type(complex128x2), intent(in) :: x
+        type(float64x2) :: res
+        res = x%re
+    end function
+
+    ! ================================================================
+    ! Binary real functions (elemental)
+    ! ================================================================
+
+#:for func in BINARY_REAL + BINARY_MINMAX
+#:for n1, d1 in RTYPES
+#:for n2, d2 in RTYPES
+#:if n1 == 'mf' or n2 == 'mf'
+    elemental function ${n1}$_${func}$_${n2}$(a, b) result(res)
+        ${d1}$, intent(in) :: a
+        ${d2}$, intent(in) :: b
+        type(float64x2) :: res
+        res = from_qp(${func}$(${CONV[n1].format('a')}$, ${CONV[n2].format('b')}$))
+    end function
+
+#:endif
+#:endfor
+#:endfor
+#:endfor
+    ! min/max with 3 arguments
+#:for func in BINARY_MINMAX
+    elemental function mf_${func}$3(a, b, c) result(res)
+        type(float64x2), intent(in) :: a, b, c
+        type(float64x2) :: res
+        res = from_qp(${func}$(to_qp(a), to_qp(b), to_qp(c)))
+    end function
+
+#:endfor
+    ! ================================================================
+    ! Bessel functions with integer order (elemental + transformational)
+    ! ================================================================
+
+#:for func in BESSEL_N
+    elemental function mf_${func}$_elem(n, x) result(res)
+        integer, intent(in) :: n
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        res = from_qp(${func}$(n, to_qp(x)))
+    end function
+
+    pure function mf_${func}$_range(n1, n2, x) result(res)
+        integer, intent(in) :: n1, n2
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res(max(n2 - n1 + 1, 0))
+        real(qp) :: tmp(max(n2 - n1 + 1, 0))
+        integer :: i
+        tmp = ${func}$(n1, n2, to_qp(x))
+        do i = 1, size(tmp)
+            res(i) = from_qp(tmp(i))
+        end do
+    end function
+
+#:endfor
+    ! ================================================================
+    ! Functions: (mf, integer) → mf (elemental)
+    ! ================================================================
+
+#:for func in MF_INT_TO_MF
+    elemental function mf_${func}$(x, i) result(res)
+        type(float64x2), intent(in) :: x
+        integer, intent(in) :: i
+        type(float64x2) :: res
+        res = from_qp(${func}$(to_qp(x), i))
+    end function
+
+#:endfor
+    ! ================================================================
+    ! Numeric inquiry functions (elemental)
+    ! ================================================================
+
+#:for func in INQUIRY_MF_INT
+    elemental function mf_${func}$(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+#:if func == 'digits'
+        res = 106
+#:elif func == 'maxexponent'
+        res = maxexponent(0.0_dp)
+#:elif func == 'minexponent'
+        res = minexponent(0.0_dp)
+#:else
+        res = radix(0.0_dp)
+#:endif
+    end function
+
+#:endfor
+#:for func in INQUIRY_BOTH_INT
+    elemental function mf_${func}$(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+#:if func == 'precision'
+        res = 31
+#:else
+        res = range(0.0_dp)
+#:endif
+    end function
+
+    elemental function cx_${func}$(x) result(res)
+        type(complex128x2), intent(in) :: x
+        integer :: res
+#:if func == 'precision'
+        res = 31
+#:else
+        res = range(0.0_dp)
+#:endif
+    end function
+
+#:endfor
+    elemental function mf_storage_size(x) result(res)
+        type(float64x2), intent(in) :: x
+        integer :: res
+        res = 2 * storage_size(0.0_dp)
+    end function
+
+    elemental function cx_storage_size(x) result(res)
+        type(complex128x2), intent(in) :: x
+        integer :: res
+        res = 4 * storage_size(0.0_dp)
+    end function
+
+    ! ================================================================
+    ! Array reductions: value (maxval, minval) — rank 1-7
+    ! ================================================================
+
+#:for func in ARRAY_REDUCE_VAL
+#:for rank in range(1, MAX_RANK+1)
+    pure function mf_${func}$_${rank}$d(array, mask) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        type(float64x2) :: res
+        real(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask)) then
+            res = from_qp(${func}$(tmp, mask=mask))
+        else
+            res = from_qp(${func}$(tmp))
+        end if
+    end function
+
+#:if rank == 1
+    pure function mf_${func}$_1d_dim(array, dim, mask) result(res)
+        type(float64x2), intent(in) :: array(:)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(:)
+        type(float64x2) :: res
+        real(qp) :: tmp(size(array))
+        integer :: i1
+$:conv_loops(1, 'array', 'tmp', 'to_qp')
+        if (present(mask)) then
+            res = from_qp(${func}$(tmp, dim=dim, mask=mask))
+        else
+            res = from_qp(${func}$(tmp, dim=dim))
+        end if
+    end function
+#:else
+    pure function mf_${func}$_${rank}$d_dim(array, dim, mask) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        type(float64x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
+        real(qp) :: tmp(${SIZES(rank)}$)
+        real(qp) :: tmp_res(${DIM_REDUCED_SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask)) then
+            tmp_res = ${func}$(tmp, dim=dim, mask=mask)
+        else
+            tmp_res = ${func}$(tmp, dim=dim)
+        end if
+$:conv_loops(rank - 1, 'tmp_res', 'res', 'from_qp')
+    end function
+#:endif
+
+#:endfor
+#:endfor
+    ! ================================================================
+    ! Array reductions: location (maxloc, minloc) — rank 1-7
+    ! ================================================================
+
+#:for func in ARRAY_REDUCE_LOC
+#:for rank in range(1, MAX_RANK+1)
+    pure function mf_${func}$_${rank}$d(array, mask, back) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        logical, intent(in), optional :: back
+        integer :: res(${rank}$)
+        real(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask) .and. present(back)) then
+            res = ${func}$(tmp, mask=mask, back=back)
+        else if (present(mask)) then
+            res = ${func}$(tmp, mask=mask)
+        else if (present(back)) then
+            res = ${func}$(tmp, back=back)
+        else
+            res = ${func}$(tmp)
+        end if
+    end function
+
+#:if rank == 1
+    pure function mf_${func}$_1d_dim(array, dim, mask, back) result(res)
+        type(float64x2), intent(in) :: array(:)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(:)
+        logical, intent(in), optional :: back
+        integer :: res
+        real(qp) :: tmp(size(array))
+        integer :: i1
+$:conv_loops(1, 'array', 'tmp', 'to_qp')
+        if (present(mask) .and. present(back)) then
+            res = ${func}$(tmp, dim=dim, mask=mask, back=back)
+        else if (present(mask)) then
+            res = ${func}$(tmp, dim=dim, mask=mask)
+        else if (present(back)) then
+            res = ${func}$(tmp, dim=dim, back=back)
+        else
+            res = ${func}$(tmp, dim=dim)
+        end if
+    end function
+#:else
+    pure function mf_${func}$_${rank}$d_dim(array, dim, mask, back) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        logical, intent(in), optional :: back
+        integer :: res(${DIM_REDUCED_SIZES(rank)}$)
+        real(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask) .and. present(back)) then
+            res = ${func}$(tmp, dim=dim, mask=mask, back=back)
+        else if (present(mask)) then
+            res = ${func}$(tmp, dim=dim, mask=mask)
+        else if (present(back)) then
+            res = ${func}$(tmp, dim=dim, back=back)
+        else
+            res = ${func}$(tmp, dim=dim)
+        end if
+    end function
+#:endif
+
+#:endfor
+#:endfor
+    ! ================================================================
+    ! Array reductions: sum, product — rank 1-7 (mf + cx)
+    ! ================================================================
+
+#:for func in ARRAY_REDUCE_SUM
+#:for rank in range(1, MAX_RANK+1)
+    ! mf ${func}$ rank ${rank}$
+    pure function mf_${func}$_${rank}$d(array, mask) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        type(float64x2) :: res
+        real(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask)) then
+            res = from_qp(${func}$(tmp, mask=mask))
+        else
+            res = from_qp(${func}$(tmp))
+        end if
+    end function
+
+#:if rank == 1
+    pure function mf_${func}$_1d_dim(array, dim, mask) result(res)
+        type(float64x2), intent(in) :: array(:)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(:)
+        type(float64x2) :: res
+        real(qp) :: tmp(size(array))
+        integer :: i1
+$:conv_loops(1, 'array', 'tmp', 'to_qp')
+        if (present(mask)) then
+            res = from_qp(${func}$(tmp, dim=dim, mask=mask))
+        else
+            res = from_qp(${func}$(tmp, dim=dim))
+        end if
+    end function
+#:else
+    pure function mf_${func}$_${rank}$d_dim(array, dim, mask) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        type(float64x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
+        real(qp) :: tmp(${SIZES(rank)}$)
+        real(qp) :: tmp_res(${DIM_REDUCED_SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask)) then
+            tmp_res = ${func}$(tmp, dim=dim, mask=mask)
+        else
+            tmp_res = ${func}$(tmp, dim=dim)
+        end if
+$:conv_loops(rank - 1, 'tmp_res', 'res', 'from_qp')
+    end function
+#:endif
+
+    ! cx ${func}$ rank ${rank}$
+    pure function cx_${func}$_${rank}$d(array, mask) result(res)
+        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        type(complex128x2) :: res
+        complex(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_cqp')
+        if (present(mask)) then
+            res = from_cqp(${func}$(tmp, mask=mask))
+        else
+            res = from_cqp(${func}$(tmp))
+        end if
+    end function
+
+#:if rank == 1
+    pure function cx_${func}$_1d_dim(array, dim, mask) result(res)
+        type(complex128x2), intent(in) :: array(:)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(:)
+        type(complex128x2) :: res
+        complex(qp) :: tmp(size(array))
+        integer :: i1
+$:conv_loops(1, 'array', 'tmp', 'to_cqp')
+        if (present(mask)) then
+            res = from_cqp(${func}$(tmp, dim=dim, mask=mask))
+        else
+            res = from_cqp(${func}$(tmp, dim=dim))
+        end if
+    end function
+#:else
+    pure function cx_${func}$_${rank}$d_dim(array, dim, mask) result(res)
+        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        type(complex128x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
+        complex(qp) :: tmp(${SIZES(rank)}$)
+        complex(qp) :: tmp_res(${DIM_REDUCED_SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_cqp')
+        if (present(mask)) then
+            tmp_res = ${func}$(tmp, dim=dim, mask=mask)
+        else
+            tmp_res = ${func}$(tmp, dim=dim)
+        end if
+$:conv_loops(rank - 1, 'tmp_res', 'res', 'from_cqp')
+    end function
+#:endif
+
+#:endfor
+#:endfor
+    ! ================================================================
+    ! dot_product (pure)
+    ! ================================================================
+
+    pure function mf_dot_product(a, b) result(res)
+        type(float64x2), intent(in) :: a(:), b(:)
+        type(float64x2) :: res
+        real(qp) :: qa(size(a)), qb(size(b))
+        integer :: i1
+        do i1 = 1, size(a)
+            qa(i1) = to_qp(a(i1))
+        end do
+        do i1 = 1, size(b)
+            qb(i1) = to_qp(b(i1))
+        end do
+        res = from_qp(dot_product(qa, qb))
+    end function
+
+    pure function cx_dot_product(a, b) result(res)
+        type(complex128x2), intent(in) :: a(:), b(:)
+        type(complex128x2) :: res
+        complex(qp) :: qa(size(a)), qb(size(b))
+        integer :: i1
+        do i1 = 1, size(a)
+            qa(i1) = to_cqp(a(i1))
+        end do
+        do i1 = 1, size(b)
+            qb(i1) = to_cqp(b(i1))
+        end do
+        res = from_cqp(dot_product(qa, qb))
+    end function
+
+    ! ================================================================
+    ! norm2 (pure) — rank 1-7, NO mask per standard
+    ! ================================================================
+
+#:for rank in range(1, MAX_RANK+1)
+    pure function mf_norm2_${rank}$d(array) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        type(float64x2) :: res
+        real(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        res = from_qp(norm2(tmp))
+    end function
+
+#:if rank > 1
+    pure function mf_norm2_${rank}$d_dim(array, dim) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        integer, intent(in) :: dim
+        type(float64x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
+        real(qp) :: tmp(${SIZES(rank)}$)
+        real(qp) :: tmp_res(${DIM_REDUCED_SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        tmp_res = norm2(tmp, dim=dim)
+$:conv_loops(rank - 1, 'tmp_res', 'res', 'from_qp')
+    end function
+#:endif
+
+#:endfor
+    ! ================================================================
+    ! findloc (pure) — rank 1-7 (mf + cx)
+    ! ================================================================
+
+#:for rank in range(1, MAX_RANK+1)
+    ! mf findloc rank ${rank}$
+    pure function mf_findloc_${rank}$d(array, value, mask, back) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        type(float64x2), intent(in) :: value
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        logical, intent(in), optional :: back
+        integer :: res(${rank}$)
+        real(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask) .and. present(back)) then
+            res = findloc(tmp, to_qp(value), mask=mask, back=back)
+        else if (present(mask)) then
+            res = findloc(tmp, to_qp(value), mask=mask)
+        else if (present(back)) then
+            res = findloc(tmp, to_qp(value), back=back)
+        else
+            res = findloc(tmp, to_qp(value))
+        end if
+    end function
+
+#:if rank == 1
+    pure function mf_findloc_1d_dim(array, value, dim, mask, back) result(res)
+        type(float64x2), intent(in) :: array(:)
+        type(float64x2), intent(in) :: value
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(:)
+        logical, intent(in), optional :: back
+        integer :: res
+        real(qp) :: tmp(size(array))
+        integer :: i1
+$:conv_loops(1, 'array', 'tmp', 'to_qp')
+        if (present(mask) .and. present(back)) then
+            res = findloc(tmp, to_qp(value), dim=dim, mask=mask, back=back)
+        else if (present(mask)) then
+            res = findloc(tmp, to_qp(value), dim=dim, mask=mask)
+        else if (present(back)) then
+            res = findloc(tmp, to_qp(value), dim=dim, back=back)
+        else
+            res = findloc(tmp, to_qp(value), dim=dim)
+        end if
+    end function
+#:else
+    pure function mf_findloc_${rank}$d_dim(array, value, dim, mask, back) result(res)
+        type(float64x2), intent(in) :: array(${COLONS(rank)}$)
+        type(float64x2), intent(in) :: value
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        logical, intent(in), optional :: back
+        integer :: res(${DIM_REDUCED_SIZES(rank)}$)
+        real(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_qp')
+        if (present(mask) .and. present(back)) then
+            res = findloc(tmp, to_qp(value), dim=dim, mask=mask, back=back)
+        else if (present(mask)) then
+            res = findloc(tmp, to_qp(value), dim=dim, mask=mask)
+        else if (present(back)) then
+            res = findloc(tmp, to_qp(value), dim=dim, back=back)
+        else
+            res = findloc(tmp, to_qp(value), dim=dim)
+        end if
+    end function
+#:endif
+
+    ! cx findloc rank ${rank}$
+    pure function cx_findloc_${rank}$d(array, value, mask, back) result(res)
+        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
+        type(complex128x2), intent(in) :: value
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        logical, intent(in), optional :: back
+        integer :: res(${rank}$)
+        complex(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_cqp')
+        if (present(mask) .and. present(back)) then
+            res = findloc(tmp, to_cqp(value), mask=mask, back=back)
+        else if (present(mask)) then
+            res = findloc(tmp, to_cqp(value), mask=mask)
+        else if (present(back)) then
+            res = findloc(tmp, to_cqp(value), back=back)
+        else
+            res = findloc(tmp, to_cqp(value))
+        end if
+    end function
+
+#:if rank == 1
+    pure function cx_findloc_1d_dim(array, value, dim, mask, back) result(res)
+        type(complex128x2), intent(in) :: array(:)
+        type(complex128x2), intent(in) :: value
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(:)
+        logical, intent(in), optional :: back
+        integer :: res
+        complex(qp) :: tmp(size(array))
+        integer :: i1
+$:conv_loops(1, 'array', 'tmp', 'to_cqp')
+        if (present(mask) .and. present(back)) then
+            res = findloc(tmp, to_cqp(value), dim=dim, mask=mask, back=back)
+        else if (present(mask)) then
+            res = findloc(tmp, to_cqp(value), dim=dim, mask=mask)
+        else if (present(back)) then
+            res = findloc(tmp, to_cqp(value), dim=dim, back=back)
+        else
+            res = findloc(tmp, to_cqp(value), dim=dim)
+        end if
+    end function
+#:else
+    pure function cx_findloc_${rank}$d_dim(array, value, dim, mask, back) result(res)
+        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
+        type(complex128x2), intent(in) :: value
+        integer, intent(in) :: dim
+        logical, intent(in), optional :: mask(${COLONS(rank)}$)
+        logical, intent(in), optional :: back
+        integer :: res(${DIM_REDUCED_SIZES(rank)}$)
+        complex(qp) :: tmp(${SIZES(rank)}$)
+        integer :: ${IVARS(rank)}$
+$:conv_loops(rank, 'array', 'tmp', 'to_cqp')
+        if (present(mask) .and. present(back)) then
+            res = findloc(tmp, to_cqp(value), dim=dim, mask=mask, back=back)
+        else if (present(mask)) then
+            res = findloc(tmp, to_cqp(value), dim=dim, mask=mask)
+        else if (present(back)) then
+            res = findloc(tmp, to_cqp(value), dim=dim, back=back)
+        else
+            res = findloc(tmp, to_cqp(value), dim=dim)
+        end if
+    end function
+#:endif
+
+#:endfor
+    ! ================================================================
+    ! matmul (pure) — mf + cx
+    ! ================================================================
+
+    ! mf matmul: 2D × 2D → 2D
+    pure function mf_matmul_mm(a, b) result(res)
+        type(float64x2), intent(in) :: a(:,:), b(:,:)
+        type(float64x2) :: res(size(a,1), size(b,2))
+        real(qp) :: qa(size(a,1), size(a,2)), qb(size(b,1), size(b,2))
+        real(qp) :: qr(size(a,1), size(b,2))
+        integer :: i1, i2
+        do i2 = 1, size(a,2)
+            do i1 = 1, size(a,1)
+                qa(i1,i2) = to_qp(a(i1,i2))
+            end do
+        end do
+        do i2 = 1, size(b,2)
+            do i1 = 1, size(b,1)
+                qb(i1,i2) = to_qp(b(i1,i2))
+            end do
+        end do
+        qr = matmul(qa, qb)
+        do i2 = 1, size(res,2)
+            do i1 = 1, size(res,1)
+                res(i1,i2) = from_qp(qr(i1,i2))
+            end do
+        end do
+    end function
+
+    ! mf matmul: 2D × 1D → 1D
+    pure function mf_matmul_mv(a, b) result(res)
+        type(float64x2), intent(in) :: a(:,:), b(:)
+        type(float64x2) :: res(size(a,1))
+        real(qp) :: qa(size(a,1), size(a,2)), qb(size(b))
+        real(qp) :: qr(size(a,1))
+        integer :: i1, i2
+        do i2 = 1, size(a,2)
+            do i1 = 1, size(a,1)
+                qa(i1,i2) = to_qp(a(i1,i2))
+            end do
+        end do
+        do i1 = 1, size(b)
+            qb(i1) = to_qp(b(i1))
+        end do
+        qr = matmul(qa, qb)
+        do i1 = 1, size(res)
+            res(i1) = from_qp(qr(i1))
+        end do
+    end function
+
+    ! mf matmul: 1D × 2D → 1D
+    pure function mf_matmul_vm(a, b) result(res)
+        type(float64x2), intent(in) :: a(:), b(:,:)
+        type(float64x2) :: res(size(b,2))
+        real(qp) :: qa(size(a)), qb(size(b,1), size(b,2))
+        real(qp) :: qr(size(b,2))
+        integer :: i1, i2
+        do i1 = 1, size(a)
+            qa(i1) = to_qp(a(i1))
+        end do
+        do i2 = 1, size(b,2)
+            do i1 = 1, size(b,1)
+                qb(i1,i2) = to_qp(b(i1,i2))
+            end do
+        end do
+        qr = matmul(qa, qb)
+        do i1 = 1, size(res)
+            res(i1) = from_qp(qr(i1))
+        end do
+    end function
+
+    ! cx matmul: 2D × 2D → 2D
+    pure function cx_matmul_mm(a, b) result(res)
+        type(complex128x2), intent(in) :: a(:,:), b(:,:)
+        type(complex128x2) :: res(size(a,1), size(b,2))
+        complex(qp) :: qa(size(a,1), size(a,2)), qb(size(b,1), size(b,2))
+        complex(qp) :: qr(size(a,1), size(b,2))
+        integer :: i1, i2
+        do i2 = 1, size(a,2)
+            do i1 = 1, size(a,1)
+                qa(i1,i2) = to_cqp(a(i1,i2))
+            end do
+        end do
+        do i2 = 1, size(b,2)
+            do i1 = 1, size(b,1)
+                qb(i1,i2) = to_cqp(b(i1,i2))
+            end do
+        end do
+        qr = matmul(qa, qb)
+        do i2 = 1, size(res,2)
+            do i1 = 1, size(res,1)
+                res(i1,i2) = from_cqp(qr(i1,i2))
+            end do
+        end do
+    end function
+
+    ! cx matmul: 2D × 1D → 1D
+    pure function cx_matmul_mv(a, b) result(res)
+        type(complex128x2), intent(in) :: a(:,:), b(:)
+        type(complex128x2) :: res(size(a,1))
+        complex(qp) :: qa(size(a,1), size(a,2)), qb(size(b))
+        complex(qp) :: qr(size(a,1))
+        integer :: i1, i2
+        do i2 = 1, size(a,2)
+            do i1 = 1, size(a,1)
+                qa(i1,i2) = to_cqp(a(i1,i2))
+            end do
+        end do
+        do i1 = 1, size(b)
+            qb(i1) = to_cqp(b(i1))
+        end do
+        qr = matmul(qa, qb)
+        do i1 = 1, size(res)
+            res(i1) = from_cqp(qr(i1))
+        end do
+    end function
+
+    ! cx matmul: 1D × 2D → 1D
+    pure function cx_matmul_vm(a, b) result(res)
+        type(complex128x2), intent(in) :: a(:), b(:,:)
+        type(complex128x2) :: res(size(b,2))
+        complex(qp) :: qa(size(a)), qb(size(b,1), size(b,2))
+        complex(qp) :: qr(size(b,2))
+        integer :: i1, i2
+        do i1 = 1, size(a)
+            qa(i1) = to_cqp(a(i1))
+        end do
+        do i2 = 1, size(b,2)
+            do i1 = 1, size(b,1)
+                qb(i1,i2) = to_cqp(b(i1,i2))
+            end do
+        end do
+        qr = matmul(qa, qb)
+        do i1 = 1, size(res)
+            res(i1) = from_cqp(qr(i1))
+        end do
+    end function
+
+    ! ================================================================
+    ! random_number (impure subroutine)
+    ! ================================================================
+
+    subroutine mf_random_number_0d(harvest)
+        type(float64x2), intent(out) :: harvest
+        real(qp) :: tmp
+        call random_number(tmp)
+        harvest = from_qp(tmp)
+    end subroutine
+
+#:for rank in range(1, MAX_RANK+1)
+    subroutine mf_random_number_${rank}$d(harvest)
+        type(float64x2), intent(out) :: harvest(${COLONS(rank)}$)
+        real(qp) :: tmp(${SIZES(rank, 'harvest')}$)
+        integer :: ${IVARS(rank)}$
+        call random_number(tmp)
+$:conv_loops(rank, 'tmp', 'harvest', 'from_qp')
+    end subroutine
+
+#:endfor
+    ! ================================================================
+    ! Binary arithmetic (+, -, *, /) — elemental
+    ! ================================================================
+
+#:for opsym, opname in ARITH_OPS
+#:for n1, d1 in ATYPES
+#:for n2, d2 in ATYPES
+#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:set rc = ISCPLX[n1] or ISCPLX[n2]
+    elemental function ${n1}$_${opname}$_${n2}$(a, b) result(res)
+        ${d1}$, intent(in) :: a
+        ${d2}$, intent(in) :: b
+        ${'type(complex128x2)' if rc else 'type(float64x2)'}$ :: res
+#:if not rc
+#:if opname == 'add'
+        res = dd_add(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
+#:elif opname == 'sub'
+        res = dd_sub(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
+#:elif opname == 'mul'
+        res = dd_mul(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
+#:else
+        res = dd_div(${MFCONV[n1].format('a')}$, ${MFCONV[n2].format('b')}$)
+#:endif
+#:else
+        res = ${'from_cqp' if rc else 'from_qp'}$(${CONV[n1].format('a')}$ ${opsym}$ ${CONV[n2].format('b')}$)
+#:endif
+    end function
+
+#:endif
+#:endfor
+#:endfor
+#:endfor
+    ! ================================================================
+    ! Power operator (**) ��� elemental
+    ! ================================================================
+
+#:for n1, d1 in ATYPES
+#:for n2, d2 in ATYPES
+#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:set rc = ISCPLX[n1] or ISCPLX[n2]
+    elemental function ${n1}$_pow_${n2}$(a, b) result(res)
+        ${d1}$, intent(in) :: a
+        ${d2}$, intent(in) :: b
+        ${'type(complex128x2)' if rc else 'type(float64x2)'}$ :: res
+#:if n2 == 'int'
+        res = ${'from_cqp' if rc else 'from_qp'}$(${CONV[n1].format('a')}$ ** b)
+#:else
+        res = ${'from_cqp' if rc else 'from_qp'}$(${CONV[n1].format('a')}$ ** ${CONV[n2].format('b')}$)
+#:endif
+    end function
+
+#:endif
+#:endfor
+#:endfor
+    ! ================================================================
+    ! Equality comparison (==, /=) — elemental
+    ! ================================================================
+
+#:for opsym, opname in EQ_OPS
+#:for n1, d1 in ATYPES
+#:for n2, d2 in ATYPES
+#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+    elemental function ${n1}$_${opname}$_${n2}$(a, b) result(res)
+        ${d1}$, intent(in) :: a
+        ${d2}$, intent(in) :: b
+        logical :: res
+        res = ${CONV[n1].format('a')}$ ${opsym}$ ${CONV[n2].format('b')}$
+    end function
+
+#:endif
+#:endfor
+#:endfor
+#:endfor
+    ! ================================================================
+    ! Ordered comparison (<, >, <=, >=) — elemental
+    ! ================================================================
+
+#:for opsym, opname in ORD_OPS
+#:for n1, d1 in RTYPES
+#:for n2, d2 in RTYPES
+#:if n1 == 'mf' or n2 == 'mf'
+    elemental function ${n1}$_${opname}$_${n2}$(a, b) result(res)
+        ${d1}$, intent(in) :: a
+        ${d2}$, intent(in) :: b
+        logical :: res
+        res = ${CONV[n1].format('a')}$ ${opsym}$ ${CONV[n2].format('b')}$
+    end function
+
+#:endif
+#:endfor
+#:endfor
+#:endfor
+    ! ================================================================
+    ! Defined I/O
+    ! ================================================================
+
+    subroutine write_mf_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+        class(float64x2), intent(in) :: dtv
+        integer, intent(in) :: unit
+        character(*), intent(in) :: iotype
+        integer, intent(in) :: v_list(:)
+        integer, intent(out) :: iostat
+        character(*), intent(inout) :: iomsg
+        real(qp) :: val_qp
+        val_qp = to_qp(dtv)
+        if (iotype == 'LISTDIRECTED') then
+            write(unit, *, iostat=iostat, iomsg=iomsg) val_qp
+        else if (iotype(1:2) == 'DT' .and. len(iotype) > 2) then
+            write(unit, fmt='(' // iotype(3:) // ')', iostat=iostat, iomsg=iomsg) val_qp
+        else
+            write(unit, *, iostat=iostat, iomsg=iomsg) val_qp
+        end if
+    end subroutine
+
+    subroutine write_cx_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+        class(complex128x2), intent(in) :: dtv
+        integer, intent(in) :: unit
+        character(*), intent(in) :: iotype
+        integer, intent(in) :: v_list(:)
+        integer, intent(out) :: iostat
+        character(*), intent(inout) :: iomsg
+        complex(qp) :: val_cqp
+        val_cqp = to_cqp(dtv)
+        if (iotype == 'LISTDIRECTED') then
+            write(unit, *, iostat=iostat, iomsg=iomsg) val_cqp
+        else if (iotype(1:2) == 'DT' .and. len(iotype) > 2) then
+            write(unit, fmt='(' // iotype(3:) // ')', iostat=iostat, iomsg=iomsg) val_cqp
+        else
+            write(unit, *, iostat=iostat, iomsg=iomsg) val_cqp
+        end if
+    end subroutine
+
+    subroutine read_mf_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+        class(float64x2), intent(inout) :: dtv
+        integer, intent(in) :: unit
+        character(*), intent(in) :: iotype
+        integer, intent(in) :: v_list(:)
+        integer, intent(out) :: iostat
+        character(*), intent(inout) :: iomsg
+        real(qp) :: val_qp
+        if (iotype == 'LISTDIRECTED') then
+            read(unit, *, iostat=iostat, iomsg=iomsg) val_qp
+        else if (iotype(1:2) == 'DT' .and. len(iotype) > 2) then
+            read(unit, fmt='(' // iotype(3:) // ')', iostat=iostat, iomsg=iomsg) val_qp
+        else
+            read(unit, *, iostat=iostat, iomsg=iomsg) val_qp
+        end if
+        if (iostat == 0) then
+            dtv%limbs(1) = real(val_qp, dp)
+            dtv%limbs(2) = real(val_qp - real(dtv%limbs(1), qp), dp)
+        end if
+    end subroutine
+
+    subroutine read_cx_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+        class(complex128x2), intent(inout) :: dtv
+        integer, intent(in) :: unit
+        character(*), intent(in) :: iotype
+        integer, intent(in) :: v_list(:)
+        integer, intent(out) :: iostat
+        character(*), intent(inout) :: iomsg
+        complex(qp) :: val_cqp
+        if (iotype == 'LISTDIRECTED') then
+            read(unit, *, iostat=iostat, iomsg=iomsg) val_cqp
+        else if (iotype(1:2) == 'DT' .and. len(iotype) > 2) then
+            read(unit, fmt='(' // iotype(3:) // ')', iostat=iostat, iomsg=iomsg) val_cqp
+        else
+            read(unit, *, iostat=iostat, iomsg=iomsg) val_cqp
+        end if
+        if (iostat == 0) then
+            dtv%re%limbs(1) = real(real(val_cqp, qp), dp)
+            dtv%re%limbs(2) = real(real(val_cqp, qp) - real(dtv%re%limbs(1), qp), dp)
+            dtv%im%limbs(1) = real(aimag(val_cqp), dp)
+            dtv%im%limbs(2) = real(aimag(val_cqp) - real(dtv%im%limbs(1), qp), dp)
+        end if
+    end subroutine
+
+end module multifloats

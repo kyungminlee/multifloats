@@ -1,6 +1,6 @@
 SUBROUTINE ddgemm (transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc&
 &)
- use multifloat
+ use multifloats
  TYPE(FLOAT64X2) alpha, beta
  INTEGER k, lda, ldb, ldc, m, n
  CHARACTER transa, transb
