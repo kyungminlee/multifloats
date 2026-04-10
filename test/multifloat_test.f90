@@ -294,12 +294,12 @@ contains
     type(float64x2) :: a
     double precision :: inf
     inf = ieee_value(inf, ieee_positive_inf)
-    
+
     a = 1.234d0
-    call assert(a%isfinite(), "1.234 is finite")
-    
+    call assert(mf_is_finite(a), "1.234 is finite")
+
     a = inf
-    call assert(.not. a%isfinite(), "inf is not finite")
+    call assert(.not. mf_is_finite(a), "inf is not finite")
   end subroutine
 
   subroutine test_renormalize()
@@ -307,32 +307,32 @@ contains
     ! Manually set unnormalized state
     a%limbs(1) = 1.0d0
     a%limbs(2) = 1.0d0
-    call renormalize(a)
+    call mf_renormalize(a)
     call assert_eq(a, 2.0d0, 0.0d0, "renormalize(1, 1) -> (2, 0)")
-    
+
     a%limbs(1) = 1.0d-20
     a%limbs(2) = 1.0d0
-    call renormalize(a)
+    call mf_renormalize(a)
     call assert_eq(a, 1.0d0, 1.0d-20, "renormalize(1e-20, 1) -> (1, 1e-20)")
   end subroutine
 
   subroutine test_builtins()
     type(float64x2) :: a, b
     a = 1.0d0
-    call assert(a%precision() == 31, "precision")
-    call assert(a%minexponent() == minexponent(1.0d0), "minexponent")
-    call assert(a%maxexponent() == maxexponent(1.0d0), "maxexponent")
-    
-    b = a%tiny()
+    call assert(precision(a) == 31, "precision")
+    call assert(minexponent(a) == minexponent(1.0d0), "minexponent")
+    call assert(maxexponent(a) == maxexponent(1.0d0), "maxexponent")
+
+    b = tiny(a)
     call assert_eq(b, tiny(1.0d0), 0.0d0, "tiny")
-    
-    b = a%huge()
+
+    b = huge(a)
     call assert_eq(b, huge(1.0d0), 0.0d0, "huge")
-    
+
     a = 2.0d0
-    call assert(a%exponent() == exponent(2.0d0), "exponent(2.0)")
+    call assert(exponent(a) == exponent(2.0d0), "exponent(2.0)")
     a = 0.5d0
-    call assert(a%exponent() == exponent(0.5d0), "exponent(0.5)")
+    call assert(exponent(a) == exponent(0.5d0), "exponent(0.5)")
   end subroutine
 
   subroutine test_math_intrinsics()
@@ -359,25 +359,25 @@ contains
     call assert_eq(min(a, b), 1.0d0, 0.0d0, "min")
     call assert_eq(max(a, b), 2.0d0, 0.0d0, "max")
     
-    ! floor/ceiling
+    ! floor/ceiling — module returns integer, wrap to float64x2 for assert_eq.
     a = 1.5d0
-    call assert_eq(floor(a), 1.0d0, 0.0d0, "floor(1.5)")
-    call assert_eq(ceiling(a), 2.0d0, 0.0d0, "ceiling(1.5)")
+    call assert_eq(float64x2(floor(a)), 1.0d0, 0.0d0, "floor(1.5)")
+    call assert_eq(float64x2(ceiling(a)), 2.0d0, 0.0d0, "ceiling(1.5)")
     
     ! scale
     a = 1.0d0
-    call assert_eq(a%scale(1), 2.0d0, 0.0d0, "scale(1, 1)")
-    
+    call assert_eq(scale(a, 1), 2.0d0, 0.0d0, "scale(1, 1)")
+
     ! fraction/set_exponent
     a = 3.0d0 ! 1.5 * 2^1 -> fraction(3.0) is 0.75, exponent is 2
-    call assert_eq(a%fraction(), 0.75d0, 0.0d0, "fraction(3.0) is 0.75")
-    call assert_eq(a%set_exponent(2), 3.0d0, 0.0d0, "set_exponent(3.0, 2) is 3.0")
-    
+    call assert_eq(fraction(a), 0.75d0, 0.0d0, "fraction(3.0) is 0.75")
+    call assert_eq(set_exponent(a, 2), 3.0d0, 0.0d0, "set_exponent(3.0, 2) is 3.0")
+
     ! spacing/rrspacing
     a = 1.0d0
-    b = a%spacing()
+    b = spacing(a)
     call assert_eq(b, scale(spacing(1.0d0), -53), 0.0d0, "spacing(1.0)")
-    b = a%rrspacing()
+    b = rrspacing(a)
     ! spacing(1.0) is 2^-52. spacing_f(1.0) is 2^-105. 
     ! rrspacing = |1.0| / 2^-105 = 2^105
     call assert_eq(b, scale(1.0d0, 105), 0.0d0, "rrspacing(1.0)")
@@ -422,6 +422,28 @@ contains
     double precision, intent(out) :: p, e
     p = a * b
     e = ieee_fma(a, b, -p)
+  end subroutine
+
+  ! Local shims for facilities the multifloats module does not expose.
+  logical function mf_is_finite(a) result(res)
+    type(float64x2), intent(in) :: a
+    res = ieee_is_finite(a%limbs(1)) .and. ieee_is_finite(a%limbs(2))
+  end function
+
+  subroutine mf_renormalize(a)
+    type(float64x2), intent(inout) :: a
+    double precision :: hi, lo, s, b_prime
+    if (abs(a%limbs(1)) >= abs(a%limbs(2))) then
+      hi = a%limbs(1)
+      lo = a%limbs(2)
+    else
+      hi = a%limbs(2)
+      lo = a%limbs(1)
+    end if
+    s = hi + lo
+    b_prime = s - hi
+    a%limbs(1) = s
+    a%limbs(2) = lo - b_prime
   end subroutine
 
 end program

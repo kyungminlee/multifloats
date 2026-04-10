@@ -151,9 +151,14 @@ contains
     end if
     h = real(q, 8)
     l = real(q - real(h, qp), 8)
-    to_f64x2%limbs(1) = h
-    to_f64x2%limbs(2) = l
-    call renormalize(to_f64x2)
+    block
+      ! Inline fast_two_sum normalization (assumes |h| >= |l|).
+      real(8) :: s, b_prime
+      s = h + l
+      b_prime = s - h
+      to_f64x2%limbs(1) = s
+      to_f64x2%limbs(2) = l - b_prime
+    end block
   end function
 
   subroutine check(f, q, op, i1, i2, errs)
