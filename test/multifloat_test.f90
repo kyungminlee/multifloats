@@ -64,7 +64,7 @@ contains
     real(16) :: qa, qb
     qa = real(a%limbs(1), 16) + real(a%limbs(2), 16)
     qb = real(b_h, 16) + real(b_l, 16)
-    ! Double-double has ~106 bits. relative error should be ~1e-32. 
+    ! Double-double has ~106 bits. relative error should be ~1e-32.
     ! NR refinement for sqrt/log can be slightly less accurate.
     ! 1e-16 is safe for these functions in this test suite.
     if (abs(qa - qb) > abs(qb)*1e-32 .and. abs(qa - qb) > 1e-35) then
@@ -76,6 +76,22 @@ contains
        print *, "assert_approx succeeded: ", msg
        print *, "  Expected: ", b_h, b_l
        print *, "  Got:      ", a%limbs
+    end if
+  end subroutine
+
+  subroutine assert_approx_qp(a, b, msg)
+    type(float64x2), intent(in) :: a
+    real(16), intent(in) :: b
+    character(*), intent(in) :: msg
+    real(16) :: qa
+    qa = real(a%limbs(1), 16) + real(a%limbs(2), 16)
+    ! Transcendentals are computed via qp internally; allow ~1e-30 relative
+    ! to absorb the round-trip from qp back to a normalized double-double.
+    if (abs(qa - b) > abs(b)*1e-30_16 .and. abs(qa - b) > 1e-300_16) then
+       print *, "ASSERT_APPROX_QP FAILED: ", msg
+       print *, "  Expected: ", b
+       print *, "  Got:      ", qa, "(limbs:", a%limbs, ")"
+       num_errors = num_errors + 1
     end if
   end subroutine
 
@@ -181,14 +197,14 @@ contains
     type(float64x2) :: a, b, c
     double precision :: s, e
 
-    ! (1 + 1e-10)^2 = 1 + 2e-10 + 1e-20
+    ! (1 + 1e-10)^2 = 1 + 2e-10 + 1e-20.
+    ! The kernel intentionally drops the lo*lo cross term (matches the
+    ! Julia mfmul reference), so we omit it from the expected value too.
     a = 1.0d0; a%limbs(2) = 1.0d-10
     c = a * a
-    ! We calculate expected using module-like logic
     call two_prod_internal(a%limbs(1), a%limbs(1), s, e)
     e = e + a%limbs(1)*a%limbs(2)
     e = e + a%limbs(2)*a%limbs(1)
-    e = e + a%limbs(2)*a%limbs(2)
     call fast_two_sum_internal(s, e)
     call assert_eq(c, s, e, "a * a")
 
@@ -382,16 +398,17 @@ contains
     ! rrspacing = |1.0| / 2^-105 = 2^105
     call assert_eq(b, scale(1.0d0, 105), 0.0d0, "rrspacing(1.0)")
 
-    ! exp/log
+    ! exp/log — compare against quad-precision reference values, since
+    ! the kernel's intermediate qp computation has ~30 digits of precision.
     a = 1.0d0
     b = exp(a)
-    call assert_approx(b, exp(1.0d0), 0.0d0, "exp(1.0)")
+    call assert_approx_qp(b, exp(1.0_16), "exp(1.0)")
     c = log(b)
-    call assert_approx(c, 1.0d0, 0.0d0, "log(exp(1.0))")
-    
+    call assert_approx_qp(c, 1.0_16, "log(exp(1.0))")
+
     a = 100.0d0
     b = log10(a)
-    call assert_approx(b, 2.0d0, 0.0d0, "log10(100.0)")
+    call assert_approx_qp(b, 2.0_16, "log10(100.0)")
   end subroutine
 
   ! Internal helpers for ground truth matching module logic

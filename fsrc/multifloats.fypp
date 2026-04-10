@@ -490,7 +490,10 @@ contains
         type(float64x2) :: res
         real(dp) :: s, bprime
         if (.not. ieee_is_finite(v)) then
-            res%limbs = [real(v, dp), real(v, dp)]
+            ! Non-finite values are represented with the leading limb only;
+            ! the lo limb is conventionally zero so callers don't see Inf/NaN
+            ! arithmetic propagating into it.
+            res%limbs = [real(v, dp), 0.0_dp]
         else
             res%limbs(1) = real(v, dp)
             res%limbs(2) = real(v - real(res%limbs(1), qp), dp)
@@ -698,6 +701,27 @@ contains
         else
             res = x
         end if
+#:elif func == 'tiny' or func == 'huge' or func == 'epsilon'
+        ! Inquiry constants: derive from the underlying double, not via
+        ! quad precision (which under/overflows when stored back as dp).
+#:if func == 'tiny'
+        res%limbs = [tiny(0.0_dp), 0.0_dp]
+#:elif func == 'huge'
+        res%limbs = [huge(0.0_dp), 0.0_dp]
+#:else
+        ! epsilon for double-double is roughly 2^-105 (one ulp at the lo
+        ! limb of 1.0).
+        res%limbs = [scale(epsilon(0.0_dp), -53), 0.0_dp]
+#:endif
+#:elif func == 'spacing'
+        ! DD spacing: distance to the next representable double-double.
+        ! For a normalized DD whose hi limb is x[0], the next DD differs
+        ! in the lo limb by ulp(x[0]) * 2^-53, which is spacing(x[0]) / 2^53.
+        res%limbs = [scale(spacing(x%limbs(1)), -53), 0.0_dp]
+#:elif func == 'rrspacing'
+        ! rrspacing(x) = |x| / spacing(x). Compute against the DD spacing
+        ! so the result is consistent with mf_spacing above.
+        res%limbs = [abs(x%limbs(1)) / scale(spacing(x%limbs(1)), -53), 0.0_dp]
 #:else
         res = from_qp(${func}$(to_qp(x)))
 #:endif
@@ -1548,7 +1572,9 @@ $:conv_loops(rank, 'tmp', 'harvest', 'from_qp')
             correction%limbs(1) = p00 + e00
             bprime = correction%limbs(1) - p00
             correction%limbs(2) = e00 - bprime
-            residual = x - correction
+            ! residual = q*y - x  (sign chosen so that the final step is q - residual*u,
+            ! matching the Newton update q' = q + (x - q*y)*u).
+            residual = correction - x
             p00 = residual%limbs(1) * u%limbs(1)
             e00 = ieee_fma(residual%limbs(1), u%limbs(1), -p00) + residual%limbs(1) * u%limbs(2) + residual%limbs(2) * u%limbs(1)
             correction%limbs(1) = p00 + e00
