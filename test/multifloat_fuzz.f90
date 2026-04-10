@@ -1,9 +1,12 @@
 program multifloat_fuzz
   use multifloats
   use, intrinsic :: ieee_arithmetic
+  use, intrinsic :: iso_fortran_env, only: int8, int16, int32, int64
   implicit none
 
   integer, parameter :: qp = 16
+  integer, parameter :: dp = 8
+  integer, parameter :: sp = 4
   integer, parameter :: num_iterations = 1000000
   integer :: i, num_errors = 0
   real(qp) :: q1, q2, qres
@@ -16,7 +19,7 @@ program multifloat_fuzz
   ! Per-op precision statistics (tracked across all check() calls).
   integer, parameter :: max_stats = 256
   type :: stat_entry
-    character(len=12) :: name = ''
+    character(len=20) :: name = ''
     real(qp) :: max_rel = 0.0_qp
     real(qp) :: sum_rel = 0.0_qp
     integer(8) :: count = 0_8
@@ -249,6 +252,13 @@ program multifloat_fuzz
        call fuzz_arrays(num_errors)
     end if
 
+    ! ----------------------------------------------------------------
+    ! Periodic (every 100): assignment-operator round-trips
+    ! ----------------------------------------------------------------
+    if (mod(i, 100) == 0 .and. ieee_is_finite(real(q1, 8))) then
+       call fuzz_assignments(f1, q1, num_errors)
+    end if
+
     if (mod(i, 100000) == 0) print *, "Completed", i, "iterations..."
     if (num_errors > 100) then
       print *, "Too many errors, stopping fuzz test."
@@ -293,14 +303,14 @@ contains
     real(qp) :: mean_rel
     print *, ""
     print *, "Per-operation precision report (1M iterations):"
-    print *, "  ", "op           ", "      n  ", "    max_rel  ", "    mean_rel"
+    print *, "  ", "op                  ", "      n  ", "    max_rel  ", "    mean_rel"
     do k = 1, nstats
       if (stats(k)%count > 0_8) then
         mean_rel = stats(k)%sum_rel / real(stats(k)%count, qp)
-        write(*, '(2x, a12, 1x, i10, 1x, es14.4, 1x, es14.4)') &
+        write(*, '(2x, a20, 1x, i10, 1x, es14.4, 1x, es14.4)') &
             stats(k)%name, stats(k)%count, real(stats(k)%max_rel, 8), real(mean_rel, 8)
       else
-        write(*, '(2x, a12, 1x, i10, 1x, a)') stats(k)%name, stats(k)%count, "   (no data)"
+        write(*, '(2x, a20, 1x, i10, 1x, a)') stats(k)%name, stats(k)%count, "   (no data)"
       end if
     end do
     print *, ""
@@ -379,7 +389,13 @@ contains
           "arr_sum", "arr_max", "arr_min", "arr_dot", "arr_norm2", "arr_matmul", &
           "cx_add_re", "cx_add_im", "cx_sub_re", "cx_sub_im", &
           "cx_mul_re", "cx_mul_im", "cx_conjg_re", "cx_conjg_im", &
-          "cx_abs", "cx_aimag")
+          "cx_abs", "cx_aimag", &
+          "asn_mf_dp", "asn_mf_sp", "asn_mf_int", "asn_mf_i8", &
+          "asn_mf_i16", "asn_mf_i64", "asn_mf_cdp", "asn_mf_csp", &
+          "asn_cx_dp_re", "asn_cx_dp_im", "asn_cx_int_re", "asn_cx_int_im", &
+          "asn_cx_cdp_re", "asn_cx_cdp_im", &
+          "asn_dp_mf", "asn_sp_mf", "asn_cdp_mf_re", "asn_cdp_mf_im", &
+          "asn_csp_mf_re", "asn_int_mf", "asn_i64_mf")
       is_full_dd = .true.
     case default
       is_full_dd = .false.
@@ -620,6 +636,105 @@ contains
 
       call check(abs(cf1), abs(cq1), "cx_abs", q1, q2, errs)
       call check(aimag(cf1), aimag(cq1), "cx_aimag", q1, q2, errs)
+    end if
+  end subroutine
+
+  ! Assignment-operator round-trips. Each direction must match the
+  ! semantics of the equivalent dp ↔ X assignment.
+  subroutine fuzz_assignments(f, q, errs)
+    type(float64x2), intent(in) :: f
+    real(qp), intent(in) :: q
+    integer, intent(inout) :: errs
+    type(float64x2) :: x_dp, x_sp, x_int, x_i8, x_i16, x_i64, x_cdp, x_csp
+    type(complex128x2) :: z_dp, z_int, z_cdp
+    real(8) :: out_dp
+    real(sp) :: out_sp
+    integer :: out_int
+    integer(int8) :: out_i8
+    integer(int16) :: out_i16
+    integer(int64) :: out_i64
+    complex(dp) :: out_cdp
+    complex(sp) :: out_csp
+    real(8) :: hi
+    integer(int64) :: q_trunc
+
+    hi = f%limbs(1)
+
+    ! ---------------- mf <- built-in (forward) ----------------
+    x_dp = hi
+    call check(x_dp, real(hi, qp), "asn_mf_dp", q, 0.0_qp, errs)
+
+    x_sp = real(hi, sp)
+    call check(x_sp, real(real(hi, sp), qp), "asn_mf_sp", q, 0.0_qp, errs)
+
+    if (abs(hi) < 2.0e9_dp) then
+      x_int = int(hi)
+      call check(x_int, real(int(hi), qp), "asn_mf_int", q, 0.0_qp, errs)
+    end if
+    if (abs(hi) < 100.0_dp) then
+      x_i8 = int(hi, int8)
+      call check(x_i8, real(int(hi, int8), qp), "asn_mf_i8", q, 0.0_qp, errs)
+    end if
+    if (abs(hi) < 30000.0_dp) then
+      x_i16 = int(hi, int16)
+      call check(x_i16, real(int(hi, int16), qp), "asn_mf_i16", q, 0.0_qp, errs)
+    end if
+    if (abs(hi) < 1.0e18_dp) then
+      x_i64 = int(hi, int64)
+      call check(x_i64, real(int(hi, int64), qp), "asn_mf_i64", q, 0.0_qp, errs)
+    end if
+
+    x_cdp = cmplx(hi, 1.5_dp, dp)
+    call check(x_cdp, real(hi, qp), "asn_mf_cdp", q, 0.0_qp, errs)
+    x_csp = cmplx(real(hi, sp), 1.5_sp, sp)
+    call check(x_csp, real(real(hi, sp), qp), "asn_mf_csp", q, 0.0_qp, errs)
+
+    ! ---------------- cx <- built-in (forward) ----------------
+    z_dp = hi
+    call check(z_dp%re, real(hi, qp), "asn_cx_dp_re", q, 0.0_qp, errs)
+    call check(z_dp%im, 0.0_qp, "asn_cx_dp_im", q, 0.0_qp, errs)
+    if (abs(hi) < 2.0e9_dp) then
+      z_int = int(hi)
+      call check(z_int%re, real(int(hi), qp), "asn_cx_int_re", q, 0.0_qp, errs)
+      call check(z_int%im, 0.0_qp, "asn_cx_int_im", q, 0.0_qp, errs)
+    end if
+    z_cdp = cmplx(hi, 2.5_dp, dp)
+    call check(z_cdp%re, real(hi, qp), "asn_cx_cdp_re", q, 0.0_qp, errs)
+    call check(z_cdp%im, 2.5_qp, "asn_cx_cdp_im", q, 0.0_qp, errs)
+
+    ! ---------------- mf -> built-in (reverse) ----------------
+    out_dp = f
+    call check(float64x2(out_dp), real(hi, qp), "asn_dp_mf", q, 0.0_qp, errs)
+
+    out_sp = f
+    call check(float64x2(real(out_sp, dp)), real(real(hi, sp), qp), &
+        "asn_sp_mf", q, 0.0_qp, errs)
+
+    out_cdp = f
+    call check(float64x2(real(out_cdp, dp)), real(hi, qp), "asn_cdp_mf_re", q, 0.0_qp, errs)
+    call check(float64x2(aimag(out_cdp)), 0.0_qp, "asn_cdp_mf_im", q, 0.0_qp, errs)
+
+    out_csp = f
+    call check(float64x2(real(real(out_csp, sp), dp)), &
+        real(real(hi, sp), qp), "asn_csp_mf_re", q, 0.0_qp, errs)
+
+    ! Integer truncation: must match Fortran's `int_var = real_dp_var`
+    ! semantics on the leading limb.
+    if (abs(hi) < 1.0e18_dp) then
+      out_i64 = f
+      q_trunc = int(hi, int64)
+      ! Adjust for the lo limb the same way the assignment kernel does.
+      if (hi == real(q_trunc, dp)) then
+        if (q_trunc > 0_int64 .and. f%limbs(2) < 0.0_dp) q_trunc = q_trunc - 1_int64
+        if (q_trunc < 0_int64 .and. f%limbs(2) > 0.0_dp) q_trunc = q_trunc + 1_int64
+      end if
+      call check(float64x2(real(out_i64, dp)), real(q_trunc, qp), &
+          "asn_i64_mf", q, 0.0_qp, errs)
+    end if
+    if (abs(hi) < 2.0e9_dp) then
+      out_int = f
+      call check(float64x2(real(out_int, dp)), real(int(hi), qp), &
+          "asn_int_mf", q, 0.0_qp, errs)
     end if
   end subroutine
 

@@ -1,6 +1,7 @@
 program test_multifloats_precision
   use multifloats
   use, intrinsic :: ieee_arithmetic
+  use, intrinsic :: iso_fortran_env, only: int8, int16, int32, int64
   implicit none
 
   integer, parameter :: qp = 16
@@ -28,6 +29,10 @@ program test_multifloats_precision
   call test_reduction_mask(failures)
   call test_reduction_dim(failures)
   call test_loc_back(failures)
+  call test_assignments_to_mf(failures)
+  call test_assignments_to_cx(failures)
+  call test_assignments_from_mf(failures)
+  call test_assignments_from_cx(failures)
 
   if (failures /= 0) then
     write(*,'(a,i0)') 'FAIL: ', failures
@@ -551,6 +556,131 @@ contains
       qidx3 = findloc(qm, qm(1,2), dim=1)
       call check_true('findloc dim=1', all(idx3 == qidx3), failures)
     end block
+  end subroutine
+
+  ! ----------------------------------------------------------------
+  ! Assignment-operator coverage (every direction supported)
+  ! ----------------------------------------------------------------
+
+  subroutine test_assignments_to_mf(failures)
+    integer, intent(inout) :: failures
+    type(float64x2) :: x
+
+    ! mf <- real / int / complex of every kind we expose.
+    x = 3.5_dp
+    call check_real_close('mf <- dp', x, 3.5_qp, failures)
+    x = 3.5_sp
+    call check_real_close('mf <- sp', x, real(3.5_sp, qp), failures)
+    x = 7
+    call check_real_close('mf <- int', x, 7.0_qp, failures)
+    x = 7_int8
+    call check_real_close('mf <- int8', x, 7.0_qp, failures)
+    x = 1234_int16
+    call check_real_close('mf <- int16', x, 1234.0_qp, failures)
+    x = 123456789012_int64
+    call check_real_close('mf <- int64', x, 123456789012.0_qp, failures)
+    x = (2.5_dp, -8.0_dp)            ! complex(dp); imag dropped
+    call check_real_close('mf <- cdp', x, 2.5_qp, failures)
+    x = (1.25_sp, 4.0_sp)            ! complex(sp); imag dropped
+    call check_real_close('mf <- csp', x, real(1.25_sp, qp), failures)
+  end subroutine
+
+  subroutine test_assignments_to_cx(failures)
+    integer, intent(inout) :: failures
+    type(complex128x2) :: z
+
+    z = 3.5_dp
+    call check_complex_close('cx <- dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
+    z = 3.5_sp
+    call check_complex_close('cx <- sp', z, cmplx(real(3.5_sp, qp), 0.0_qp, qp), failures)
+    z = 7
+    call check_complex_close('cx <- int', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    z = 7_int8
+    call check_complex_close('cx <- int8', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    z = 1234_int16
+    call check_complex_close('cx <- int16', z, cmplx(1234.0_qp, 0.0_qp, qp), failures)
+    z = 123456789012_int64
+    call check_complex_close('cx <- int64', z, cmplx(123456789012.0_qp, 0.0_qp, qp), failures)
+    z = (2.5_dp, -8.0_dp)
+    call check_complex_close('cx <- cdp', z, cmplx(2.5_qp, -8.0_qp, qp), failures)
+    z = (1.25_sp, 4.0_sp)
+    call check_complex_close('cx <- csp', z, &
+        cmplx(real(1.25_sp, qp), real(4.0_sp, qp), qp), failures)
+  end subroutine
+
+  subroutine test_assignments_from_mf(failures)
+    integer, intent(inout) :: failures
+    type(float64x2) :: x
+    real(dp) :: d
+    real(sp) :: s
+    integer :: i
+    integer(int8) :: j8
+    integer(int16) :: j16
+    integer(int64) :: j64
+    complex(dp) :: cd
+    complex(sp) :: cs
+
+    x = 3.14159265358979_dp
+    d = x
+    call check_true('dp <- mf', d == x%limbs(1), failures)
+    s = x
+    call check_true('sp <- mf', s == real(x%limbs(1), sp), failures)
+    cd = x
+    call check_true('cdp <- mf real', real(cd, dp) == x%limbs(1), failures)
+    call check_true('cdp <- mf imag', aimag(cd) == 0.0_dp, failures)
+    cs = x
+    call check_true('csp <- mf real', real(cs, sp) == real(x%limbs(1), sp), failures)
+    call check_true('csp <- mf imag', aimag(cs) == 0.0_sp, failures)
+
+    ! Integer truncation toward zero (matches Fortran int(...) semantics).
+    x = 42.7_dp
+    i = x; j8 = x; j16 = x; j64 = x
+    call check_true('int  <- mf 42.7', i == 42, failures)
+    call check_true('int8 <- mf 42.7', j8 == 42_int8, failures)
+    call check_true('int16<- mf 42.7', j16 == 42_int16, failures)
+    call check_true('int64<- mf 42.7', j64 == 42_int64, failures)
+    x = -42.7_dp
+    i = x
+    call check_true('int  <- mf -42.7', i == -42, failures)
+    ! Boundary: hi == integer, lo < 0 → truncate toward zero by 1
+    x%limbs = [4.0_dp, -1.0e-30_dp]
+    i = x
+    call check_true('int  <- mf (4, -tiny)', i == 3, failures)
+    x%limbs = [-4.0_dp, 1.0e-30_dp]
+    i = x
+    call check_true('int  <- mf (-4, tiny)', i == -3, failures)
+  end subroutine
+
+  subroutine test_assignments_from_cx(failures)
+    integer, intent(inout) :: failures
+    type(complex128x2) :: z
+    real(dp) :: d
+    real(sp) :: s
+    integer :: i
+    integer(int8) :: j8
+    integer(int16) :: j16
+    integer(int64) :: j64
+    complex(dp) :: cd
+    complex(sp) :: cs
+
+    z = (2.75_dp, -1.5_dp)
+    d = z
+    call check_true('dp <- cx', d == z%re%limbs(1), failures)
+    s = z
+    call check_true('sp <- cx', s == real(z%re%limbs(1), sp), failures)
+    cd = z
+    call check_true('cdp <- cx re', real(cd, dp) == z%re%limbs(1), failures)
+    call check_true('cdp <- cx im', aimag(cd) == z%im%limbs(1), failures)
+    cs = z
+    call check_true('csp <- cx re', real(cs, sp) == real(z%re%limbs(1), sp), failures)
+    call check_true('csp <- cx im', aimag(cs) == real(z%im%limbs(1), sp), failures)
+
+    z = (10.99_dp, 0.0_dp)
+    i = z; j8 = z; j16 = z; j64 = z
+    call check_true('int  <- cx 10.99', i == 10, failures)
+    call check_true('int8 <- cx 10.99', j8 == 10_int8, failures)
+    call check_true('int16<- cx 10.99', j16 == 10_int16, failures)
+    call check_true('int64<- cx 10.99', j64 == 10_int64, failures)
   end subroutine
 
   subroutine test_loc_back(failures)
