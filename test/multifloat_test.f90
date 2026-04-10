@@ -1,5 +1,5 @@
 program multifloat_test
-  use multifloat
+  use multifloats
   use, intrinsic :: ieee_arithmetic
   implicit none
 
