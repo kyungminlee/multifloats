@@ -97,6 +97,9 @@ module multifloats
         module procedure mf_from_dp
         module procedure mf_from_sp
         module procedure mf_from_int
+        module procedure mf_from_i8
+        module procedure mf_from_i16
+        module procedure mf_from_i64
         module procedure mf_from_char
         module procedure mf_from_cx
         module procedure mf_from_cdp
@@ -104,10 +107,27 @@ module multifloats
     end interface float64x2
 
     interface complex128x2
+        ! Two-argument (re, im) constructors — matching kinds.
         module procedure cx_from_mf_2
         module procedure cx_from_dp_2
+        module procedure cx_from_sp_2
+        module procedure cx_from_int_2
+        module procedure cx_from_i8_2
+        module procedure cx_from_i16_2
+        module procedure cx_from_i64_2
+        ! Two-argument (re, im) constructors — common mixed kinds.
+        module procedure cx_from_mf_dp_2
+        module procedure cx_from_dp_mf_2
+        ! Single-argument constructors (imag = 0).
         module procedure cx_from_mf_1
         module procedure cx_from_dp_1
+        module procedure cx_from_sp_1
+        module procedure cx_from_int_1
+        module procedure cx_from_i8_1
+        module procedure cx_from_i16_1
+        module procedure cx_from_i64_1
+        module procedure cx_from_cdp_1
+        module procedure cx_from_csp_1
     end interface complex128x2
 
     ! ================================================================
@@ -575,6 +595,25 @@ contains
         res%limbs = [real(v, dp), 0.0_dp]
     end function
 
+    elemental function mf_from_i8(v) result(res)
+        integer(int8), intent(in) :: v
+        type(float64x2) :: res
+        res%limbs = [real(v, dp), 0.0_dp]
+    end function
+
+    elemental function mf_from_i16(v) result(res)
+        integer(int16), intent(in) :: v
+        type(float64x2) :: res
+        res%limbs = [real(v, dp), 0.0_dp]
+    end function
+
+    elemental function mf_from_i64(v) result(res)
+        integer(int64), intent(in) :: v
+        type(float64x2) :: res
+        ! int64 → dp may lose the bottom 11 bits when |v| >= 2^53.
+        res%limbs = [real(v, dp), 0.0_dp]
+    end function
+
     function mf_from_char(v) result(res)
         character(len=*), intent(in) :: v
         type(float64x2) :: res
@@ -627,6 +666,115 @@ contains
         type(complex128x2) :: res
         res%re%limbs = [r, 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
+    end function
+
+    ! Two-argument matching-kind constructors for the remaining real /
+    ! integer kinds. Each promotes both operands to dp before storing.
+
+    elemental function cx_from_sp_2(r, i) result(res)
+        real(sp), intent(in) :: r, i
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [real(i, dp), 0.0_dp]
+    end function
+
+    elemental function cx_from_int_2(r, i) result(res)
+        integer, intent(in) :: r, i
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [real(i, dp), 0.0_dp]
+    end function
+
+    elemental function cx_from_i8_2(r, i) result(res)
+        integer(int8), intent(in) :: r, i
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [real(i, dp), 0.0_dp]
+    end function
+
+    elemental function cx_from_i16_2(r, i) result(res)
+        integer(int16), intent(in) :: r, i
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [real(i, dp), 0.0_dp]
+    end function
+
+    elemental function cx_from_i64_2(r, i) result(res)
+        integer(int64), intent(in) :: r, i
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [real(i, dp), 0.0_dp]
+    end function
+
+    ! Mixed (mf, dp) and (dp, mf) — common when one part has been
+    ! computed in DD and the other is still a literal double.
+
+    elemental function cx_from_mf_dp_2(r, i) result(res)
+        type(float64x2), intent(in) :: r
+        real(dp), intent(in) :: i
+        type(complex128x2) :: res
+        res%re = r
+        res%im%limbs = [i, 0.0_dp]
+    end function
+
+    elemental function cx_from_dp_mf_2(r, i) result(res)
+        real(dp), intent(in) :: r
+        type(float64x2), intent(in) :: i
+        type(complex128x2) :: res
+        res%re%limbs = [r, 0.0_dp]
+        res%im = i
+    end function
+
+    ! Single-argument constructors for the remaining numeric kinds
+    ! (imag set to 0).
+
+    elemental function cx_from_sp_1(r) result(res)
+        real(sp), intent(in) :: r
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [0.0_dp, 0.0_dp]
+    end function
+
+    elemental function cx_from_int_1(r) result(res)
+        integer, intent(in) :: r
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [0.0_dp, 0.0_dp]
+    end function
+
+    elemental function cx_from_i8_1(r) result(res)
+        integer(int8), intent(in) :: r
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [0.0_dp, 0.0_dp]
+    end function
+
+    elemental function cx_from_i16_1(r) result(res)
+        integer(int16), intent(in) :: r
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [0.0_dp, 0.0_dp]
+    end function
+
+    elemental function cx_from_i64_1(r) result(res)
+        integer(int64), intent(in) :: r
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [0.0_dp, 0.0_dp]
+    end function
+
+    elemental function cx_from_cdp_1(r) result(res)
+        complex(dp), intent(in) :: r
+        type(complex128x2) :: res
+        res%re%limbs = [real(r, dp), 0.0_dp]
+        res%im%limbs = [aimag(r), 0.0_dp]
+    end function
+
+    elemental function cx_from_csp_1(r) result(res)
+        complex(sp), intent(in) :: r
+        type(complex128x2) :: res
+        res%re%limbs = [real(real(r, sp), dp), 0.0_dp]
+        res%im%limbs = [real(aimag(r), dp), 0.0_dp]
     end function
 
     ! ================================================================

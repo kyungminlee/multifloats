@@ -33,6 +33,7 @@ program test_multifloats_precision
   call test_assignments_to_cx(failures)
   call test_assignments_from_mf(failures)
   call test_assignments_from_cx(failures)
+  call test_constructors(failures)
 
   if (failures /= 0) then
     write(*,'(a,i0)') 'FAIL: ', failures
@@ -649,6 +650,81 @@ contains
     x%limbs = [-4.0_dp, 1.0e-30_dp]
     i = x
     call check_true('int  <- mf (-4, tiny)', i == -3, failures)
+  end subroutine
+
+  subroutine test_constructors(failures)
+    integer, intent(inout) :: failures
+    type(float64x2) :: x
+    type(complex128x2) :: z
+
+    ! float64x2(...) — every supported single-arg form.
+    x = float64x2(3.5_dp)
+    call check_real_close('ctor float64x2 dp', x, 3.5_qp, failures)
+    x = float64x2(3.5_sp)
+    call check_real_close('ctor float64x2 sp', x, real(3.5_sp, qp), failures)
+    x = float64x2(7)
+    call check_real_close('ctor float64x2 int', x, 7.0_qp, failures)
+    x = float64x2(7_int8)
+    call check_real_close('ctor float64x2 int8', x, 7.0_qp, failures)
+    x = float64x2(1234_int16)
+    call check_real_close('ctor float64x2 int16', x, 1234.0_qp, failures)
+    x = float64x2(123456789012_int64)
+    call check_real_close('ctor float64x2 int64', x, 123456789012.0_qp, failures)
+    x = float64x2('1.2345678901234567890123456789')
+    call check_real_close('ctor float64x2 char', x, &
+        1.2345678901234567890123456789_qp, failures)
+    x = float64x2((2.5_dp, -8.0_dp))      ! cdp → mf takes the real part
+    call check_real_close('ctor float64x2 cdp', x, 2.5_qp, failures)
+    x = float64x2((1.25_sp, 4.0_sp))      ! csp → mf takes the real part
+    call check_real_close('ctor float64x2 csp', x, real(1.25_sp, qp), failures)
+    z = complex128x2(float64x2(1.0_dp), float64x2(2.0_dp))
+    x = float64x2(z)                      ! cx → mf takes the real part
+    call check_real_close('ctor float64x2 cx', x, 1.0_qp, failures)
+
+    ! complex128x2(...) — single-arg forms.
+    z = complex128x2(float64x2(1.5_dp))
+    call check_complex_close('ctor cx mf', z, cmplx(1.5_qp, 0.0_qp, qp), failures)
+    z = complex128x2(3.5_dp)
+    call check_complex_close('ctor cx dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
+    z = complex128x2(3.5_sp)
+    call check_complex_close('ctor cx sp', z, cmplx(real(3.5_sp, qp), 0.0_qp, qp), failures)
+    z = complex128x2(7)
+    call check_complex_close('ctor cx int', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    z = complex128x2(7_int8)
+    call check_complex_close('ctor cx int8', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    z = complex128x2(1234_int16)
+    call check_complex_close('ctor cx int16', z, cmplx(1234.0_qp, 0.0_qp, qp), failures)
+    z = complex128x2(123456789012_int64)
+    call check_complex_close('ctor cx int64', z, &
+        cmplx(123456789012.0_qp, 0.0_qp, qp), failures)
+    z = complex128x2((2.5_dp, -8.0_dp))
+    call check_complex_close('ctor cx cdp', z, cmplx(2.5_qp, -8.0_qp, qp), failures)
+    z = complex128x2((1.25_sp, 4.0_sp))
+    call check_complex_close('ctor cx csp', z, &
+        cmplx(real(1.25_sp, qp), real(4.0_sp, qp), qp), failures)
+
+    ! complex128x2(re, im) — matching-kind two-arg forms.
+    z = complex128x2(float64x2(1.5_dp), float64x2(-2.5_dp))
+    call check_complex_close('ctor cx mf,mf', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
+    z = complex128x2(1.5_dp, -2.5_dp)
+    call check_complex_close('ctor cx dp,dp', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
+    z = complex128x2(1.5_sp, -2.5_sp)
+    call check_complex_close('ctor cx sp,sp', z, &
+        cmplx(real(1.5_sp, qp), real(-2.5_sp, qp), qp), failures)
+    z = complex128x2(10, 20)
+    call check_complex_close('ctor cx int,int', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
+    z = complex128x2(1_int8, 2_int8)
+    call check_complex_close('ctor cx i8,i8', z, cmplx(1.0_qp, 2.0_qp, qp), failures)
+    z = complex128x2(100_int16, 200_int16)
+    call check_complex_close('ctor cx i16,i16', z, cmplx(100.0_qp, 200.0_qp, qp), failures)
+    z = complex128x2(10_int64, 20_int64)
+    call check_complex_close('ctor cx i64,i64', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
+
+    ! complex128x2 mixed-kind two-arg forms.
+    z = complex128x2(float64x2(1.5_dp), 2.5_dp)
+    call check_complex_close('ctor cx mf,dp', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
+    z = complex128x2(1.5_dp, float64x2(2.5_dp))
+    call check_complex_close('ctor cx dp,mf', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
   end subroutine
 
   subroutine test_assignments_from_cx(failures)

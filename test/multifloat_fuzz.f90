@@ -395,7 +395,14 @@ contains
           "asn_cx_dp_re", "asn_cx_dp_im", "asn_cx_int_re", "asn_cx_int_im", &
           "asn_cx_cdp_re", "asn_cx_cdp_im", &
           "asn_dp_mf", "asn_sp_mf", "asn_cdp_mf_re", "asn_cdp_mf_im", &
-          "asn_csp_mf_re", "asn_int_mf", "asn_i64_mf")
+          "asn_csp_mf_re", "asn_int_mf", "asn_i64_mf", &
+          "ctor_mf_dp", "ctor_mf_sp", "ctor_mf_int", "ctor_mf_i8", &
+          "ctor_mf_i16", "ctor_mf_i64", "ctor_mf_cdp", "ctor_mf_csp", &
+          "ctor_cx_dp_re", "ctor_cx_dp_im", "ctor_cx_sp_re", &
+          "ctor_cx_cdp_re", "ctor_cx_cdp_im", &
+          "ctor_cx_dp_dp_re", "ctor_cx_dp_dp_im", &
+          "ctor_cx_mf_dp_re", "ctor_cx_mf_dp_im", &
+          "ctor_cx_dp_mf_re", "ctor_cx_dp_mf_im")
       is_full_dd = .true.
     case default
       is_full_dd = .false.
@@ -736,6 +743,56 @@ contains
       call check(float64x2(real(out_int, dp)), real(int(hi), qp), &
           "asn_int_mf", q, 0.0_qp, errs)
     end if
+
+    ! ---------------- float64x2(...) constructors ----------------
+    call check(float64x2(hi), real(hi, qp), "ctor_mf_dp", q, 0.0_qp, errs)
+    call check(float64x2(real(hi, sp)), real(real(hi, sp), qp), &
+        "ctor_mf_sp", q, 0.0_qp, errs)
+    if (abs(hi) < 2.0e9_dp) then
+      call check(float64x2(int(hi)), real(int(hi), qp), &
+          "ctor_mf_int", q, 0.0_qp, errs)
+    end if
+    if (abs(hi) < 100.0_dp) then
+      call check(float64x2(int(hi, int8)), real(int(hi, int8), qp), &
+          "ctor_mf_i8", q, 0.0_qp, errs)
+    end if
+    if (abs(hi) < 30000.0_dp) then
+      call check(float64x2(int(hi, int16)), real(int(hi, int16), qp), &
+          "ctor_mf_i16", q, 0.0_qp, errs)
+    end if
+    if (abs(hi) < 1.0e18_dp) then
+      call check(float64x2(int(hi, int64)), real(int(hi, int64), qp), &
+          "ctor_mf_i64", q, 0.0_qp, errs)
+    end if
+    call check(float64x2(cmplx(hi, 1.5_dp, dp)), real(hi, qp), &
+        "ctor_mf_cdp", q, 0.0_qp, errs)
+    call check(float64x2(cmplx(real(hi, sp), 1.5_sp, sp)), &
+        real(real(hi, sp), qp), "ctor_mf_csp", q, 0.0_qp, errs)
+
+    ! ---------------- complex128x2(...) constructors ----------------
+    block
+      type(complex128x2) :: ztmp
+      ztmp = complex128x2(hi)
+      call check(ztmp%re, real(hi, qp), "ctor_cx_dp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, 0.0_qp, "ctor_cx_dp_im", q, 0.0_qp, errs)
+      ztmp = complex128x2(real(hi, sp))
+      call check(ztmp%re, real(real(hi, sp), qp), "ctor_cx_sp_re", q, 0.0_qp, errs)
+      ztmp = complex128x2(cmplx(hi, 2.5_dp, dp))
+      call check(ztmp%re, real(hi, qp), "ctor_cx_cdp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, 2.5_qp, "ctor_cx_cdp_im", q, 0.0_qp, errs)
+      ! Two-arg matching kinds
+      ztmp = complex128x2(hi, hi)
+      call check(ztmp%re, real(hi, qp), "ctor_cx_dp_dp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, real(hi, qp), "ctor_cx_dp_dp_im", q, 0.0_qp, errs)
+      ! Mixed (mf, dp)
+      ztmp = complex128x2(f, hi)
+      call check(ztmp%re, real(hi, qp), "ctor_cx_mf_dp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, real(hi, qp), "ctor_cx_mf_dp_im", q, 0.0_qp, errs)
+      ! Mixed (dp, mf)
+      ztmp = complex128x2(hi, f)
+      call check(ztmp%re, real(hi, qp), "ctor_cx_dp_mf_re", q, 0.0_qp, errs)
+      call check(ztmp%im, real(hi, qp), "ctor_cx_dp_mf_im", q, 0.0_qp, errs)
+    end block
   end subroutine
 
   ! Small-array reductions exercised every 1000 iterations.
