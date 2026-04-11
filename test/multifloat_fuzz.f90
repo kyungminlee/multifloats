@@ -388,10 +388,12 @@ contains
           "mod", "modulo", "hypot", "pow_int", "pow", "pow_md", "pow_dm", &
           "exp", "log", "log10", "sinh", "cosh", &
           "asin", "acos", "acosh", "atan2", &
-          "cx_log_re", "cx_sinh_re", "cx_sinh_im", &
-          "cx_cosh_re", "cx_cosh_im", &
+          "cx_log_re", "cx_log_im", "cx_sinh_re", "cx_sinh_im", &
+          "cx_cosh_re", "cx_cosh_im", "cx_sqrt_re", "cx_sqrt_im", &
           "cx_sin_re", "cx_sin_im", "cx_cos_re", "cx_cos_im", &
           "cx_tan_re", "cx_tan_im", "cx_tanh_re", "cx_tanh_im", &
+          "cx_acos_re", "cx_acos_im", "cx_acosh_re", "cx_acosh_im", &
+          "cx_asin_im", "cx_asinh_im", "cx_atan_re", "cx_atan_im", &
           "aint", "anint", "fraction", "scale", "set_exponent", &
           "min3", "max3", &
           "arr_sum", "arr_max", "arr_min", "arr_dot", "arr_norm2", "arr_matmul", &

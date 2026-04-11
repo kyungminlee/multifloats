@@ -2002,27 +2002,28 @@ contains
         res%re = x%re
         res%im%limbs = -x%im%limbs
 #:elif func == 'sqrt'
-        ! sqrt(z) = sqrt((|z|+a)/2) + i*sign(b)*sqrt((|z|-a)/2)
-        ! Scale the input by an even power of 2 (exact) so that |z|+a
-        ! and |z|-a cannot overflow, then unscale the root by the half
-        ! power of 2.
+        ! Complex sqrt — Kahan-style algorithm.
+        ! Compute one branch via the well-conditioned `(|z|+|a|)/2`
+        ! sub-expression (always non-cancelled) and derive the other
+        ! from `u·v = b/2`. Scale the input by an even power of 2
+        ! (exact) so the intermediates cannot overflow.
         block
-            type(float64x2) :: a, b, r, p, q
+            type(float64x2) :: a, b, r, w, two_w
             integer :: ea, eb, e2, eh
             a = x%re
             b = x%im
-            ea = exponent(a%limbs(1))
-            eb = exponent(b%limbs(1))
             if (a%limbs(1) == 0.0_dp .and. b%limbs(1) == 0.0_dp) then
                 res%re = MF_ZERO
                 res%im = MF_ZERO
             else
+                ea = exponent(a%limbs(1))
+                eb = exponent(b%limbs(1))
                 if (ea > eb) then
                     e2 = ea
                 else
                     e2 = eb
                 end if
-                ! Make e2 even so we can scale the root by exactly 2^(e2/2).
+                ! Make e2 even so we can scale the root by 2^(e2/2).
                 if (mod(e2, 2) /= 0) e2 = e2 + 1
                 eh = e2 / 2
                 a%limbs(1) = scale(a%limbs(1), -e2)
@@ -2030,16 +2031,51 @@ contains
                 b%limbs(1) = scale(b%limbs(1), -e2)
                 b%limbs(2) = scale(b%limbs(2), -e2)
                 r = mf_hypot_mf(a, b)
-                p = mf_sqrt(mf_mul_dp((r + a), 0.5_dp))
-                q = mf_sqrt(mf_mul_dp((r - a), 0.5_dp))
-                res%re%limbs(1) = scale(p%limbs(1), eh)
-                res%re%limbs(2) = scale(p%limbs(2), eh)
-                if (b%limbs(1) < 0.0_dp) then
-                    res%im%limbs(1) = -scale(q%limbs(1), eh)
-                    res%im%limbs(2) = -scale(q%limbs(2), eh)
+                ! w = sqrt((|z| + |a|) / 2) — never has cancellation.
+                if (a%limbs(1) >= 0.0_dp) then
+                    w = mf_sqrt(mf_mul_dp((r + a), 0.5_dp))
                 else
-                    res%im%limbs(1) = scale(q%limbs(1), eh)
-                    res%im%limbs(2) = scale(q%limbs(2), eh)
+                    w = mf_sqrt(mf_mul_dp((r - a), 0.5_dp))
+                end if
+                two_w%limbs = [2.0_dp * w%limbs(1), 2.0_dp * w%limbs(2)]
+                if (a%limbs(1) >= 0.0_dp) then
+                    ! u = w, v = b / (2w)
+                    res%re%limbs(1) = scale(w%limbs(1), eh)
+                    res%re%limbs(2) = scale(w%limbs(2), eh)
+                    if (w%limbs(1) > 0.0_dp) then
+                        block
+                            type(float64x2) :: v
+                            v = b / two_w
+                            res%im%limbs(1) = scale(v%limbs(1), eh)
+                            res%im%limbs(2) = scale(v%limbs(2), eh)
+                        end block
+                    else
+                        res%im = MF_ZERO
+                    end if
+                else
+                    ! u = |b| / (2w), v = sign(b) * w
+                    if (w%limbs(1) > 0.0_dp) then
+                        block
+                            type(float64x2) :: ab, u
+                            if (b%limbs(1) < 0.0_dp) then
+                                ab%limbs = -b%limbs
+                            else
+                                ab = b
+                            end if
+                            u = ab / two_w
+                            res%re%limbs(1) = scale(u%limbs(1), eh)
+                            res%re%limbs(2) = scale(u%limbs(2), eh)
+                        end block
+                    else
+                        res%re = MF_ZERO
+                    end if
+                    if (b%limbs(1) < 0.0_dp) then
+                        res%im%limbs(1) = -scale(w%limbs(1), eh)
+                        res%im%limbs(2) = -scale(w%limbs(2), eh)
+                    else
+                        res%im%limbs(1) = scale(w%limbs(1), eh)
+                        res%im%limbs(2) = scale(w%limbs(2), eh)
+                    end if
                 end if
             end if
         end block
@@ -2101,28 +2137,33 @@ contains
 #:elif func == 'tanh'
         res = cx_sinh(x) / cx_cosh(x)
 #:elif func == 'asin'
-        ! asin(z) = -i * log(i*z + sqrt(1 - z^2))
+        ! asin(z) = -i * log(iz + sqrt((1-z)(1+z))).
+        ! The factored form (1-z)(1+z) avoids the cancellation that
+        ! plain (1 - z²) suffers when |z| is near 1.
         block
-            type(complex128x2) :: iz, one_minus_z2, root, arg
-            type(float64x2) :: tmp
+            type(complex128x2) :: iz, omz, opz, one_minus_z2, root, arg
             iz%re%limbs = -x%im%limbs
             iz%im = x%re
-            one_minus_z2%re = MF_ONE - (x%re*x%re - x%im*x%im)
-            tmp = MF_TWO * x%re * x%im
-            one_minus_z2%im%limbs = -tmp%limbs
+            omz%re = MF_ONE - x%re
+            omz%im%limbs = -x%im%limbs
+            opz%re = MF_ONE + x%re
+            opz%im = x%im
+            one_minus_z2 = omz * opz
             root = cx_sqrt(one_minus_z2)
             arg = iz + root
             arg = cx_log(arg)
-            ! multiply by -i: (-i)*(p+qi) = q - p*i
+            ! multiply by -i: (-i)*(p + qi) = q - p*i
             res%re = arg%im
             res%im%limbs = -arg%re%limbs
         end block
 #:elif func == 'acos'
-        ! acos(z) = pi/2 - asin(z)
+        ! acos(z) = pi/2 - asin(z), with a high-precision DD pi/2.
         block
             type(complex128x2) :: a
+            type(float64x2) :: pi_half_dd
             a = cx_asin(x)
-            res%re = mf_from_dp(2.0_dp * atan(1.0_dp)) - a%re  ! pi/2
+            pi_half_dd%limbs = [1.5707963267948966_dp, 6.123233995736766e-17_dp]
+            res%re = pi_half_dd - a%re
             res%im%limbs = -a%im%limbs
         end block
 #:elif func == 'atan'
@@ -2142,12 +2183,19 @@ contains
             res%im = mf_mul_dp(l%re, 0.5_dp)
         end block
 #:elif func == 'asinh'
-        ! asinh(z) = log(z + sqrt(z^2 + 1))
+        ! asinh(z) = log(z + sqrt(1 + z²)).
+        ! Factor (1 + z²) = (1 + iz)(1 - iz) to avoid the cancellation
+        ! that plain z² + 1 suffers when z is near ±i.
         block
-            type(complex128x2) :: z2, root, arg
-            z2%re = x%re*x%re - x%im*x%im + MF_ONE
-            z2%im = MF_TWO * x%re * x%im
-            root = cx_sqrt(z2)
+            type(complex128x2) :: opi, omi, one_plus_z2, root, arg
+            ! 1 + iz = (1 - im) + re·i
+            opi%re = MF_ONE - x%im
+            opi%im = x%re
+            ! 1 - iz = (1 + im) - re·i
+            omi%re = MF_ONE + x%im
+            omi%im%limbs = -x%re%limbs
+            one_plus_z2 = opi * omi
+            root = cx_sqrt(one_plus_z2)
             arg = x + root
             res = cx_log(arg)
         end block

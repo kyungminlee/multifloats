@@ -121,7 +121,10 @@ multiple of one DD ulp, mean error around 1/100 of a DD ulp.
 | Complex `/` real part | 4.5e-32 | 2.5e-33 |
 | `cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh` (real and imag parts) | 1.0e-29 | 7e-32 |
 | `cx_tan`, `cx_tanh` real / imag parts | 4e-30 | 3e-32 |
-| `cx_log` real part (overflow-safe formula) | 7.7e-32 | 2.7e-33 |
+| `cx_log` real and imag (overflow-safe formula) | 1.6e-31 | 2.7e-33 |
+| `cx_sqrt` real and imag (Kahan-style algorithm) | 6.6e-32 | 5.5e-33 |
+| `cx_atan`, `cx_acos`, `cx_acosh` (real and imag) | 4.3e-32 | 1.0e-32 |
+| `cx_asin_im`, `cx_asinh_im` | 7.4e-32 | 1.8e-32 |
 | `cx_conjg`, `cx_abs`, `cx_aimag` | 6.7e-32 | 5.4e-33 |
 
 ### Near-DD precision (~1e-22 max, ~1e-25 mean)
@@ -207,17 +210,10 @@ be a few orders looser.
 | `bessel_y0` | 2.3e-15 | 8.3e-17 | |
 | `bessel_y1` | 7.9e-16 | 8.3e-17 | |
 | `bessel_yn` (n=3 sample) | 1.4e-13 | 2.1e-16 | |
-| `cx_exp` | 1.9e-16 | 5.0e-17 | derived from real `exp` (full DD) and `sin`/`cos` (single-double) |
-| `cx_log` real part | (full DD — see above) | | |
-| `cx_log` imag part | 1.1e-16 | 2.0e-17 | uses `atan2` (single-double) |
-| `cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh` | 2.2e-16 | 5.1e-17 | |
-| `cx_tan`, `cx_tanh` | 1.9e-14 | 1.4e-16 | catastrophic cancellation in `sin/cos` near poles |
-| `cx_atan` | 1.1e-16 | 3.9e-17 | |
-| `cx_asin`, `cx_acos`, `cx_atanh`, `cx_acosh` | 1.1e-16 | 3.9e-17 | range-restricted in fuzz to avoid the near-zero cancellation regime |
-| `cx_asinh` | 1.2e-16 | 3.9e-17 | |
-| `cx_div` real part | 4.5e-32 | 2.5e-33 | full DD on real part |
-| `cx_div` imag part | 8.7e-16 | 6.8e-19 | cancellation |
-| `cx_sqrt` real / imag (with even-power scaling) | 2.5e-20 | 1e-23 | almost full DD; loses a few digits to the cancellation in `sqrt((|z|±a)/2)` |
+| `cx_exp`, `cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh` (real and imag) | ~5e-29 max | ~1e-31 mean | full DD on average; near full DD worst-case (limited by `sin`/`cos` reduction) |
+| `cx_tan`, `cx_tanh` (real and imag) | full DD | full DD | derived from `cx_sin`/`cx_cos` ratios |
+| `cx_div` imag part | 1.3e-16 | 5.0e-19 | fundamental cancellation in complex division (no fix) |
+| `cx_asin_re`, `cx_asinh_re` | ~2e-24 max | ~3e-26 mean | bottlenecked by `atan2`'s precision floor (≈1e-22) |
 
 ### Array reductions (small-array fuzz, n = 8)
 
