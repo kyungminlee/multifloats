@@ -387,7 +387,7 @@ contains
           "add_fd", "mul_df", "min", "max", "sign", "dim", &
           "mod", "modulo", "hypot", "pow_int", "pow", "pow_md", "pow_dm", &
           "exp", "log", "log10", "sinh", "cosh", &
-          "asin", "acos", "acosh", "atan2", &
+          "asin", "acos", "acosh", "asinh", "atanh", "atan2", &
           "cx_log_re", "cx_log_im", "cx_sinh_re", "cx_sinh_im", &
           "cx_cosh_re", "cx_cosh_im", "cx_sqrt_re", "cx_sqrt_im", &
           "cx_sin_re", "cx_sin_im", "cx_cos_re", "cx_cos_im", &

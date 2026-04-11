@@ -1686,9 +1686,49 @@ contains
             res%limbs = [asinh(x%limbs(1)), 0.0_dp]
             return
         end if
-        ! Below ~1e-16, asinh(x) is x to within DD precision.
-        if (abs(x%limbs(1)) < 1.0e-16_dp) then
-            res = x
+        ! For small |x|, use the Taylor series asinh(x) = x − x³/6 +
+        ! 3x⁵/40 − 15x⁷/336 + ... 15 terms cover |x| < 0.01 with 30+
+        ! digits of margin. The log-of-(x + sqrt(1+x²)) formula leaks
+        ! ~one DD ulp into the lo limb at this scale because the
+        ! intermediate sqrt(1+x²) and the +x cancel against each other.
+        if (abs(x%limbs(1)) < 0.01_dp) then
+            block
+                type(float64x2) :: ax_, x2_, p
+                type(float64x2) :: ac(15)
+                ac(1)%limbs  = [1.0_dp, 0.0_dp]
+                ac(2)%limbs  = [-0.16666666666666666_dp,   -9.25185853854297e-18_dp]
+                ac(3)%limbs  = [0.075_dp,                   2.7755575615628915e-18_dp]
+                ac(4)%limbs  = [-0.044642857142857144_dp,   9.912705577010326e-19_dp]
+                ac(5)%limbs  = [0.030381944444444444_dp,    3.854941057726238e-19_dp]
+                ac(6)%limbs  = [-0.022372159090909092_dp,   9.462128050782583e-19_dp]
+                ac(7)%limbs  = [0.017352764423076924_dp,   -8.006416042969879e-19_dp]
+                ac(8)%limbs  = [-0.01396484375_dp,          6.938893903907229e-19_dp]
+                ac(9)%limbs  = [0.011551800896139705_dp,    8.163404592832033e-19_dp]
+                ac(10)%limbs = [-0.009761609529194078_dp,  -5.478074134663601e-19_dp]
+                ac(11)%limbs = [0.008390335809616815_dp,    4.130293990420969e-19_dp]
+                ac(12)%limbs = [-0.0073125258735988454_dp,  3.394024192128536e-19_dp]
+                ac(13)%limbs = [0.006447210311889649_dp,   -3.1225022567582527e-19_dp]
+                ac(14)%limbs = [-0.005740037670841924_dp,   1.2849803525754126e-19_dp]
+                ac(15)%limbs = [0.005153309682319905_dp,   -3.888173308223878e-19_dp]
+                ax_ = x
+                x2_ = ax_ * ax_
+                p = ac(15)
+                p = p * x2_ + ac(14)
+                p = p * x2_ + ac(13)
+                p = p * x2_ + ac(12)
+                p = p * x2_ + ac(11)
+                p = p * x2_ + ac(10)
+                p = p * x2_ + ac(9)
+                p = p * x2_ + ac(8)
+                p = p * x2_ + ac(7)
+                p = p * x2_ + ac(6)
+                p = p * x2_ + ac(5)
+                p = p * x2_ + ac(4)
+                p = p * x2_ + ac(3)
+                p = p * x2_ + ac(2)
+                p = p * x2_ + ac(1)
+                res = p * ax_
+            end block
             return
         end if
         if (x%limbs(1) < 0.0_dp) then
@@ -1808,9 +1848,49 @@ contains
             res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
             return
         end if
-        ! Below ~1e-16, atanh(x) is x to within DD precision.
-        if (abs(x%limbs(1)) < 1.0e-16_dp) then
-            res = x
+        ! For small |x|, use the Taylor series atanh(x) = x + x³/3 +
+        ! x⁵/5 + ... 15 terms cover |x| < 0.5 to about 1e-9 truncation,
+        ! and for the |x| < 0.01 branch we have 30+ digits of margin
+        ! before the truncation matters. The formula path leaks ~one
+        ! DD ulp into the lo limb for tiny x because of the cancellation
+        ! in the (1+x)/(1-x) ratio computation.
+        if (abs(x%limbs(1)) < 0.01_dp) then
+            block
+                type(float64x2) :: x2, p
+                type(float64x2) :: ac(15)
+                ac(1)%limbs  = [1.0_dp, 0.0_dp]
+                ac(2)%limbs  = [0.3333333333333333_dp,    1.850371707708594e-17_dp]
+                ac(3)%limbs  = [0.2_dp,                  -1.1102230246251566e-17_dp]
+                ac(4)%limbs  = [0.14285714285714285_dp,   7.93016446160826e-18_dp]
+                ac(5)%limbs  = [0.1111111111111111_dp,    6.1679056923619804e-18_dp]
+                ac(6)%limbs  = [0.09090909090909091_dp,  -2.523234146875356e-18_dp]
+                ac(7)%limbs  = [0.07692307692307693_dp,  -4.270088556250602e-18_dp]
+                ac(8)%limbs  = [0.06666666666666667_dp,   9.251858538542971e-19_dp]
+                ac(9)%limbs  = [0.058823529411764705_dp,  8.163404592832033e-19_dp]
+                ac(10)%limbs = [0.05263157894736842_dp,   2.921639538487254e-18_dp]
+                ac(11)%limbs = [0.047619047619047616_dp,  2.64338815386942e-18_dp]
+                ac(12)%limbs = [0.043478260869565216_dp,  1.206764157201257e-18_dp]
+                ac(13)%limbs = [0.04_dp,                 -8.326672684688674e-19_dp]
+                ac(14)%limbs = [0.037037037037037035_dp,  2.05596856412066e-18_dp]
+                ac(15)%limbs = [0.034482758620689655_dp,  4.785444071660157e-19_dp]
+                x2 = x * x
+                p = ac(15)
+                p = p * x2 + ac(14)
+                p = p * x2 + ac(13)
+                p = p * x2 + ac(12)
+                p = p * x2 + ac(11)
+                p = p * x2 + ac(10)
+                p = p * x2 + ac(9)
+                p = p * x2 + ac(8)
+                p = p * x2 + ac(7)
+                p = p * x2 + ac(6)
+                p = p * x2 + ac(5)
+                p = p * x2 + ac(4)
+                p = p * x2 + ac(3)
+                p = p * x2 + ac(2)
+                p = p * x2 + ac(1)
+                res = p * x
+            end block
             return
         end if
         num = MF_ONE + x

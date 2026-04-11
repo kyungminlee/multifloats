@@ -114,6 +114,8 @@ multiple of one DD ulp, mean error around 1/100 of a DD ulp.
 | `cosh` (`(eˣ+e⁻ˣ)/2`, well-conditioned) | 4.7e-30 | 4.8e-32 |
 | `asin`, `acos` (one Newton step on full-DD `sin`/`cos`) | 3.7e-32 | 6.4e-33 |
 | `acosh` (`log(x + sqrt(x²-1))` with large-`x` asymptotic) | 3.2e-32 | 2.0e-33 |
+| `asinh` (Taylor for `|x|<0.01`, otherwise `log(x + sqrt(1+x²))`) | 4.3e-30 | 1.4e-32 |
+| `atanh` (Taylor for `|x|<0.01`, otherwise `½ log((1+x)/(1-x))`) | 1.5e-30 | 1.1e-32 |
 | `atan2` (full-DD `atan(y/x)` with quadrant correction) | 3.8e-32 | 1.5e-33 |
 | Complex `+`, `-` (real and imag parts) | 1.4e-32 | 3.2e-34 |
 | Complex `*` real part | 0 | 0 |
@@ -129,20 +131,13 @@ multiple of one DD ulp, mean error around 1/100 of a DD ulp.
 
 ### Near-DD precision (~1e-22 max, ~1e-25 mean)
 
-These all reach near-DD precision on average but have isolated worst-
-case inputs that drop to single-double (~1e-17). They're functions
-that combine the new full-DD primitives but inherit cancellation or
-range-reduction precision loss in pathological inputs.
-
 | Op | max_rel | mean_rel | Why not full DD |
 | --- | --- | --- | --- |
-| `sin` | 2.7e-24 | 7.7e-28 | range reduction `x · 1/π` loses bits ∝ log₂|x| |
-| `cos` | 1.4e-25 | 1.7e-28 | same |
-| `tan` | 2.7e-24 | 9.4e-28 | same |
-| `atan` | 1.0e-22 | 1.2e-25 | Newton step uses `cos²(y₀)` which is small near asymptotes |
-| `asinh` | 5.4e-17 | 9.7e-20 | `log(x + sqrt(x²+1))` has cancellation near `|x| ≈ 1e-8` |
-| `atanh` | 1.1e-16 | 3.6e-19 | `½ log((1+x)/(1-x))` has cancellation as `|x| → 1` |
-| `tanh` | 8.0e-18 | 6.0e-21 | `1 - 2/(eˣ²ᵉˣ + 1)` near `|x| → ∞` rounds to 1 |
+| `sin` | 9.2e-26 | 2.1e-28 | range reduction `x · 1/π` loses bits ∝ log₂|x| |
+| `cos` | 2.3e-25 | 3.0e-28 | same |
+| `tan` | 2.3e-25 | 5.2e-28 | same |
+| `atan` | 1.1e-22 | 1.6e-25 | Newton step uses full-DD `sin`/`cos` but inherits their reduction precision |
+| `tanh` | 4.0e-18 | 2.8e-21 | `1 - 2/(e²ˣ + 1)` near `|x| → ∞` rounds to 1 |
 
 ### Bit-exact (always 0 error)
 
