@@ -1506,6 +1506,198 @@ contains
         res = (e + einv) * half
     end function
 
+    ! asin / acos / atan / atan2 — one Newton step on the now-full-DD
+    ! sin / cos / tan, seeded by the libm leading-limb call. Quadratic
+    ! convergence makes a single iteration enough to reach DD precision.
+
+    elemental function dd_asin_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, y0, sy, cy, num
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [asin(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        if (abs(x%limbs(1)) > 1.0_dp) then
+            res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
+            return
+        end if
+        y0%limbs = [asin(x%limbs(1)), 0.0_dp]
+        ! Newton: y' = y + (x - sin(y)) / cos(y)
+        sy = dd_sin_full(y0)
+        cy = dd_cos_full(y0)
+        if (abs(cy%limbs(1)) < 1.0e-15_dp) then
+            ! Near ±1: cos(asin(x)) ≈ 0, division is ill-conditioned;
+            ! fall back to the seed (libm precision).
+            res = y0
+            return
+        end if
+        num = x - sy
+        res = y0 + num / cy
+    end function
+
+    elemental function dd_acos_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, y0, sy, cy, num
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [acos(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        if (abs(x%limbs(1)) > 1.0_dp) then
+            res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
+            return
+        end if
+        y0%limbs = [acos(x%limbs(1)), 0.0_dp]
+        ! Newton: y' = y - (x - cos(y)) / sin(y)  [d/dy cos = -sin]
+        sy = dd_sin_full(y0)
+        cy = dd_cos_full(y0)
+        if (abs(sy%limbs(1)) < 1.0e-15_dp) then
+            res = y0
+            return
+        end if
+        num = x - cy
+        res = y0 - num / sy
+    end function
+
+    elemental function dd_atan_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, y0, sy, cy, t, c2
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [atan(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        y0%limbs = [atan(x%limbs(1)), 0.0_dp]
+        ! Newton: y' = y + cos²(y) * (x - tan(y))
+        sy = dd_sin_full(y0)
+        cy = dd_cos_full(y0)
+        if (abs(cy%limbs(1)) < 1.0e-15_dp) then
+            res = y0
+            return
+        end if
+        t = sy / cy
+        c2 = cy * cy
+        res = y0 + c2 * (x - t)
+    end function
+
+    elemental function dd_atan2_full(y, x) result(res)
+        type(float64x2), intent(in) :: y, x
+        type(float64x2) :: res, ratio, pi_dd, pi_half_dd
+        ! Use the libm atan2 leading-limb result as the seed and do one
+        ! Newton step on atan(y/x) when both inputs are non-zero finite.
+        if (.not. ieee_is_finite(x%limbs(1)) .or. .not. ieee_is_finite(y%limbs(1))) then
+            res%limbs = [atan2(y%limbs(1), x%limbs(1)), 0.0_dp]
+            return
+        end if
+        if (x%limbs(1) == 0.0_dp .and. y%limbs(1) == 0.0_dp) then
+            res%limbs = [atan2(y%limbs(1), x%limbs(1)), 0.0_dp]
+            return
+        end if
+        ! High-precision π and π/2 constants for the quadrant correction.
+        pi_dd%limbs      = [3.141592653589793_dp,    1.2246467991473532e-16_dp]
+        pi_half_dd%limbs = [1.5707963267948966_dp,   6.123233995736766e-17_dp]
+        if (abs(x%limbs(1)) >= abs(y%limbs(1))) then
+            ! Result is in the band closest to ±π/2; use atan(y/x).
+            ratio = y / x
+            res = dd_atan_full(ratio)
+            if (x%limbs(1) < 0.0_dp) then
+                if (y%limbs(1) >= 0.0_dp) then
+                    res = res + pi_dd
+                else
+                    res = res - pi_dd
+                end if
+            end if
+        else
+            ! Use atan2(y, x) = ±π/2 - atan(x/y) to keep |x/y| <= 1.
+            ratio = x / y
+            res = dd_atan_full(ratio)
+            if (y%limbs(1) > 0.0_dp) then
+                res%limbs = -res%limbs
+                res = res + pi_half_dd
+            else
+                res%limbs = -res%limbs
+                res = res - pi_half_dd
+            end if
+        end if
+    end function
+
+    ! asinh / acosh / atanh derived directly from log and sqrt.
+
+    elemental function dd_asinh_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, ax, x2, root, arg, two_ax, ln2
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [asinh(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        ! Below ~1e-16, asinh(x) is x to within DD precision.
+        if (abs(x%limbs(1)) < 1.0e-16_dp) then
+            res = x
+            return
+        end if
+        if (x%limbs(1) < 0.0_dp) then
+            ax%limbs = -x%limbs
+        else
+            ax = x
+        end if
+        ! For huge |x|, x² overflows. asinh(x) → log(2|x|) = log(|x|) + ln(2).
+        if (ax%limbs(1) > 1.0e150_dp) then
+            ln2%limbs = [ln_2_hi, ln_2_lo]
+            res = dd_log_full(ax) + ln2
+            if (x%limbs(1) < 0.0_dp) res%limbs = -res%limbs
+            return
+        end if
+        x2 = ax * ax
+        root = mf_sqrt(x2 + MF_ONE)
+        arg = ax + root
+        res = dd_log_full(arg)
+        if (x%limbs(1) < 0.0_dp) res%limbs = -res%limbs
+    end function
+
+    elemental function dd_acosh_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, x2, root, arg, ln2
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [acosh(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        if (x%limbs(1) < 1.0_dp) then
+            res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
+            return
+        end if
+        ! For huge x, x² overflows. acosh(x) → log(2x) = log(x) + ln(2).
+        if (x%limbs(1) > 1.0e150_dp) then
+            ln2%limbs = [ln_2_hi, ln_2_lo]
+            res = dd_log_full(x) + ln2
+            return
+        end if
+        x2 = x * x
+        root = mf_sqrt(x2 - MF_ONE)
+        arg = x + root
+        res = dd_log_full(arg)
+    end function
+
+    elemental function dd_atanh_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, num, den, ratio, half
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [atanh(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        if (abs(x%limbs(1)) > 1.0_dp) then
+            res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
+            return
+        end if
+        ! Below ~1e-16, atanh(x) is x to within DD precision.
+        if (abs(x%limbs(1)) < 1.0e-16_dp) then
+            res = x
+            return
+        end if
+        num = MF_ONE + x
+        den = MF_ONE - x
+        ratio = num / den
+        half%limbs = [0.5_dp, 0.0_dp]
+        res = half * dd_log_full(ratio)
+    end function
+
     elemental function dd_tanh_full(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res, two_ax, e2, ax, two
@@ -1530,7 +1722,11 @@ contains
         ! General case: tanh(|x|) = 1 - 2/(e^(2|x|) + 1). This form
         ! avoids the cancellation in (e^(2x) - 1)/(e^(2x) + 1) when
         ! tanh is close to ±1.
-        ax%limbs = [abs(x%limbs(1)), sign(x%limbs(2), x%limbs(1))]
+        if (x%limbs(1) < 0.0_dp) then
+            ax%limbs = -x%limbs
+        else
+            ax = x
+        end if
         two_ax%limbs = [2.0_dp * ax%limbs(1), 2.0_dp * ax%limbs(2)]
         e2 = dd_exp_full(two_ax)
         two%limbs = [2.0_dp, 0.0_dp]
@@ -1629,7 +1825,19 @@ contains
         res = dd_cosh_full(x)
 #:elif func == 'tanh'
         res = dd_tanh_full(x)
-#:elif func in ('asin', 'acos', 'atan', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1')
+#:elif func == 'asin'
+        res = dd_asin_full(x)
+#:elif func == 'acos'
+        res = dd_acos_full(x)
+#:elif func == 'atan'
+        res = dd_atan_full(x)
+#:elif func == 'asinh'
+        res = dd_asinh_full(x)
+#:elif func == 'acosh'
+        res = dd_acosh_full(x)
+#:elif func == 'atanh'
+        res = dd_atanh_full(x)
+#:elif func in ('erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1')
         ! Derivative-corrected DD evaluation:
         !     func(hi + lo) ≈ func(hi) + func'(hi) * lo
         ! combined via fast_two_sum into a normalized DD result. Roughly
@@ -1637,25 +1845,7 @@ contains
         ! ever touching quad precision.
         block
             real(dp) :: fhi, deriv, corr, s, bp
-#:if func == 'asin'
-            fhi = asin(x%limbs(1))
-            deriv = 1.0_dp / sqrt(1.0_dp - x%limbs(1) * x%limbs(1))
-#:elif func == 'acos'
-            fhi = acos(x%limbs(1))
-            deriv = -1.0_dp / sqrt(1.0_dp - x%limbs(1) * x%limbs(1))
-#:elif func == 'atan'
-            fhi = atan(x%limbs(1))
-            deriv = 1.0_dp / (1.0_dp + x%limbs(1) * x%limbs(1))
-#:elif func == 'asinh'
-            fhi = asinh(x%limbs(1))
-            deriv = 1.0_dp / sqrt(1.0_dp + x%limbs(1) * x%limbs(1))
-#:elif func == 'acosh'
-            fhi = acosh(x%limbs(1))
-            deriv = 1.0_dp / sqrt(x%limbs(1) * x%limbs(1) - 1.0_dp)
-#:elif func == 'atanh'
-            fhi = atanh(x%limbs(1))
-            deriv = 1.0_dp / (1.0_dp - x%limbs(1) * x%limbs(1))
-#:elif func == 'erf'
+#:if func == 'erf'
             fhi = erf(x%limbs(1))
             deriv = (2.0_dp / sqrt(acos(-1.0_dp))) * exp(-x%limbs(1) * x%limbs(1))
 #:elif func == 'erfc'
@@ -2079,26 +2269,11 @@ contains
             end if
         end block
 #:elif func == 'atan2'
-        ! atan2(a, b) with first-order correction.
-        ! d atan2(y, x)/dt = (x*dy - y*dx) / (x^2 + y^2)
-        ! Here a is the "y", b is the "x".
-        block
-            real(dp) :: ahi, bhi, fhi, denom, num, corr, s, bp
-            ahi = x%limbs(1)
-            bhi = y%limbs(1)
-            fhi = atan2(ahi, bhi)
-            denom = ahi * ahi + bhi * bhi
-            if (denom > 0.0_dp) then
-                num = bhi * x%limbs(2) - ahi * y%limbs(2)
-                corr = num / denom
-            else
-                corr = 0.0_dp
-            end if
-            s = fhi + corr
-            bp = s - fhi
-            res%limbs(1) = s
-            res%limbs(2) = corr - bp
-        end block
+        ! Full-DD atan2 — see dd_atan2_full above. Here the binary
+        ! generator passes (a, b) with a = "y" and b = "x" inverted, so
+        ! we still call dd_atan2_full(x, y) where x corresponds to the
+        ! first argument (y in standard atan2 terms).
+        res = dd_atan2_full(x, y)
 #:elif func == 'nearest'
         ! Approximate one DD ulp toward y on the leading limb only.
         block
