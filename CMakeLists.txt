@@ -45,31 +45,31 @@ set_target_properties(multifloat-fortran PROPERTIES
 target_include_directories(multifloat-fortran PUBLIC
     ${CMAKE_BINARY_DIR}/modules)
 
-add_executable(multifloats_precision ./test/multifloats_precision.f90)
-target_link_libraries(multifloats_precision PRIVATE multifloat-fortran)
-add_test(NAME multifloats_precision COMMAND multifloats_precision)
+add_executable(fortran_precision ./test/precision.f90)
+target_link_libraries(fortran_precision PRIVATE multifloat-fortran)
+add_test(NAME fortran_precision COMMAND fortran_precision)
 
 add_library(blas-multifloat
     ./blas/wgemm.f90
     ./blas/wtrsm.f90)
 target_link_libraries(blas-multifloat PRIVATE multifloat-fortran)
 
-add_executable(multifloat_fuzz ./test/multifloat_fuzz.f90)
-target_link_libraries(multifloat_fuzz PRIVATE multifloat-fortran)
-add_test(NAME multifloat_fuzz COMMAND multifloat_fuzz)
+add_executable(fortran_fuzz ./test/fuzz.f90)
+target_link_libraries(fortran_fuzz PRIVATE multifloat-fortran)
+add_test(NAME fortran_fuzz COMMAND fortran_fuzz)
 
-add_executable(multifloat_test ./test/multifloat_test.f90)
-target_link_libraries(multifloat_test PRIVATE multifloat-fortran)
-add_test(NAME multifloat_test COMMAND multifloat_test)
+add_executable(fortran_test ./test/test.f90)
+target_link_libraries(fortran_test PRIVATE multifloat-fortran)
+add_test(NAME fortran_test COMMAND fortran_test)
 
 # C++ tests for src/multifloats.hh — use __float128 / libquadmath as a
 # high-precision reference (provided by GCC, not Apple Clang).
-add_executable(multifloats_test ./test/multifloats_test.cc)
-target_compile_options(multifloats_test PRIVATE -fext-numeric-literals)
-target_link_libraries(multifloats_test PRIVATE quadmath)
-add_test(NAME multifloats_test COMMAND multifloats_test)
+add_executable(cpp_test ./test/test.cc)
+target_compile_options(cpp_test PRIVATE -fext-numeric-literals)
+target_link_libraries(cpp_test PRIVATE quadmath)
+add_test(NAME cpp_test COMMAND cpp_test)
 
-add_executable(multifloats_fuzz ./test/multifloats_fuzz.cc)
-target_compile_options(multifloats_fuzz PRIVATE -fext-numeric-literals)
-target_link_libraries(multifloats_fuzz PRIVATE quadmath)
-add_test(NAME multifloats_fuzz COMMAND multifloats_fuzz)
+add_executable(cpp_fuzz ./test/fuzz.cc)
+target_compile_options(cpp_fuzz PRIVATE -fext-numeric-literals)
+target_link_libraries(cpp_fuzz PRIVATE quadmath)
+add_test(NAME cpp_fuzz COMMAND cpp_fuzz)
