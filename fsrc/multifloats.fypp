@@ -625,6 +625,52 @@ module multifloats
         -7.610716771889941e-19_dp,  1.3760330846314947e-17_dp, &
          5.439604524201502e-17_dp,  4.274898271281587e-17_dp ]
 
+    ! 1/pi as a 2-limb DD (used to convert sin(x) to sinpi(x/pi)).
+    real(dp), parameter :: inv_pi_hi = 0.3183098861837907_dp
+    real(dp), parameter :: inv_pi_lo = -1.9678676675182486e-17_dp
+
+    ! sinpi polynomial: sinpi(x) = x * sum coefs[n]*x^(2n-2) for n=1..15.
+    ! coefs[n] = -(-1)^n * pi^(2n-1) / (2n-1)!
+    real(dp), parameter :: sinpi_coefs_hi(15) = [ &
+        3.141592653589793_dp, -5.16771278004997_dp, &
+        2.5501640398773455_dp, -0.5992645293207921_dp, &
+        0.08214588661112823_dp, -0.0073704309457143504_dp, &
+        0.00046630280576761255_dp, -2.1915353447830217e-05_dp, &
+        7.952054001475513e-07_dp, -2.2948428997269873e-08_dp, &
+        5.392664662608129e-10_dp, -1.0518471716932065e-11_dp, &
+        1.7302192458361107e-13_dp, -2.432561179993389e-15_dp, &
+        2.9567015428549106e-17_dp ]
+    real(dp), parameter :: sinpi_coefs_lo(15) = [ &
+        1.2246467991473532e-16_dp, 2.2665622825789447e-16_dp, &
+        -7.931006345326556e-17_dp, 2.845026112698218e-17_dp, &
+        -3.847292805297656e-18_dp, -3.328281165603432e-19_dp, &
+        1.0704561733683463e-20_dp, 1.4648526682685598e-21_dp, &
+        1.736540361519021e-23_dp, -7.376346207041088e-26_dp, &
+        -4.6231664587063263e-26_dp, 6.607471301444785e-28_dp, &
+        4.02155341316903e-30_dp, 1.1975701997015738e-31_dp, &
+        -2.093244907518996e-34_dp ]
+
+    ! cospi polynomial: cospi(x) = sum coefs[n]*x^(2n-2) for n=1..15.
+    ! coefs[n] = -(-1)^n * pi^(2(n-1)) / (2(n-1))!
+    real(dp), parameter :: cospi_coefs_hi(15) = [ &
+        1.0_dp, -4.934802200544679_dp, &
+        4.0587121264167685_dp, -1.3352627688545895_dp, &
+        0.2353306303588932_dp, -0.02580689139001406_dp, &
+        0.0019295743094039231_dp, -0.0001046381049248457_dp, &
+        4.303069587032947e-06_dp, -1.3878952462213771e-07_dp, &
+        3.604730797462501e-09_dp, -7.700707130601354e-11_dp, &
+        1.3768647280377414e-12_dp, -2.0906323353147685e-14_dp, &
+        2.729327261598196e-16_dp ]
+    real(dp), parameter :: cospi_coefs_lo(15) = [ &
+        0.0_dp, -3.1326477543698557e-16_dp, &
+        -2.6602000824298645e-16_dp, 3.1815237892149862e-18_dp, &
+        -1.2583065576724427e-18_dp, 1.170191067939226e-18_dp, &
+        -9.669517939986956e-20_dp, -2.421206183964864e-21_dp, &
+        -2.864010082936791e-22_dp, -7.479362090417238e-24_dp, &
+        -1.833556774402799e-25_dp, 4.7314468253686385e-27_dp, &
+        -1.6034234137163717e-29_dp, -4.965817957054884e-32_dp, &
+        -1.0546803731213643e-32_dp ]
+
 contains
 
     ! ================================================================
@@ -1285,6 +1331,213 @@ contains
         res = l2 * l102
     end function
 
+    ! sinpi(x) = sin(pi * x) computed via the polynomial in x², ported
+    ! from MultiFloats.jl. x must already be in [0, 0.5].
+    pure function dd_sinpi_kernel(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, x_sq
+        x_sq = x * x
+        res = dd_horner(x_sq, sinpi_coefs_hi, sinpi_coefs_lo)
+        res = res * x
+    end function
+
+    pure function dd_cospi_kernel(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, x_sq
+        x_sq = x * x
+        res = dd_horner(x_sq, cospi_coefs_hi, cospi_coefs_lo)
+    end function
+
+    ! sinpi: reduce x to [-0.5, 0.5] using the period of sinpi (period 2),
+    ! then dispatch to sinpi_kernel / cospi_kernel based on the quadrant.
+    elemental function dd_sinpi_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, ax, rx, neg_half_n
+        real(dp) :: n_float
+        integer :: n_mod
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
+            return
+        end if
+        ! abs(x); the final sign flip is applied at the end.
+        if (x%limbs(1) < 0.0_dp) then
+            ax%limbs = -x%limbs
+        else
+            ax = x
+        end if
+        ! Reduce to [0, 0.5]: pick the nearest half-integer.
+        n_float = anint(2.0_dp * ax%limbs(1))
+        neg_half_n%limbs = [-0.5_dp * n_float, 0.0_dp]
+        rx = ax + neg_half_n
+        n_mod = iand(int(n_float, int64), 3_int64)
+        select case (n_mod)
+        case (0)
+            res = dd_sinpi_kernel(rx)
+        case (1)
+            res = dd_cospi_kernel(rx)
+        case (2)
+            res = dd_sinpi_kernel(rx)
+            res%limbs = -res%limbs
+        case default
+            res = dd_cospi_kernel(rx)
+            res%limbs = -res%limbs
+        end select
+        if (x%limbs(1) < 0.0_dp) res%limbs = -res%limbs
+    end function
+
+    elemental function dd_cospi_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, ax, rx, neg_half_n
+        real(dp) :: n_float
+        integer :: n_mod
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
+            return
+        end if
+        if (x%limbs(1) < 0.0_dp) then
+            ax%limbs = -x%limbs
+        else
+            ax = x
+        end if
+        n_float = anint(2.0_dp * ax%limbs(1))
+        neg_half_n%limbs = [-0.5_dp * n_float, 0.0_dp]
+        rx = ax + neg_half_n
+        n_mod = iand(int(n_float, int64), 3_int64)
+        select case (n_mod)
+        case (0)
+            res = dd_cospi_kernel(rx)
+        case (1)
+            res = dd_sinpi_kernel(rx)
+            res%limbs = -res%limbs
+        case (2)
+            res = dd_cospi_kernel(rx)
+            res%limbs = -res%limbs
+        case default
+            res = dd_sinpi_kernel(rx)
+        end select
+    end function
+
+    ! sin(x) = sinpi(x / pi); cos(x) = cospi(x / pi). Multiplying by the
+    ! 2-limb 1/pi constant keeps the reduced argument accurate to ~106
+    ! bits as long as |x| stays well inside dp range (Payne-Hanek-style
+    ! reduction would be needed for very large arguments).
+    elemental function dd_sin_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, inv_pi
+        inv_pi%limbs = [inv_pi_hi, inv_pi_lo]
+        res = dd_sinpi_full(x * inv_pi)
+    end function
+
+    elemental function dd_cos_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, inv_pi
+        inv_pi%limbs = [inv_pi_hi, inv_pi_lo]
+        res = dd_cospi_full(x * inv_pi)
+    end function
+
+    elemental function dd_tan_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, ipi, y, s, c
+        ipi%limbs = [inv_pi_hi, inv_pi_lo]
+        y = x * ipi
+        s = dd_sinpi_full(y)
+        c = dd_cospi_full(y)
+        res = s / c
+    end function
+
+    ! sinh / cosh / tanh derived from the new full-DD exp.
+    !   sinh(x) = (exp(x) - exp(-x)) / 2
+    !   cosh(x) = (exp(x) + exp(-x)) / 2
+    !   tanh(x) = (exp(2x) - 1) / (exp(2x) + 1) — overflow-safe version
+    elemental function dd_sinh_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, e, einv, neg_x, half
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [sinh(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        ! For small |x|, (e^x - e^-x)/2 has catastrophic cancellation.
+        ! Use the Taylor series sinh(x) = x + x³/6 + x⁵/120 + ...
+        ! For |x| < 0.1 nine terms give full DD precision (0.1^17/17! ≈ 3e-32).
+        if (abs(x%limbs(1)) < 0.1_dp) then
+            block
+                type(float64x2) :: x2, p, c1, c3, c5, c7, c9, c11, c13, c15, c17
+                c1%limbs  = [1.0_dp, 0.0_dp]
+                c3%limbs  = [0.16666666666666666_dp,     9.25185853854297e-18_dp]
+                c5%limbs  = [0.008333333333333333_dp,    1.1564823173178714e-19_dp]
+                c7%limbs  = [0.0001984126984126984_dp,   1.7209558293420705e-22_dp]
+                c9%limbs  = [2.7557319223985893e-06_dp, -1.858393274046472e-22_dp]
+                c11%limbs = [2.505210838544172e-08_dp,  -1.448814070935912e-24_dp]
+                c13%limbs = [1.6059043836821613e-10_dp,  1.2585294588752098e-26_dp]
+                c15%limbs = [7.647163731819816e-13_dp,   7.03872877733453e-30_dp]
+                c17%limbs = [2.8114572543455206e-15_dp,  1.6508842730861433e-31_dp]
+                x2 = x * x
+                p = c17
+                p = p * x2 + c15
+                p = p * x2 + c13
+                p = p * x2 + c11
+                p = p * x2 + c9
+                p = p * x2 + c7
+                p = p * x2 + c5
+                p = p * x2 + c3
+                p = p * x2 + c1
+                res = p * x
+            end block
+            return
+        end if
+        e = dd_exp_full(x)
+        neg_x%limbs = -x%limbs
+        einv = dd_exp_full(neg_x)
+        half%limbs = [0.5_dp, 0.0_dp]
+        res = (e - einv) * half
+    end function
+
+    elemental function dd_cosh_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, e, einv, neg_x, half
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [cosh(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        e = dd_exp_full(x)
+        neg_x%limbs = -x%limbs
+        einv = dd_exp_full(neg_x)
+        half%limbs = [0.5_dp, 0.0_dp]
+        res = (e + einv) * half
+    end function
+
+    elemental function dd_tanh_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, two_ax, e2, ax, two
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            res%limbs = [tanh(x%limbs(1)), 0.0_dp]
+            return
+        end if
+        ! For |x| > ~20, exp(2x) overflows but tanh(x) → ±1.
+        if (x%limbs(1) > 20.0_dp) then
+            res%limbs = [1.0_dp, 0.0_dp]
+            return
+        end if
+        if (x%limbs(1) < -20.0_dp) then
+            res%limbs = [-1.0_dp, 0.0_dp]
+            return
+        end if
+        ! Small |x|: sinh / cosh keeps cancellation away.
+        if (abs(x%limbs(1)) < 0.5_dp) then
+            res = dd_sinh_full(x) / dd_cosh_full(x)
+            return
+        end if
+        ! General case: tanh(|x|) = 1 - 2/(e^(2|x|) + 1). This form
+        ! avoids the cancellation in (e^(2x) - 1)/(e^(2x) + 1) when
+        ! tanh is close to ±1.
+        ax%limbs = [abs(x%limbs(1)), sign(x%limbs(2), x%limbs(1))]
+        two_ax%limbs = [2.0_dp * ax%limbs(1), 2.0_dp * ax%limbs(2)]
+        e2 = dd_exp_full(two_ax)
+        two%limbs = [2.0_dp, 0.0_dp]
+        res = MF_ONE - two / (e2 + MF_ONE)
+        if (x%limbs(1) < 0.0_dp) res%limbs = -res%limbs
+    end function
+
     ! ================================================================
     ! Unary math: mf → mf (elemental)
     ! ================================================================
@@ -1364,7 +1617,19 @@ contains
         res = dd_log_full(x)
 #:elif func == 'log10'
         res = dd_log10_full(x)
-#:elif func in ('sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1')
+#:elif func == 'sin'
+        res = dd_sin_full(x)
+#:elif func == 'cos'
+        res = dd_cos_full(x)
+#:elif func == 'tan'
+        res = dd_tan_full(x)
+#:elif func == 'sinh'
+        res = dd_sinh_full(x)
+#:elif func == 'cosh'
+        res = dd_cosh_full(x)
+#:elif func == 'tanh'
+        res = dd_tanh_full(x)
+#:elif func in ('asin', 'acos', 'atan', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1')
         ! Derivative-corrected DD evaluation:
         !     func(hi + lo) ≈ func(hi) + func'(hi) * lo
         ! combined via fast_two_sum into a normalized DD result. Roughly
@@ -1372,16 +1637,7 @@ contains
         ! ever touching quad precision.
         block
             real(dp) :: fhi, deriv, corr, s, bp
-#:if func == 'sin'
-            fhi = sin(x%limbs(1))
-            deriv = cos(x%limbs(1))
-#:elif func == 'cos'
-            fhi = cos(x%limbs(1))
-            deriv = -sin(x%limbs(1))
-#:elif func == 'tan'
-            fhi = tan(x%limbs(1))
-            deriv = 1.0_dp + fhi * fhi
-#:elif func == 'asin'
+#:if func == 'asin'
             fhi = asin(x%limbs(1))
             deriv = 1.0_dp / sqrt(1.0_dp - x%limbs(1) * x%limbs(1))
 #:elif func == 'acos'
@@ -1390,15 +1646,6 @@ contains
 #:elif func == 'atan'
             fhi = atan(x%limbs(1))
             deriv = 1.0_dp / (1.0_dp + x%limbs(1) * x%limbs(1))
-#:elif func == 'sinh'
-            fhi = sinh(x%limbs(1))
-            deriv = cosh(x%limbs(1))
-#:elif func == 'cosh'
-            fhi = cosh(x%limbs(1))
-            deriv = sinh(x%limbs(1))
-#:elif func == 'tanh'
-            fhi = tanh(x%limbs(1))
-            deriv = 1.0_dp - fhi * fhi
 #:elif func == 'asinh'
             fhi = asinh(x%limbs(1))
             deriv = 1.0_dp / sqrt(1.0_dp + x%limbs(1) * x%limbs(1))

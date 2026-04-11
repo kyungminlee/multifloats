@@ -110,12 +110,32 @@ multiple of one DD ulp, mean error around 1/100 of a DD ulp.
 | `log`, `log10` (32-entry table + narrow polynomial) | 3.5e-32 | 3.3e-33 |
 | `pow` (mf**mf, mf**dp, dp**mf via `exp(b·log(a))`) | 2.1e-30 | 5.3e-32 |
 | `pow` (integer exponent, repeated multiplication) | 2.2e-32 | 1.3e-33 |
+| `sinh` (Taylor for `|x|<0.1`, otherwise `(eˣ-e⁻ˣ)/2`) | 4.7e-30 | 4.1e-32 |
+| `cosh` (`(eˣ+e⁻ˣ)/2`, well-conditioned) | 4.7e-30 | 4.8e-32 |
 | Complex `+`, `-` (real and imag parts) | 1.4e-32 | 3.2e-34 |
 | Complex `*` real part | 0 | 0 |
 | Complex `*` imag part | 1.9e-32 | 1.5e-33 |
 | Complex `/` real part | 4.5e-32 | 2.5e-33 |
+| `cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh` (real and imag parts) | 1.0e-29 | 7e-32 |
+| `cx_tan`, `cx_tanh` real / imag parts | 4e-30 | 3e-32 |
 | `cx_log` real part (overflow-safe formula) | 7.7e-32 | 2.7e-33 |
 | `cx_conjg`, `cx_abs`, `cx_aimag` | 6.7e-32 | 5.4e-33 |
+
+### Near-DD precision (~1e-24 max)
+
+`sin`, `cos`, and `tan` use the Julia `sinpi`/`cospi` polynomial after a
+range reduction `x · (1/π)`. The 2-limb DD constant for `1/π` is enough
+to keep ~25 decimal digits of precision for benign inputs, but the
+range reduction loses bits proportional to `log₂|x|`, so very large
+arguments degrade further. Full DD would require Payne–Hanek-style
+multi-limb reduction.
+
+| Op | max_rel | mean_rel |
+| --- | --- | --- |
+| `sin` | 2.7e-24 | 7.7e-28 |
+| `cos` | 1.4e-25 | 1.7e-28 |
+| `tan` | 2.7e-24 | 9.4e-28 |
+| `tanh` | 6.6e-18 | 5.8e-21 |
 
 ### Bit-exact (always 0 error)
 
@@ -136,29 +156,22 @@ promotions / truncations. The fuzz reports `max_rel = mean_rel = 0` over
 
 ### Single-double, first-order derivative corrected (~1e-16 max)
 
-Real transcendentals (other than `exp` / `log` / `log10` which have full
-DD implementations) computed as `f(hi) + f'(hi) · lo` combined via
-`fast_two_sum`. Each gives roughly one double ulp of relative error,
-which is single-double precision — *not* full DD precision. Porting
-these to full DD requires the same kind of polynomial / table approach
-that the new `exp` / `log` kernels use; the trig and inverse families
-are not yet ported.
+Inverse trig / hyperbolic, error and gamma families computed as
+`f(hi) + f'(hi) · lo` combined via `fast_two_sum`. Each gives roughly
+one double ulp of relative error, which is single-double precision —
+*not* full DD precision. Porting these to full DD requires Newton
+iteration on the (now full-DD) forward function, or polynomial /
+table-based approximations.
 
 | Op | max_rel | mean_rel |
 | --- | --- | --- |
-| `sin` | 1.1e-16 | 2.3e-17 |
-| `cos` | 1.1e-16 | 1.8e-17 |
-| `tan` | 2.9e-16 | 3.8e-17 |
-| `asin` | 1.2e-16 | 1.8e-17 |
-| `acos` | 1.6e-16 | 4.4e-17 |
-| `atan` | 1.3e-16 | 1.6e-17 |
+| `asin` | 1.2e-16 | 1.7e-17 |
+| `acos` | 1.5e-16 | 4.4e-17 |
+| `atan` | 1.5e-16 | 1.6e-17 |
 | `atan2` | 1.0e-16 | 1.4e-17 |
-| `sinh` | 1.1e-16 | 2.1e-17 |
-| `cosh` | 1.1e-16 | 2.7e-17 |
-| `tanh` | 1.1e-16 | 1.8e-17 |
-| `asinh` | 1.9e-16 | 2.2e-17 |
-| `acosh` | 1.7e-16 | 1.6e-17 |
-| `atanh` | 2.1e-16 | 2.5e-17 |
+| `asinh` | 2.0e-16 | 2.1e-17 |
+| `acosh` | 1.9e-16 | 1.6e-17 |
+| `atanh` | 2.3e-16 | 2.5e-17 |
 | `erf` | 3.8e-16 | 1.0e-16 |
 | `erfc` | 5.2e-16 | 3.6e-17 |
 | `erfc_scaled` | 4.1e-16 | 4.8e-17 |
@@ -207,37 +220,62 @@ be a few orders looser.
 The reductions accumulate over `n` elements, so worst-case error grows
 linearly with `n` while staying inside the full-DD regime.
 
-### Why some functions only get single-double precision
+### What's full DD vs not, and why
 
-The trig and inverse families (`sin`, `cos`, `tan`, `asin`, `acos`,
-`atan`, `atan2`, `sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`),
-`erf` / `erfc` / `erfc_scaled`, and the `gamma` / `bessel` families are
-evaluated as
+The full-DD kernels (~1e-32) are:
 
-  `f(hi + lo) ≈ f(hi) + f'(hi) · lo`
+- **Arithmetic**: `+`, `-`, `*`, `/`, `sqrt`, `min`, `max`, `mod`, `modulo`,
+  `dim`, `hypot`, `pow_int`. These use error-free transformations
+  (Knuth's `two_sum`, Dekker's `two_prod` + FMA, Karp/Markstein for sqrt).
+- **Bit-exact**: `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`,
+  `scale`, `set_exponent`, every constructor and assignment.
+- **`exp`** — 14-term DD polynomial in the 1/8th-reduced argument,
+  cubed via three squarings, ported from
+  [Julia's MultiFloats.jl](https://github.com/dzhang314/MultiFloats.jl).
+- **`log`, `log10`** — 32-entry lookup table indexed by the top 5
+  mantissa bits, plus a polynomial in `t = (m - center)/(m + center)`.
+  For `x ∈ [15/16, 17/16]` the kernel falls back to a direct polynomial
+  in `t = (x - 1)/(x + 1)` with no table lookup. Ported from the same
+  source.
+- **`pow`** — `exp(b · log(a))`, full DD because both `exp` and `log`
+  are full DD.
+- **`sinh`, `cosh`** — derived from the new full-DD `exp`. `sinh` uses a
+  9-term Taylor series with DD coefficients for `|x| < 0.1` (otherwise
+  the `(eˣ - e⁻ˣ)/2` formula has cancellation), `cosh` uses
+  `(eˣ + e⁻ˣ)/2` everywhere.
+- **Complex `+`, `-`, `*`, `/`, `conjg`, `abs`, `aimag`** — built from
+  real DD ops directly, no transcendental dependencies.
+- **`cx_log`** real part — uses the overflow-safe formula
+  `log(max(|a|,|b|)) + ½ log(1 + (min/max)²)` so that `|z| > huge`
+  inputs don't overflow the intermediate `hypot`.
+- **`cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh`, `cx_tan`, `cx_tanh`** —
+  built from the new full-DD `sinh`/`cosh` and the near-DD
+  `sin`/`cos`, so the leading-limb error of each component is
+  ~1e-30.
 
-where `f(hi)` and `f'(hi)` come from the standard library on the leading
-limb only. This is *one* Newton step rather than the polynomial /
-table-based approach that the new `exp` / `log` kernels use, and it caps
-their precision at roughly one double ulp (~1e-16).
+The "near-DD" group (~1e-24): **`sin`, `cos`, `tan`** use the
+`sinpi` / `cospi` polynomial after a range reduction `x · (1/π)`. The
+2-limb DD constant for `1/π` keeps roughly 25 decimal digits for
+benign inputs but the reduction loses bits proportional to `log₂|x|`,
+so very large arguments degrade further. **`tanh`** uses
+`1 - 2/(eˣ⁺ᵉˣ + 1)` outside the small-x branch which keeps it
+single-double in the worst case.
 
-`exp`, `log`, and `log10` already have full ~1e-32 implementations
-ported from
-[Julia's MultiFloats.jl](https://github.com/dzhang314/MultiFloats.jl)
-under `external/MultiFloats.jl/src/`:
+The single-double group (~1e-16):
 
-- **`exp`** uses a 14-term polynomial in the 1/8th-reduced argument,
-  cubed via three squarings, with the binary exponent handled by an
-  `ldexp` split. The polynomial coefficients are 2-limb DD constants.
-- **`log` / `log10`** uses a 32-entry lookup table indexed by the top 5
-  bits of the mantissa, plus a polynomial in `t = (m - center)/(m + center)`.
-  For `x` in `[15/16, 17/16]` it falls back to a direct polynomial in
-  `t = (x - 1)/(x + 1)` with no table lookup.
+- **`asin`, `acos`, `atan`, `atan2`, `asinh`, `acosh`, `atanh`** — these
+  still use the first-order derivative correction
+  `f(hi) + f'(hi) · lo` from a libm leading-limb call. Upgrading them
+  to full DD requires Newton iteration on the (now-full-DD) forward
+  function, e.g. `y_{k+1} = y_k - (sin(y_k) - x) / cos(y_k)` to invert
+  `sin`. Two iterations would suffice.
+- **`erf`, `erfc`, `erfc_scaled`, `gamma`, `log_gamma`, `bessel_*`** —
+  no clean derivative + libm trick exists; full DD versions would
+  require dedicated polynomial / continued-fraction approximations.
 
-The same approach can be applied to the trig and other families — the
-polynomial / range-reduction patterns are documented in the Julia
-sources. None of the existing infrastructure (operators, reductions,
-complex / array support) needs changes; only the per-function kernel.
+The infrastructure (operators, reductions, complex / array support,
+constructors, assignments) is already at full DD; only the per-function
+kernels for the items above remain.
 
 ## Building
 
