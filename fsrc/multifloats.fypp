@@ -489,6 +489,7 @@ module multifloats
 #:endfor
     end interface
     public :: random_number
+    public :: mf_set_fma_renorm_interval
 
     ! ================================================================
     ! Assignment (=)
@@ -568,6 +569,15 @@ module multifloats
     type(float64x2), parameter, public :: MF_SBIG   = float64x2([1.0e+50_dp,    0.0_dp])
     type(float64x2), parameter, public :: MF_RTMIN  = float64x2([1.0e-150_dp,   0.0_dp])
     type(float64x2), parameter, public :: MF_RTMAX  = float64x2([1.0e+150_dp,   0.0_dp])
+
+    ! Renormalization interval for fused multiply-accumulate reductions
+    ! (dot_product, matmul). The accumulator s_lo drifts by ~1 ulp per
+    ! iteration; renormalizing every MF_FMA_RENORM_INTERVAL steps keeps
+    ! worst-case error within ~1e-31 (full DD). Set to 0 to disable
+    ! periodic renormalization (single renorm at the end only).
+    ! The default of 8 gives near-optimal precision with negligible
+    ! overhead (~3 extra FP ops per 8 iterations = ~3% cost).
+    integer, public, protected :: MF_FMA_RENORM_INTERVAL = 8
 
     ! ================================================================
     ! Tables for full-DD exp / log (ported from MultiFloats.jl)
@@ -3093,12 +3103,14 @@ $:mf_minmax_body(func, n)
     pure function mf_dot_product(a, b) result(res)
         type(float64x2), intent(in) :: a(:), b(:)
         type(float64x2) :: res
-        ! Fused multiply-accumulate: compute each a(k)*b(k) via two_prod,
-        ! add the leading term into s_hi via two_sum, and sweep all
-        ! corrections into s_lo. Single normalization at the end.
+        ! Fused multiply-accumulate with periodic renormalization.
+        ! Every MF_FMA_RENORM_INTERVAL iterations (default 8) we
+        ! fast_two_sum the accumulator to keep s_lo bounded. Set the
+        ! interval to 0 to renormalize only at the end.
         real(dp) :: s_hi, s_lo, ah, al, bh, bl
         real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: k
+        integer :: k, ri
+        ri = MF_FMA_RENORM_INTERVAL
         s_hi = 0.0_dp
         s_lo = 0.0_dp
         do k = 1, size(a)
@@ -3112,6 +3124,10 @@ $:mf_minmax_body(func, n)
             aerr = s_hi - ap; berr = p - bp
             s_lo = s_lo + (e + cross + aerr + berr)
             s_hi = t
+            if (ri > 0 .and. mod(k, ri) == 0) then
+                t = s_hi + s_lo; bp = t - s_hi
+                s_hi = t; s_lo = s_lo - bp
+            end if
         end do
         t = s_hi + s_lo
         bp = t - s_hi
@@ -3371,11 +3387,10 @@ $:mf_minmax_body(func, n)
     pure function mf_matmul_mm(a, b) result(res)
         type(float64x2), intent(in) :: a(:,:), b(:,:)
         type(float64x2) :: res(size(a,1), size(b,2))
-        ! Fused DD multiply-accumulate — same kernel as mf_dot_product
-        ! but inlined to avoid assumed-shape descriptor overhead.
         real(dp) :: s_hi, s_lo, ah, al, bh, bl
         real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: i1, i2, k, n
+        integer :: i1, i2, k, n, ri
+        ri = MF_FMA_RENORM_INTERVAL
         n = size(a, 2)
         do i2 = 1, size(b,2)
             do i1 = 1, size(a,1)
@@ -3391,6 +3406,10 @@ $:mf_minmax_body(func, n)
                     aerr = s_hi - ap; berr = p - bp
                     s_lo = s_lo + (e + cross + aerr + berr)
                     s_hi = t
+                    if (ri > 0 .and. mod(k, ri) == 0) then
+                        t = s_hi + s_lo; bp = t - s_hi
+                        s_hi = t; s_lo = s_lo - bp
+                    end if
                 end do
                 t = s_hi + s_lo; bp = t - s_hi
                 res(i1,i2)%limbs(1) = t
@@ -3405,7 +3424,8 @@ $:mf_minmax_body(func, n)
         type(float64x2) :: res(size(a,1))
         real(dp) :: s_hi, s_lo, ah, al, bh, bl
         real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: i1, k, n
+        integer :: i1, k, n, ri
+        ri = MF_FMA_RENORM_INTERVAL
         n = size(a, 2)
         do i1 = 1, size(a,1)
             s_hi = 0.0_dp; s_lo = 0.0_dp
@@ -3420,6 +3440,10 @@ $:mf_minmax_body(func, n)
                 aerr = s_hi - ap; berr = p - bp
                 s_lo = s_lo + (e + cross + aerr + berr)
                 s_hi = t
+                if (ri > 0 .and. mod(k, ri) == 0) then
+                    t = s_hi + s_lo; bp = t - s_hi
+                    s_hi = t; s_lo = s_lo - bp
+                end if
             end do
             t = s_hi + s_lo; bp = t - s_hi
             res(i1)%limbs(1) = t
@@ -3433,7 +3457,8 @@ $:mf_minmax_body(func, n)
         type(float64x2) :: res(size(b,2))
         real(dp) :: s_hi, s_lo, ah, al, bh, bl
         real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: i2, k, n
+        integer :: i2, k, n, ri
+        ri = MF_FMA_RENORM_INTERVAL
         n = size(a)
         do i2 = 1, size(b,2)
             s_hi = 0.0_dp; s_lo = 0.0_dp
@@ -3448,6 +3473,10 @@ $:mf_minmax_body(func, n)
                 aerr = s_hi - ap; berr = p - bp
                 s_lo = s_lo + (e + cross + aerr + berr)
                 s_hi = t
+                if (ri > 0 .and. mod(k, ri) == 0) then
+                    t = s_hi + s_lo; bp = t - s_hi
+                    s_hi = t; s_lo = s_lo - bp
+                end if
             end do
             t = s_hi + s_lo; bp = t - s_hi
             res(i2)%limbs(1) = t
@@ -3510,6 +3539,15 @@ $:mf_minmax_body(func, n)
             res(i2) = s
         end do
     end function
+
+    ! ================================================================
+    ! Configuration
+    ! ================================================================
+
+    subroutine mf_set_fma_renorm_interval(n)
+        integer, intent(in) :: n
+        MF_FMA_RENORM_INTERVAL = n
+    end subroutine
 
     ! ================================================================
     ! random_number (impure subroutine)
