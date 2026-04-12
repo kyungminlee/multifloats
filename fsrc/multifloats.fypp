@@ -54,7 +54,7 @@
 #:set ORD_OPS = [('<', 'lt'), ('>', 'gt'), ('<=', 'le'), ('>=', 'ge')]
 
 #! Unary math function tables
-#:set UNARY_MF_MF = ['abs', 'sqrt', 'sin', 'cos', 'tan', 'exp', 'log', 'log10', 'atan', 'asin', 'acos', 'aint', 'anint', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1', 'fraction', 'rrspacing', 'spacing', 'epsilon', 'huge', 'tiny']
+#:set UNARY_MF_MF = ['abs', 'sqrt', 'sin', 'cos', 'tan', 'sinpi', 'cospi', 'exp', 'log', 'log10', 'atan', 'asin', 'acos', 'aint', 'anint', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1', 'fraction', 'rrspacing', 'spacing', 'epsilon', 'huge', 'tiny']
 #:set UNARY_CX_CX = ['sqrt', 'sin', 'cos', 'tan', 'exp', 'log', 'atan', 'asin', 'acos', 'conjg', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh']
 #:set UNARY_CX_MF = ['abs', 'aimag']
 #:set ALL_UNARY = sorted(set(UNARY_MF_MF + UNARY_CX_CX + UNARY_CX_MF))
@@ -2125,6 +2125,10 @@ contains
         res = dd_sin_full(x)
 #:elif func == 'cos'
         res = dd_cos_full(x)
+#:elif func == 'sinpi'
+        res = dd_sinpi_full(x)
+#:elif func == 'cospi'
+        res = dd_cospi_full(x)
 #:elif func == 'tan'
         res = dd_tan_full(x)
 #:elif func == 'sinh'

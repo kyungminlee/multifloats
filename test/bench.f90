@@ -686,6 +686,34 @@ contains
 
     call tick(t0)
     do r = 1, REPS_TRIG
+      do i = 1, N; qres(i) = sin(qsmall(i) * acos(-1.0_qp)); end do
+      call qfeed(qsmall)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; fres(i) = sinpi(fsmall(i)); end do
+      call ffeed(fsmall)
+    end do
+    tf = elapsed(t0)
+    call report("sinpi", n_ops, tq, tf)
+
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; qres(i) = cos(qsmall(i) * acos(-1.0_qp)); end do
+      call qfeed(qsmall)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; fres(i) = cospi(fsmall(i)); end do
+      call ffeed(fsmall)
+    end do
+    tf = elapsed(t0)
+    call report("cospi", n_ops, tq, tf)
+
+    call tick(t0)
+    do r = 1, REPS_TRIG
       do i = 1, N; qres(i) = tan(qbnd(i)); end do
       call qfeed(qbnd)
     end do
