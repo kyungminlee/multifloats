@@ -664,8 +664,9 @@ module multifloats
          5.439604524201502e-17_dp,  4.274898271281587e-17_dp ]
 
     ! 1/pi as a 2-limb DD (used to convert sin(x) to sinpi(x/pi)).
-    real(dp), parameter :: inv_pi_hi = 0.3183098861837907_dp
-    real(dp), parameter :: inv_pi_lo = -1.9678676675182486e-17_dp
+    real(dp), parameter :: inv_pi_hi  = 0.3183098861837907_dp
+    real(dp), parameter :: inv_pi_lo  = -1.9678676675182486e-17_dp
+    real(dp), parameter :: inv_pi_lo2 = -1.0721436282893004e-33_dp
 
     ! sinpi polynomial: sinpi(x) = x * sum coefs[n]*x^(2n-2) for n=1..15.
     ! coefs[n] = -(-1)^n * pi^(2n-1) / (2n-1)!
@@ -1513,29 +1514,44 @@ contains
         end select
     end function
 
-    ! sin(x) = sinpi(x / pi); cos(x) = cospi(x / pi). Multiplying by the
-    ! 2-limb 1/pi constant keeps the reduced argument accurate to ~106
-    ! bits as long as |x| stays well inside dp range (Payne-Hanek-style
-    ! reduction would be needed for very large arguments).
+    ! Compute x / pi using a 3-part 1/pi constant (~161 bits). The extra
+    ! 55 bits vs the 2-part DD constant ensure that the reduced argument
+    ! retains full DD precision for |x| up to ~1e15. The third part
+    ! (inv_pi_lo2) contributes ~1e-33 * x, which is below DD epsilon for
+    ! |x| < ~1e2 but matters for larger |x|.
+    elemental function dd_mul_inv_pi(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        real(dp) :: p1, e1, p2, e2, p3, s, t, bp
+        ! x_hi * inv_pi_hi — the dominant term
+        p1 = x%limbs(1) * inv_pi_hi
+        e1 = ieee_fma(x%limbs(1), inv_pi_hi, -p1)
+        ! Cross terms and lower-order products
+        p2 = x%limbs(1) * inv_pi_lo + x%limbs(2) * inv_pi_hi
+        p3 = x%limbs(1) * inv_pi_lo2 + x%limbs(2) * inv_pi_lo
+        ! Combine: p1 + (e1 + p2 + p3) via two_sum
+        s = e1 + p2 + p3
+        t = p1 + s; bp = t - p1
+        res%limbs(1) = t
+        res%limbs(2) = s - bp
+    end function
+
     elemental function dd_sin_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, inv_pi
-        inv_pi%limbs = [inv_pi_hi, inv_pi_lo]
-        res = dd_sinpi_full(x * inv_pi)
+        type(float64x2) :: res
+        res = dd_sinpi_full(dd_mul_inv_pi(x))
     end function
 
     elemental function dd_cos_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, inv_pi
-        inv_pi%limbs = [inv_pi_hi, inv_pi_lo]
-        res = dd_cospi_full(x * inv_pi)
+        type(float64x2) :: res
+        res = dd_cospi_full(dd_mul_inv_pi(x))
     end function
 
     elemental function dd_tan_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, ipi, y, s, c
-        ipi%limbs = [inv_pi_hi, inv_pi_lo]
-        y = x * ipi
+        type(float64x2) :: res, y, s, c
+        y = dd_mul_inv_pi(x)
         s = dd_sinpi_full(y)
         c = dd_cospi_full(y)
         res = s / c
