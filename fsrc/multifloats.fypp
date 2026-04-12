@@ -674,33 +674,40 @@ module multifloats
     real(dp), parameter :: pi_half_cw3 = -1.4973849048591698e-33_dp
 
     ! sin(x)/x Taylor coefficients as DD pairs: c(k) = (-1)^k / (2k+1)!
-    ! 10 terms cover |x| <= pi/4 to ~2^-115 (well below DD epsilon).
-    real(dp), parameter :: sin_taylor_hi(10) = [ &
+    ! 13 terms cover |x| <= pi/8 to ~2^-115 (well below DD epsilon). 10
+    ! terms leave a truncation error of ~1e-24 at x² ≈ (π/8)² ≈ 0.154,
+    ! which propagates through the Newton steps in asin/acos/atan and
+    ! pushes their fuzz max_rel to ~1e-27 on x86-64 libm seeds.
+    real(dp), parameter :: sin_taylor_hi(13) = [ &
         1.0_dp, -0.16666666666666666_dp, 0.008333333333333333_dp, &
         -0.0001984126984126984_dp, 2.7557319223985893e-06_dp, &
         -2.505210838544172e-08_dp, 1.6059043836821613e-10_dp, &
         -7.647163731819816e-13_dp, 2.8114572543455206e-15_dp, &
-        -8.22063524662433e-18_dp]
-    real(dp), parameter :: sin_taylor_lo(10) = [ &
+        -8.22063524662433e-18_dp, 1.9572941063391263e-20_dp, &
+        -3.868170170630684e-23_dp, 6.446950284384474e-26_dp]
+    real(dp), parameter :: sin_taylor_lo(13) = [ &
         0.0_dp, -9.25185853854297e-18_dp, 1.1564823173178714e-19_dp, &
         -1.7209558293420705e-22_dp, -1.858393274046472e-22_dp, &
         1.448814070935912e-24_dp, 1.2585294588752098e-26_dp, &
         -7.03872877733453e-30_dp, 1.6508842730861433e-31_dp, &
-        -2.2141894119604265e-34_dp]
+        -2.2141894119604265e-34_dp, -1.3643503830087908e-36_dp, &
+        8.843177655482344e-40_dp, -1.9330404233703465e-42_dp]
 
     ! cos(x) Taylor coefficients as DD pairs: c(k) = (-1)^k / (2k)!
-    real(dp), parameter :: cos_taylor_hi(10) = [ &
+    real(dp), parameter :: cos_taylor_hi(13) = [ &
         1.0_dp, -0.5_dp, 0.041666666666666664_dp, &
         -0.001388888888888889_dp, 2.48015873015873e-05_dp, &
         -2.755731922398589e-07_dp, 2.08767569878681e-09_dp, &
         -1.1470745597729725e-11_dp, 4.779477332387385e-14_dp, &
-        -1.5619206968586225e-16_dp]
-    real(dp), parameter :: cos_taylor_lo(10) = [ &
+        -1.5619206968586225e-16_dp, 4.110317623312165e-19_dp, &
+        -8.896791392450574e-22_dp, 1.6117375710961184e-24_dp]
+    real(dp), parameter :: cos_taylor_lo(13) = [ &
         0.0_dp, 0.0_dp, 2.3129646346357427e-18_dp, &
         5.300543954373577e-20_dp, 2.1511947866775882e-23_dp, &
         -2.3767714622250297e-23_dp, -1.20734505911326e-25_dp, &
         -2.0655512752830745e-28_dp, 4.399205485834081e-31_dp, &
-        -1.1910679660273754e-32_dp]
+        -1.1910679660273754e-32_dp, 1.4412973378659527e-36_dp, &
+        7.911402614872376e-38_dp, -3.6846573564509766e-41_dp]
 
     ! sinpi polynomial: sinpi(x) = x * sum coefs[n]*x^(2n-2) for n=1..15.
     ! coefs[n] = -(-1)^n * pi^(2n-1) / (2n-1)!
