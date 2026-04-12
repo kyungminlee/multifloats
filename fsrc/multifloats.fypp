@@ -2777,9 +2777,14 @@ contains
                     res = x - dd_trunc(x / y) * y
                 else
                     ! Small gap: floor-multiple reduction (no DD divide).
+                    ! Use aint (returns real) rather than floor (returns
+                    ! default integer, which overflows for q > 2^31 and
+                    ! saturates negative — forcing the slow one-at-a-time
+                    ! subtract path to loop ~r/ay times). r and ay are
+                    ! positive here so aint == floor.
                     r = ax
                     do while (r >= ay)
-                        q = floor(r%limbs(1) / ay%limbs(1))
+                        q = aint(r%limbs(1) / ay%limbs(1))
                         if (q <= 1.0_dp) then
                             r = r - ay
                         else
