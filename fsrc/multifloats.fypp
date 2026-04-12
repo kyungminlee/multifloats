@@ -2452,18 +2452,40 @@ contains
     elemental function dd_trunc(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
-        real(dp) :: t1, t2, s, b
-        t1 = aint(x%limbs(1))
-        t2 = aint(x%limbs(2))
-        s = t1 + t2
-        b = s - t1
-        res%limbs(1) = s
-        res%limbs(2) = t2 - b
-        if (x%limbs(1) >= 0.0_dp) then
-            if (res > x) res = res - MF_ONE
-        else
-            if (res < x) res = res + MF_ONE
+        real(dp) :: x_hi, x_lo, t_hi, frac_hi, s, bp, n
+        real(dp) :: t1, t2
+        x_hi = x%limbs(1)
+        x_lo = x%limbs(2)
+        if (abs(x_hi) >= 4503599627370496.0_dp) then  ! 2^52
+            ! Large values: original algorithm (hi already integer,
+            ! need two-limb result + correction).
+            t1 = aint(x_hi)
+            t2 = aint(x_lo)
+            s = t1 + t2; bp = s - t1
+            res%limbs(1) = s
+            res%limbs(2) = t2 - bp
+            if (x_hi >= 0.0_dp) then
+                if (res > x) res = res - MF_ONE
+            else
+                if (res < x) res = res + MF_ONE
+            end if
+            return
         end if
+        ! Fast path: truncate hi, compute DD fractional part, adjust.
+        t_hi = aint(x_hi)
+        frac_hi = x_hi - t_hi       ! exact
+        s = frac_hi + x_lo          ! total fractional part
+        ! Adjust if lo limb pushed past an integer boundary.
+        n = 0.0_dp
+        if (x_hi >= 0.0_dp) then
+            if (s >= 1.0_dp) n = 1.0_dp
+            if (s < 0.0_dp) n = -1.0_dp
+        else
+            if (s <= -1.0_dp) n = -1.0_dp
+            if (s > 0.0_dp) n = 1.0_dp
+        end if
+        res%limbs(1) = t_hi + n
+        res%limbs(2) = 0.0_dp
     end function
 
     elemental function dd_floor(x) result(res)
@@ -2488,11 +2510,37 @@ contains
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
         ! Round half away from zero, matching Fortran nint / anint.
-        if (x%limbs(1) >= 0.0_dp) then
-            res = dd_floor(x + MF_HALF)
-        else
-            res = dd_ceil(x - MF_HALF)
+        ! Fast scalar path for |hi| < 2^52: truncate hi, compute the
+        ! DD fractional part via two_sum, and test against ±0.5. All
+        ! scalar dp operations — no DD operator calls.
+        real(dp) :: x_hi, x_lo, t_hi, frac_hi, s, bp, frac_lo, n
+        x_hi = x%limbs(1)
+        x_lo = x%limbs(2)
+        if (abs(x_hi) >= 4503599627370496.0_dp) then  ! 2^52
+            ! Large or special values: existing correct path.
+            if (x_hi >= 0.0_dp) then
+                res = dd_floor(x + MF_HALF)
+            else
+                res = dd_ceil(x - MF_HALF)
+            end if
+            return
         end if
+        ! Truncate hi to integer; frac_hi = x_hi - t_hi is exact.
+        t_hi = aint(x_hi)
+        frac_hi = x_hi - t_hi
+        ! DD sum of (frac_hi, x_lo) via two_sum → (s, frac_lo).
+        s = frac_hi + x_lo
+        bp = s - frac_hi
+        frac_lo = x_lo - bp
+        ! Decide rounding: +1, -1, or 0.
+        n = 0.0_dp
+        if (s > 0.5_dp .or. (s == 0.5_dp .and. frac_lo >= 0.0_dp)) then
+            n = 1.0_dp
+        else if (s < -0.5_dp .or. (s == -0.5_dp .and. frac_lo <= 0.0_dp)) then
+            n = -1.0_dp
+        end if
+        res%limbs(1) = t_hi + n
+        res%limbs(2) = 0.0_dp
     end function
 
     ! ================================================================
