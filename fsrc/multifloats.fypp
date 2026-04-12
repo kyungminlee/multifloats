@@ -2583,14 +2583,14 @@ contains
             end if
         end block
 #:elif func == 'mod'
-        ! Shift-and-subtract remainder: repeatedly subtract the largest
-        ! power-of-2-scaled |y| that fits into r, removing the leading
-        ! quotient bits each iteration. No DD divide needed. O(exp_diff)
-        ! iterations — fast for small quotients, falls back to the
-        ! divide-based path for exponent differences > 64.
+        ! Iterative reduction: for large exponent gaps, reduce by
+        ! floor(r / shifted_y) * shifted_y to close the gap by ~50 bits
+        ! per iteration. For small gaps, use floor(r / y) * y directly.
+        ! Adapted from external/float64x2-sample.cpp.
         block
             logical :: x_neg
             type(float64x2) :: ax, ay, r, sy
+            real(dp) :: q
             integer :: ex, ey, diff
             x_neg = (x%limbs(1) < 0.0_dp)
             if (x_neg) then
@@ -2606,32 +2606,36 @@ contains
             if (ax < ay) then
                 res = x
             else
-                ex = exponent(ax%limbs(1))
+                r = ax
                 ey = exponent(ay%limbs(1))
-                diff = ex - ey
-                if (diff > 64) then
-                    ! Large exponent gap: fall back to divide-based path
-                    res = x - dd_trunc(x / y) * y
-                else
-                    r = ax
-                    do while (r >= ay)
-                        ex = exponent(r%limbs(1))
-                        diff = ex - ey
-                        sy%limbs(1) = scale(ay%limbs(1), diff)
-                        sy%limbs(2) = scale(ay%limbs(2), diff)
-                        if (sy > r) then
-                            sy%limbs(1) = scale(ay%limbs(1), diff - 1)
-                            sy%limbs(2) = scale(ay%limbs(2), diff - 1)
-                        end if
-                        r = r - sy
-                        if (r%limbs(1) == 0.0_dp) exit
-                    end do
-                    if (x_neg) then
-                        res%limbs(1) = -r%limbs(1)
-                        res%limbs(2) = -r%limbs(2)
+                do while (r >= ay)
+                    ex = exponent(r%limbs(1))
+                    diff = ex - ey
+                    if (diff > 50) then
+                        ! Large gap: scale y up, reduce by floor multiple.
+                        ! Use mf_mul_dp (DD × dp) to avoid mf_from_dp overhead.
+                        sy%limbs(1) = scale(ay%limbs(1), diff - 50)
+                        sy%limbs(2) = scale(ay%limbs(2), diff - 50)
+                        q = floor(r%limbs(1) / sy%limbs(1))
+                        r = r - mf_mul_dp(sy, q)
                     else
-                        res = r
+                        ! Small gap: reduce by floor(r/y) * y directly.
+                        q = floor(r%limbs(1) / ay%limbs(1))
+                        if (q <= 1.0_dp) then
+                            r = r - ay
+                        else
+                            r = r - mf_mul_dp(ay, q)
+                        end if
                     end if
+                    ! Fix if rounding made r slightly negative
+                    if (r%limbs(1) < 0.0_dp) r = r + ay
+                    if (r%limbs(1) == 0.0_dp .and. r%limbs(2) == 0.0_dp) exit
+                end do
+                if (x_neg) then
+                    res%limbs(1) = -r%limbs(1)
+                    res%limbs(2) = -r%limbs(2)
+                else
+                    res = r
                 end if
             end if
         end block
