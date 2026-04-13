@@ -130,9 +130,9 @@ static void update_stat(char const *op, double rel) {
 // =============================================================================
 
 // Full-DD tier: kernels that should deliver ~106 bits of precision end-to-end.
-// exp/log/trig/hyperbolic/pow hit full DD via the native polynomial kernels.
-// fmod is excluded because its large-quotient subtraction loses precision
-// through catastrophic cancellation once |x/y| grows.
+// exp/log/trig/hyperbolic/pow/tgamma/lgamma hit full DD via the native
+// polynomial kernels. fmod is excluded because its large-quotient subtraction
+// loses precision through catastrophic cancellation once |x/y| grows.
 static bool is_full_dd(char const *op) {
   static char const *kList[] = {
       "add", "sub", "mul", "div", "sqrt", "abs", "neg",
@@ -142,6 +142,7 @@ static bool is_full_dd(char const *op) {
       "sin", "cos", "tan",
       "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
       "asin", "acos", "atan", "atan2",
+      "tgamma", "lgamma",
       nullptr};
   for (int i = 0; kList[i]; ++i) {
     if (std::strcmp(kList[i], op) == 0) {

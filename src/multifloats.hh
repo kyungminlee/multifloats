@@ -1520,6 +1520,171 @@ inline MFD2 lgamma_full(MFD2 const &x) {
 
 } // namespace gamma_v1
 
+// Route 2: native DD Stirling asymptotic, reflection, and shift recurrence.
+// No dependency on libm's tgamma/lgamma — every operation is carried out
+// in double-double arithmetic so the full 106-bit result is achievable.
+//
+//   log Γ(x) = (x - 1/2)·log(x) - x + (1/2)·log(2π)
+//              + Σ_{k=1..13} c_k / x^{2k-1}
+// where c_k = B_{2k} / (2k·(2k-1)). With a shift target of x ≥ 25 the
+// k=13 remainder is ~c_13/x^25 ≈ 2e-32 — comfortably below full DD.
+//
+// Small-x paths: reflection for x < 1/2, upward shift recurrence
+// otherwise, accumulating the product x·(x+1)·...·(x+N-1) in DD and
+// subtracting a single dd_log_full(prod).
+namespace gamma_v2 {
+
+// Stirling coefficients c_k = B_{2k}/(2k(2k-1)) for k = 1..13, stored as
+// DD hi+lo pairs. Generated from rationals via __float128.
+inline constexpr double stirling_coefs_hi[13] = {
+    +8.33333333333333287074e-02, -2.77777777777777788379e-03,
+    +7.93650793650793650105e-04, -5.95238095238095291789e-04,
+    +8.41750841750841713972e-04, -1.91752691752691763367e-03,
+    +6.41025641025641003401e-03, -2.95506535947712423162e-02,
+    +1.79644372368830573805e-01, -1.39243221690590113226e+00,
+    +1.34028640441683926099e+01, -1.56848284626002026698e+02,
+    +2.19310333333333346673e+03,
+};
+inline constexpr double stirling_coefs_lo[13] = {
+    +4.62592926927148532831e-18, +1.06010879087471541181e-19,
+    +6.88382331736828211471e-22, +5.36938218754726023755e-20,
+    +3.68701748892376935626e-20, +1.06757027768724749406e-19,
+    +2.22400445638052171838e-19, +4.86176095750885530679e-19,
+    -6.40160048271094579913e-19, +1.58370569892303026653e-17,
+    -6.15411410199396641453e-16, +9.39182314171538894503e-15,
+    -1.33392556260029475567e-13,
+};
+inline constexpr double half_log_2pi_hi = +9.18938533204672780563e-01;
+inline constexpr double half_log_2pi_lo = -3.87829415806724144983e-17;
+inline constexpr double log_pi_hi       = +1.14472988584940016388e+00;
+inline constexpr double log_pi_lo       = +1.02659511627078263800e-17;
+inline constexpr double pi_dd_hi        = 3.141592653589793;
+inline constexpr double pi_dd_lo        = 1.2246467991473532e-16;
+
+// Evaluate the Stirling series for log Γ(x). Assumes x is well into the
+// asymptotic range (x ≥ ~20) — callers shift first.
+inline MFD2 lgamma_stirling(MFD2 const &x) {
+  MFD2 inv_x = MFD2(1.0) / x;
+  MFD2 inv_x2 = inv_x * inv_x;
+  MFD2 poly =
+      dd_horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13);
+  MFD2 corr = poly * inv_x;
+  MFD2 logx = dd_log_full(x);
+  MFD2 xm_half = x - MFD2(0.5);
+  return xm_half * logx - x +
+         dd_pair(half_log_2pi_hi, half_log_2pi_lo) + corr;
+}
+
+// Helper: shift x up to y = x+N so y._limbs[0] ≥ 25, then evaluate
+// Stirling(y) − log(x·(x+1)·...·(x+N−1)). Assumes x._limbs[0] ≥ 0.5.
+inline MFD2 lgamma_stirling_shift(MFD2 const &x) {
+  constexpr double shift_target = 25.0;
+  MFD2 y = x;
+  MFD2 prod = MFD2(1.0);
+  bool any = false;
+  while (y._limbs[0] < shift_target) {
+    prod = prod * y;
+    y = y + MFD2(1.0);
+    any = true;
+  }
+  MFD2 stir = lgamma_stirling(y);
+  if (!any) return stir;
+  return stir - dd_log_full(prod);
+}
+
+inline MFD2 lgamma_full(MFD2 const &x) {
+  MFD2 r;
+  double hi = x._limbs[0];
+  if (std::isnan(hi)) {
+    r._limbs[0] = hi;
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  if (!std::isfinite(hi)) {
+    r._limbs[0] = std::numeric_limits<double>::infinity();
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  // Non-positive integer pole (only exactly, i.e. lo == 0).
+  if (hi <= 0.0 && hi == std::nearbyint(hi) && x._limbs[1] == 0.0) {
+    r._limbs[0] = std::numeric_limits<double>::infinity();
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  if (hi < 0.5) {
+    // Reflection: log|Γ(x)| = log π - log|sin(πx)| - log|Γ(1-x)|
+    MFD2 s = dd_sinpi_full(x);
+    if (s._limbs[0] < 0.0) {
+      s._limbs[0] = -s._limbs[0];
+      s._limbs[1] = -s._limbs[1];
+    }
+    MFD2 one_minus_x = MFD2(1.0) - x;
+    MFD2 lgam_1mx = lgamma_stirling_shift(one_minus_x);
+    return dd_pair(log_pi_hi, log_pi_lo) - dd_log_full(s) - lgam_1mx;
+  }
+  return lgamma_stirling_shift(x);
+}
+
+inline MFD2 tgamma_full(MFD2 const &x) {
+  MFD2 r;
+  double hi = x._limbs[0];
+  if (std::isnan(hi)) {
+    r._limbs[0] = hi;
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  if (!std::isfinite(hi)) {
+    if (hi > 0.0) {
+      r._limbs[0] = hi;
+      r._limbs[1] = 0.0;
+      return r;
+    }
+    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  if (hi <= 0.0 && hi == std::nearbyint(hi) && x._limbs[1] == 0.0) {
+    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  // Overflow: Γ(171.625) ≈ 2^1024. Beyond that the result overflows.
+  if (hi > 171.624) {
+    r._limbs[0] = std::numeric_limits<double>::infinity();
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  if (hi < 0.5) {
+    // Reflection: Γ(x) = π / (sin(πx) · Γ(1-x))
+    // For very negative x, Γ(1-x) overflows and the result underflows; let
+    // the DD division produce the underflowed / signed zero.
+    MFD2 s = dd_sinpi_full(x);
+    MFD2 one_minus_x = MFD2(1.0) - x;
+    // Use lgamma path for the (1-x) branch so we avoid a double tgamma
+    // recursion and keep the large factor inside a log.
+    MFD2 lg = lgamma_stirling_shift(one_minus_x);
+    // Γ(1-x) = exp(lg). sin(πx) may be negative → track sign separately.
+    bool neg = s._limbs[0] < 0.0;
+    if (neg) {
+      s._limbs[0] = -s._limbs[0];
+      s._limbs[1] = -s._limbs[1];
+    }
+    // π / (s · exp(lg)) = exp(log(π) − log(s) − lg); use the first form.
+    MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
+    MFD2 g1mx = dd_exp_full(lg);
+    MFD2 out = pi_dd / (s * g1mx);
+    if (neg) {
+      out._limbs[0] = -out._limbs[0];
+      out._limbs[1] = -out._limbs[1];
+    }
+    return out;
+  }
+  // Moderate positive: Γ(x) = exp(Stirling(y)) / prod, where y = x + N.
+  return dd_exp_full(lgamma_stirling_shift(x));
+}
+
+} // namespace gamma_v2
+
 } // namespace detail
 
 // =============================================================================
@@ -1939,7 +2104,7 @@ MultiFloat<T, N> erfc(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> tgamma(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::gamma_v1::tgamma_full(x);
+    return detail::gamma_v2::tgamma_full(x);
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = std::tgamma(x._limbs[0]);
@@ -1950,7 +2115,7 @@ MultiFloat<T, N> tgamma(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> lgamma(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::gamma_v1::lgamma_full(x);
+    return detail::gamma_v2::lgamma_full(x);
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = std::lgamma(x._limbs[0]);

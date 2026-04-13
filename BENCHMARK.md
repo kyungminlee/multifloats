@@ -212,9 +212,11 @@ independent fixes landed together: stale `exp2_coefs` / `log2_narrow` /
 `dd_tanh_full` was rewritten to use the cancellation-free
 `(1 − em2)/(1 + em2)` form; and `dd_sin_full` / `dd_cos_full` /
 `dd_tan_full` now run 3-part Cody–Waite π/2 reduction with direct
-sin/cos Taylor kernels rather than `sinpi(x · inv_pi)`. Remaining gaps
-are tgamma / lgamma (libm seed, no DD correction) and erf / erfc
-(tracked separately).
+sin/cos Taylor kernels rather than `sinpi(x · inv_pi)`. A subsequent
+rewrite of tgamma / lgamma around a native DD Stirling kernel
+(`detail::gamma_v2`) eliminated the libm-seed floor for the gamma
+family. erf / erfc remain at their deriv-corrected tier and are
+tracked separately.
 
 M1 Max err values marked with a dagger (†) were measured with an older
 bench.cc that had per-op input drift and should be remeasured on M1 Max
@@ -300,8 +302,8 @@ fuzz/bench split.
 |---|---|---|---|---|---|---|
 | erf | original: Taylor series (\|x\|<2) + libm erf(hi) deriv correction | 4.2e-18 | 3.8e-18 | **5.4×** | **5.7×** | **7.4×** |
 | erfc | original: 1−erf(x), or libm erfc(hi) for large x | 3.7e-15 | 3.9e-15 | **4.6×** | **5.5×** | **14×** |
-| tgamma | original: libm tgamma(hi) · (1 + ψ(hi)·lo), hand-rolled digamma | 3.2e-14 | 3.5e-16 | **130×** | **59×** | **72×** |
-| lgamma | original: libm lgamma(hi) + ψ(hi)·lo, hand-rolled digamma | 4.4e-15 | 2.7e-16 | **67×** | **46×** | **27×** |
+| tgamma | original: native DD Stirling + shift recurrence + reflection, exp(lgamma) | 3.2e-14† | 7.3e-30 | **130×**† | **59×**† | **5.2×** |
+| lgamma | original: native DD Stirling + shift recurrence + reflection | 4.4e-15† | 2.9e-28 | **67×**† | **46×**† | **1.5×** |
 
 ## Notes
 
@@ -347,15 +349,19 @@ fuzz/bench split.
   full DD precision on these functions, a polynomial or series expansion
   would be required (at significant implementation cost and reduced speedup).
 
-- **tgamma / lgamma** in C++ are derivative-corrected around a libm seed
-  via a hand-rolled double-precision digamma (Stirling asymptotic for
-  x ≥ 12 + upward recurrence + reflection). That floors the precision
-  at ~1 dp ulp of the libm call (~3e-16 for tgamma, ~3e-16 for lgamma) —
-  a 100× improvement over the uncorrected path, but still short of full
-  DD because `std::tgamma(hi)` itself is only dp-accurate. A full DD
-  Stirling kernel (route 2) is the only way to reach ~1e-30; the current
-  implementation lives in `detail::gamma_v1` so route 2 can land alongside
-  it for benchmarking.
+- **tgamma / lgamma** in C++ use a native double-double Stirling kernel
+  (`detail::gamma_v2`). `lgamma` evaluates the 13-term Stirling
+  asymptotic `(x−½)·log x − x + ½·log(2π) + Σ B_{2k}/(2k(2k−1)·x^{2k−1})`
+  in DD, after shifting the argument up to x ≥ 25 via a product
+  accumulator so a single `dd_log(prod)` absorbs the recurrence. Small
+  arguments (x < 0.5) use the reflection `log Γ(x) = log π − log|sin(πx)|
+  − log Γ(1−x)`. `tgamma` derives from `exp(lgamma)`, with
+  `π/(sin(πx)·Γ(1−x))` for negative x. Both deliver full DD precision
+  (max\_rel ~7e-30 / ~3e-28 on the 1M fuzz). The earlier route-1
+  `detail::gamma_v1` (libm seed + DD digamma correction) is kept in the
+  header so route 1 vs route 2 can still be compared head-to-head — it
+  runs somewhat faster but is capped at ~1e-16 by `std::tgamma(hi)`'s
+  own dp accuracy.
 
 - **Newton-corrected** functions (asin, acos, atan, atan2) compute a libm
   seed `f(hi)` and refine with one Newton step using the DD-accurate inverse
