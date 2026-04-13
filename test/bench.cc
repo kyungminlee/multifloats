@@ -71,27 +71,33 @@ static MF2 to_mf2(q_t v) {
 static void init_data() {
   std::mt19937_64 rng(42ULL);
   std::uniform_real_distribution<double> u(0.0, 1.0);
+  std::uniform_real_distribution<double> udd(-1.0, 1.0);
+
+  // Build a genuine double-double from a leading double `hi` plus a random
+  // perturbation at ~1 ULP of hi.  This gives a non-zero lo limb so that
+  // precision measurements exercise the full DD path, matching the Fortran
+  // fuzz test which also generates inputs with non-trivial lo limbs.
+  auto make_dd = [&](double hi) -> std::pair<q_t, MF2> {
+    double lo = hi * std::ldexp(udd(rng), -52);
+    q_t v = (q_t)hi + (q_t)lo;
+    return {v, to_mf2(v)};
+  };
+
+  // General arithmetic inputs in (-10, 10), nonzero (avoid div-by-0).
+  auto away = [](double x) {
+    return (x - 0.5) * 8.0 + (x >= 0.5 ? 0.25 : -0.25);
+  };
+
   for (int i = 0; i < N; ++i) {
     double r1 = u(rng), r2 = u(rng), r3 = u(rng);
-    // General arithmetic inputs in (-10, 10), nonzero (avoid div-by-0).
-    auto away = [](double x) {
-      return (x - 0.5) * 8.0 + (x >= 0.5 ? 0.25 : -0.25);
-    };
-    q1[i]    = (q_t)away(r1);
-    q2[i]    = (q_t)away(r2);
+    auto [qv1, fv1] = make_dd(away(r1));    q1[i] = qv1;     f1[i] = fv1;
+    auto [qv2, fv2] = make_dd(away(r2));    q2[i] = qv2;     f2[i] = fv2;
     // Positive in (0.1, 10) for log / sqrt / pow base / tgamma.
-    qpos[i]  = (q_t)(0.1 + 9.9 * r1);
+    auto [qvp, fvp] = make_dd(0.1 + 9.9 * r1);  qpos[i] = qvp; fpos[i] = fvp;
     // Small in (-3, 3) for trig / hyperbolic.
-    qsmall[i] = (q_t)((r2 - 0.5) * 6.0);
+    auto [qvs, fvs] = make_dd((r2 - 0.5) * 6.0); qsmall[i] = qvs; fsmall[i] = fvs;
     // Bounded in (-0.9, 0.9) for asin / acos / atanh / pow exponent.
-    qbnd[i]  = (q_t)((r3 - 0.5) * 1.8);
-  }
-  for (int i = 0; i < N; ++i) {
-    f1[i]    = to_mf2(q1[i]);
-    f2[i]    = to_mf2(q2[i]);
-    fpos[i]  = to_mf2(qpos[i]);
-    fsmall[i] = to_mf2(qsmall[i]);
-    fbnd[i]  = to_mf2(qbnd[i]);
+    auto [qvb, fvb] = make_dd((r3 - 0.5) * 1.8); qbnd[i] = qvb; fbnd[i] = fvb;
   }
 }
 
