@@ -300,8 +300,8 @@ fuzz/bench split.
 |---|---|---|---|---|---|---|
 | erf | original: Taylor series (\|x\|<2) + libm erf(hi) deriv correction | 4.2e-18 | 3.8e-18 | **5.4×** | **5.7×** | **7.4×** |
 | erfc | original: 1−erf(x), or libm erfc(hi) for large x | 3.7e-15 | 3.9e-15 | **4.6×** | **5.5×** | **14×** |
-| tgamma | original: libm tgamma(hi), no lo correction | 3.2e-14 | 3.2e-14 | **130×** | **59×** | **96×** |
-| lgamma | original: libm lgamma(hi), no lo correction | 4.4e-15 | 4.4e-15 | **67×** | **46×** | **66×** |
+| tgamma | original: libm tgamma(hi) · (1 + ψ(hi)·lo), hand-rolled digamma | 3.2e-14 | 3.5e-16 | **130×** | **59×** | **72×** |
+| lgamma | original: libm lgamma(hi) + ψ(hi)·lo, hand-rolled digamma | 4.4e-15 | 2.7e-16 | **67×** | **46×** | **27×** |
 
 ## Notes
 
@@ -340,12 +340,22 @@ fuzz/bench split.
   in [−1, 1]. All three fixes are in both the Fortran and C++ codebases
   and benefit both platforms.
 
-- **Single-double precision** functions (gamma, bessel, erfc\_scaled, etc.)
+- **Single-double precision** functions (bessel, erfc\_scaled, etc.)
   achieve 40–198× speedup by evaluating `f(hi)` via the leading-limb libm
   intrinsic without a lo-limb correction. This gives `double`-level accuracy
   (~15 digits) rather than full DD (~31 digits). For applications needing
   full DD precision on these functions, a polynomial or series expansion
   would be required (at significant implementation cost and reduced speedup).
+
+- **tgamma / lgamma** in C++ are derivative-corrected around a libm seed
+  via a hand-rolled double-precision digamma (Stirling asymptotic for
+  x ≥ 12 + upward recurrence + reflection). That floors the precision
+  at ~1 dp ulp of the libm call (~3e-16 for tgamma, ~3e-16 for lgamma) —
+  a 100× improvement over the uncorrected path, but still short of full
+  DD because `std::tgamma(hi)` itself is only dp-accurate. A full DD
+  Stirling kernel (route 2) is the only way to reach ~1e-30; the current
+  implementation lives in `detail::gamma_v1` so route 2 can land alongside
+  it for benchmarking.
 
 - **Newton-corrected** functions (asin, acos, atan, atan2) compute a libm
   seed `f(hi)` and refine with one Newton step using the DD-accurate inverse

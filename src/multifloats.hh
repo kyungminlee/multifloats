@@ -1429,6 +1429,97 @@ inline MFD2 dd_erfc_full(MFD2 const &x) {
   return MFD2(1.0) - dd_erf_full(x);
 }
 
+// ---- tgamma / lgamma -------------------------------------------------------
+// Route 1: derivative correction via a double-precision digamma.
+//     tgamma(hi + lo) ≈ tgamma(hi) · (1 + ψ(hi) · lo)
+//     lgamma(hi + lo) ≈ lgamma(hi) + ψ(hi) · lo
+// The leading-limb libm call + DD correction gives ~106 bits of precision
+// as long as ψ(hi) is good to ~1e-16 — which it is for the Stirling
+// asymptotic + recurrence + reflection pipeline below.
+//
+// This lives in its own sub-namespace so a future full-DD Stirling
+// implementation (route 2) can coexist and be benchmarked head-to-head.
+namespace gamma_v1 {
+
+// Double-precision digamma ψ(x) = d/dx ln Γ(x).
+//   - x ≥ 12: 6-term Stirling asymptotic in 1/x² reaches ~6e-17 relative.
+//   - 0 < x < 12: upward recurrence ψ(x) = ψ(x+1) − 1/x shifts into the
+//     asymptotic range, accumulating the correction sum as we go.
+//   - x < 0.5: reflection ψ(x) = ψ(1−x) − π·cot(π·x).
+// Near non-positive integer poles, tgamma/lgamma themselves return
+// inf/NaN, so the correction never runs there; we still guard `sin(πx)=0`.
+inline double digamma_dp(double x) {
+  if (x < 0.5) {
+    double s = std::sin(M_PI * x);
+    if (s == 0.0) return std::numeric_limits<double>::quiet_NaN();
+    double c = std::cos(M_PI * x);
+    return digamma_dp(1.0 - x) - M_PI * (c / s);
+  }
+  double result = 0.0;
+  while (x < 12.0) {
+    result -= 1.0 / x;
+    x += 1.0;
+  }
+  double inv_x = 1.0 / x;
+  double inv_x2 = inv_x * inv_x;
+  // Coefficients B_{2k}/(2k) for k=1..6:
+  //   1/12, -1/120, 1/252, -1/240, 1/132, -691/32760
+  // Series: -Σ c_k · inv_x^{2k}  (Horner on inv_x2, outermost negation
+  //         folds into the final subtraction).
+  constexpr double c1 =  1.0 / 12.0;
+  constexpr double c2 = -1.0 / 120.0;
+  constexpr double c3 =  1.0 / 252.0;
+  constexpr double c4 = -1.0 / 240.0;
+  constexpr double c5 =  1.0 / 132.0;
+  constexpr double c6 = -691.0 / 32760.0;
+  double asymp = inv_x2 *
+                 (c1 + inv_x2 *
+                           (c2 + inv_x2 *
+                                     (c3 + inv_x2 *
+                                               (c4 + inv_x2 *
+                                                         (c5 + inv_x2 * c6)))));
+  result += std::log(x) - 0.5 * inv_x - asymp;
+  return result;
+}
+
+inline MFD2 tgamma_full(MFD2 const &x) {
+  double fhi = std::tgamma(x._limbs[0]);
+  if (!std::isfinite(fhi) || !std::isfinite(x._limbs[0])) {
+    MFD2 r;
+    r._limbs[0] = fhi;
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  double psi = digamma_dp(x._limbs[0]);
+  double corr = fhi * psi * x._limbs[1];
+  double s = fhi + corr;
+  double bp = s - fhi;
+  MFD2 r;
+  r._limbs[0] = s;
+  r._limbs[1] = corr - bp;
+  return r;
+}
+
+inline MFD2 lgamma_full(MFD2 const &x) {
+  double fhi = std::lgamma(x._limbs[0]);
+  if (!std::isfinite(fhi) || !std::isfinite(x._limbs[0])) {
+    MFD2 r;
+    r._limbs[0] = fhi;
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  double psi = digamma_dp(x._limbs[0]);
+  double corr = psi * x._limbs[1];
+  double s = fhi + corr;
+  double bp = s - fhi;
+  MFD2 r;
+  r._limbs[0] = s;
+  r._limbs[1] = corr - bp;
+  return r;
+}
+
+} // namespace gamma_v1
+
 } // namespace detail
 
 // =============================================================================
@@ -1847,18 +1938,24 @@ MultiFloat<T, N> erfc(MultiFloat<T, N> const &x) {
 
 template <typename T, std::size_t N>
 MultiFloat<T, N> tgamma(MultiFloat<T, N> const &x) {
-  // No std::digamma in <cmath>, so the N == 2 case falls back to a
-  // leading-limb evaluation (single-double precision).
-  MultiFloat<T, N> r;
-  r._limbs[0] = std::tgamma(x._limbs[0]);
-  return r;
+  if constexpr (N == 2 && std::is_same_v<T, double>) {
+    return detail::gamma_v1::tgamma_full(x);
+  } else {
+    MultiFloat<T, N> r;
+    r._limbs[0] = std::tgamma(x._limbs[0]);
+    return r;
+  }
 }
 
 template <typename T, std::size_t N>
 MultiFloat<T, N> lgamma(MultiFloat<T, N> const &x) {
-  MultiFloat<T, N> r;
-  r._limbs[0] = std::lgamma(x._limbs[0]);
-  return r;
+  if constexpr (N == 2 && std::is_same_v<T, double>) {
+    return detail::gamma_v1::lgamma_full(x);
+  } else {
+    MultiFloat<T, N> r;
+    r._limbs[0] = std::lgamma(x._limbs[0]);
+    return r;
+  }
 }
 
 // =============================================================================
