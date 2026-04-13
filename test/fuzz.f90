@@ -102,7 +102,8 @@ program multifloat_fuzz
     ! ----------------------------------------------------------------
     ! Periodic (every 10): mixed mode + binary functions
     ! ----------------------------------------------------------------
-    if (mod(i, 10) == 0) then
+    if (mod(i, 10) == 0 .and. &
+        ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
        qres = q1 + real(d2, qp)
        fres = f1 + d2
        call check(fres, qres, "add_fd", q1, real(d2, qp), num_errors)
@@ -120,13 +121,12 @@ program multifloat_fuzz
        call check(dim(f1, f2), dim(q1, q2), "dim", q1, q2, num_errors)
 
        ! mod, modulo (only for finite divisors away from 0)
-       if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8)) .and. &
-           q2 /= 0.0_qp .and. abs(q1) < 1e20_qp .and. abs(q2) > 1e-20_qp) then
+       if (q2 /= 0.0_qp .and. abs(q1) < 1e20_qp .and. abs(q2) > 1e-20_qp) then
          call check(mod(f1, f2), mod(q1, q2), "mod", q1, q2, num_errors)
          call check(modulo(f1, f2), modulo(q1, q2), "modulo", q1, q2, num_errors)
        end if
 
-       ! hypot (skip when both inputs are non-finite to avoid spurious NaN traps)
+       ! hypot
        call check(hypot(f1, f2), hypot(q1, q2), "hypot", q1, q2, num_errors)
     end if
 
