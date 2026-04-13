@@ -39,47 +39,49 @@ add_custom_command(
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fsrc/multifloats.fypp
     VERBATIM)
 
-add_library(multifloat-fortran OBJECT ${MULTIFLOATS_GENERATED_SRC})
-set_target_properties(multifloat-fortran PROPERTIES
+add_library(multifloatsf STATIC ${MULTIFLOATS_GENERATED_SRC})
+set_target_properties(multifloatsf PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/modules)
-target_include_directories(multifloat-fortran PUBLIC
+target_include_directories(multifloatsf PUBLIC
     ${CMAKE_BINARY_DIR}/modules
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
-# Enable LTO for the Fortran path so the small DD kernels (mf_add_mf,
-# mf_mul_mf, mf_sqrt, ...) actually inline into call sites in other
-# translation units. On macOS, LTO fails through .a archives (ar strips
-# GIMPLE sections from Mach-O objects), so multifloat-fortran is an
-# OBJECT library instead of STATIC — the .o file is linked directly.
+# Fat LTO: embed both GIMPLE IR and native code in .o files so that
+# ar preserves LTO information in .a archives (unlike plain -flto,
+# which macOS ar would strip). Consumers linking with -flto get
+# cross-TU inlining; consumers without -flto get normal native code.
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
-    target_compile_options(multifloat-fortran PUBLIC -flto)
-    target_link_options(multifloat-fortran PUBLIC -flto)
+    target_compile_options(multifloatsf PUBLIC -flto -ffat-lto-objects)
+    target_link_options(multifloatsf PUBLIC -flto)
 endif()
 
 add_executable(fortran_precision ./test/precision.f90)
-target_link_libraries(fortran_precision PRIVATE multifloat-fortran)
+target_link_libraries(fortran_precision PRIVATE multifloatsf)
 add_test(NAME fortran_precision COMMAND fortran_precision)
 
 add_library(blas-multifloat
     ./blas/wgemm.f90
     ./blas/wtrsm.f90)
-target_link_libraries(blas-multifloat PRIVATE multifloat-fortran)
+target_link_libraries(blas-multifloat PRIVATE multifloatsf)
 
 add_executable(fortran_fuzz ./test/fuzz.f90)
-target_link_libraries(fortran_fuzz PRIVATE multifloat-fortran)
+target_link_libraries(fortran_fuzz PRIVATE multifloatsf)
 add_test(NAME fortran_fuzz COMMAND fortran_fuzz)
 
 add_executable(fortran_test ./test/test.f90)
-target_link_libraries(fortran_test PRIVATE multifloat-fortran)
+target_link_libraries(fortran_test PRIVATE multifloatsf)
 add_test(NAME fortran_test COMMAND fortran_test)
 
 add_executable(fortran_bench ./test/bench.f90)
-target_link_libraries(fortran_bench PRIVATE multifloat-fortran)
+target_link_libraries(fortran_bench PRIVATE multifloatsf)
 
 # DD math kernel implementations (separated from the header-only template
 # library so that the large function bodies are compiled once).
 add_library(multifloats STATIC ./src/multifloats_math.cc)
 target_include_directories(multifloats PRIVATE src)
 target_compile_options(multifloats PRIVATE -O3)
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
+    target_compile_options(multifloats PRIVATE -flto -ffat-lto-objects)
+endif()
 
 # C++ tests for src/multifloats.hh — use __float128 / libquadmath as a
 # high-precision reference (provided by GCC, not Apple Clang).
@@ -106,7 +108,7 @@ target_compile_options(multifloat-c PRIVATE -O3)
 target_link_libraries(multifloat-c PRIVATE multifloats)
 
 add_executable(fortran_bench_c ./test/bench_c.f90)
-target_link_libraries(fortran_bench_c PRIVATE multifloat-fortran multifloat-c)
+target_link_libraries(fortran_bench_c PRIVATE multifloatsf multifloat-c)
 
 add_library(dd-bindc OBJECT ./test/dd_bindc.f90)
 target_compile_options(dd-bindc PRIVATE -O3)
@@ -114,4 +116,4 @@ set_target_properties(dd-bindc PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/modules)
 
 add_executable(fortran_bench_abi ./test/bench_abi.f90)
-target_link_libraries(fortran_bench_abi PRIVATE multifloat-fortran multifloat-c dd-bindc)
+target_link_libraries(fortran_bench_abi PRIVATE multifloatsf multifloat-c dd-bindc)
