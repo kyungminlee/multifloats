@@ -204,12 +204,16 @@ mirror the Fortran split (`fortran_fuzz` / `fortran_bench`):
   init-before-each-leg reset so drain feedback cannot drift the inputs
   between the qp and mf legs.
 
-**Precision gap flag.** The exp / log / sinh / cosh / tanh / asinh /
-atanh / tgamma / lgamma / pow family achieves ~1e-15 to ~1e-19 in C++
-vs ~1e-30 in Fortran despite identical algorithm names. These ops use
-derivative correction around a libm seed in the C++ headers; the
-Fortran module has full-DD polynomial kernels for the same functions.
-This is flagged for investigation, not a measurement artifact.
+**Precision parity with Fortran.** The C++ header now hits full DD on
+exp / log / pow and the whole hyperbolic family. Earlier measurements
+showed ~1e-15 to ~1e-19 for these ops; the root cause was stale
+`exp2_coefs` / `log2_narrow` / `log2_wide` polynomial tables in
+`src/multifloats.hh` that had drifted from the Fortran reference, plus
+a cancelling `1 − 2/(e^(2|x|)+1)` tanh formulation. Fixing both recovers
+full DD uniformly. Remaining gaps: tgamma / lgamma still run off the
+libm seed, and sin/cos/tan still reduce argument via a DD `inv_pi`
+rather than Cody–Waite, so both trig and erf/erfc are tracked
+separately.
 
 M1 Max err values marked with a dagger (†) were measured with an older
 bench.cc that had per-op input drift and should be remeasured on M1 Max
@@ -257,14 +261,14 @@ fuzz/bench split.
 
 | op | approach | M1 Max err | Raptor Lake err | M1 Max × | Skylake × | Raptor Lake × |
 |---|---|---|---|---|---|---|
-| exp | Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction | 8.9e-19 | 8.9e-19 | **3.0×** | **2.7×** | **3.9×** |
+| exp | Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction | 8.9e-19 | 4.9e-30 | **3.0×** | **2.7×** | **3.9×** |
 | exp2 | Julia: exp2 polynomial (14-term Horner) | 8.9e-19 | (not measured) | **3.3×** | **3.1×** | **4.2×** |
 | expm1 | original: exp(x) − 1 via DD sub | 3.0e-18 | (not measured) | **4.3×** | **3.3×** | **4.2×** |
-| log | Julia: log2 table lookup (32 centers) + polynomial (7-term Horner) | 1.9e-16 | 1.9e-16 | **4.5×** | **4.0×** | **5.1×** |
-| log10 | Julia: log2 kernel × DD log10(2) | 1.9e-16 | 1.9e-16 | **6.0×** | **5.1×** | **6.1×** |
+| log | Julia: log2 table lookup (32 centers) + polynomial (7-term Horner) | 1.9e-16 | 3.0e-32 | **4.5×** | **4.0×** | **5.1×** |
+| log10 | Julia: log2 kernel × DD log10(2) | 1.9e-16 | 3.0e-32 | **6.0×** | **5.1×** | **6.1×** |
 | log2 | Julia: log2 table lookup + polynomial | 1.9e-16 | (not measured) | **5.6×** | **4.7×** | **5.5×** |
 | log1p | original: log(1 + x) via DD add | 1.2e-19 | (not measured) | **4.8×** | **4.3×** | **5.8×** |
-| pow | Julia: exp(y × log(x)) | 1.1e-18 | 1.1e-18 | **4.4×** | **4.1×** | **5.2×** |
+| pow | Julia: exp(y × log(x)) | 1.1e-18 | 1.3e-30 | **4.4×** | **4.1×** | **5.2×** |
 
 ### Trigonometric
 
@@ -282,12 +286,12 @@ fuzz/bench split.
 
 | op | approach | M1 Max err | Raptor Lake err | M1 Max × | Skylake × | Raptor Lake × |
 |---|---|---|---|---|---|---|
-| sinh | original: Taylor series (\|x\|<0.1) or (exp−exp⁻¹)/2 | 9.4e-19 | 9.4e-19 | **2.2×** | 1.9× | **2.3×** |
-| cosh | original: (exp+exp⁻¹)/2 | 8.8e-19 | 8.8e-19 | 1.7× | 1.5× | **2.1×** |
-| tanh | original: sinh/cosh (\|x\|<0.5) or (1−e⁻²ˣ)/(1+e⁻²ˣ) | 7.2e-18 | 7.2e-18 | **2.4×** | **2.2×** | 1.8× |
-| asinh | original: Taylor series (\|x\|<0.01) or log(x+√(x²+1)) with Newton | 2.8e-16 | 2.8e-16 | **6.1×** | **6.0×** | **8.0×** |
-| acosh | original: log(x+√(x²−1)) with Newton correction | 5.6e-20 | 5.6e-20 | **5.7×** | **5.5×** | **7.5×** |
-| atanh | original: Taylor series (\|x\|<0.01) or ½·log((1+x)/(1−x)) | 5.0e-16 | 5.0e-16 | **4.5×** | **4.4×** | **5.6×** |
+| sinh | original: Taylor series (\|x\|<0.1) or (exp−exp⁻¹)/2 | 9.4e-19 | 5.4e-30 | **2.2×** | 1.9× | **2.3×** |
+| cosh | original: (exp+exp⁻¹)/2 | 8.8e-19 | 5.4e-30 | 1.7× | 1.5× | **2.1×** |
+| tanh | original: sinh/cosh (\|x\|<0.5) or (1−e⁻²ˣ)/(1+e⁻²ˣ) | 7.2e-18 | 4.7e-31 | **2.4×** | **2.2×** | 1.8× |
+| asinh | original: Taylor series (\|x\|<0.01) or log(x+√(x²+1)) with Newton | 2.8e-16 | 1.0e-30 | **6.1×** | **6.0×** | **8.0×** |
+| acosh | original: log(x+√(x²−1)) with Newton correction | 5.6e-20 | 3.2e-32 | **5.7×** | **5.5×** | **7.5×** |
+| atanh | original: Taylor series (\|x\|<0.01) or ½·log((1+x)/(1−x)) | 5.0e-16 | 1.5e-30 | **4.5×** | **4.4×** | **5.6×** |
 
 ### Error / special functions
 
