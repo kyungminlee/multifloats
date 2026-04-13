@@ -75,21 +75,27 @@ add_test(NAME fortran_test COMMAND fortran_test)
 add_executable(fortran_bench ./test/bench.f90)
 target_link_libraries(fortran_bench PRIVATE multifloat-fortran)
 
+# DD math kernel implementations (separated from the header-only template
+# library so that the large function bodies are compiled once).
+add_library(multifloats STATIC ./src/multifloats_math.cc)
+target_include_directories(multifloats PRIVATE src)
+target_compile_options(multifloats PRIVATE -O3)
+
 # C++ tests for src/multifloats.hh — use __float128 / libquadmath as a
 # high-precision reference (provided by GCC, not Apple Clang).
 add_executable(cpp_test ./test/test.cc)
 target_compile_options(cpp_test PRIVATE -fext-numeric-literals)
-target_link_libraries(cpp_test PRIVATE quadmath)
+target_link_libraries(cpp_test PRIVATE multifloats quadmath)
 add_test(NAME cpp_test COMMAND cpp_test)
 
 add_executable(cpp_fuzz ./test/fuzz.cc)
 target_compile_options(cpp_fuzz PRIVATE -fext-numeric-literals)
-target_link_libraries(cpp_fuzz PRIVATE quadmath)
+target_link_libraries(cpp_fuzz PRIVATE multifloats quadmath)
 add_test(NAME cpp_fuzz COMMAND cpp_fuzz)
 
 add_executable(cpp_bench ./test/bench.cc)
 target_compile_options(cpp_bench PRIVATE -fext-numeric-literals)
-target_link_libraries(cpp_bench PRIVATE quadmath)
+target_link_libraries(cpp_bench PRIVATE multifloats quadmath)
 
 # C-ABI wrapper library (compiled as C++ with full inlining, exposed as
 # extern "C"). Used by bench_c to compare gfortran's derived-type ABI
@@ -97,6 +103,7 @@ target_link_libraries(cpp_bench PRIVATE quadmath)
 add_library(multifloat-c STATIC ./src/multifloats_c.cc)
 target_include_directories(multifloat-c PRIVATE src)
 target_compile_options(multifloat-c PRIVATE -O3)
+target_link_libraries(multifloat-c PRIVATE multifloats)
 
 add_executable(fortran_bench_c ./test/bench_c.f90)
 target_link_libraries(fortran_bench_c PRIVATE multifloat-fortran multifloat-c)
