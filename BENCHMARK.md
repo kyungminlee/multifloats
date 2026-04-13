@@ -8,54 +8,34 @@ to quad precision's 113 bits — at a fraction of the cost.
 
 ## Systems
 
-Two systems are benchmarked to show ARM64 vs x86-64 behaviour. Numbers
-from both are reported in separate tables further down.
+Three systems are benchmarked; short names are used as column labels
+throughout.
 
-### Apple M1 Max (ARM64)
+| Short name | CPU | OS | Compiler | Build |
+|---|---|---|---|---|
+| **M1 Max** | Apple M1 Max (ARM64, 10 cores) | macOS 26.3 (Darwin 25.3.0) | GNU Fortran / g++ 15.2.0 (Homebrew GCC 15.2.0\_1) | CMake 4.3.1, `-O3 -flto`, OBJECT library |
+| **Skylake** | Intel Xeon family 6 model 85 (Skylake-SP / Cascade Lake), 2.8 GHz, 16 cores, AVX-512 (KVM), 22 GB | Ubuntu 24.04.4 LTS | GNU Fortran / g++ 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) | CMake 3.28.3, `-O3 -flto`, OBJECT library |
+| **Raptor Lake** | Intel Core i3-1315U (Raptor Lake), 4.5 GHz boost, 6 cores / 8 threads, 16 GB | Pop!\_OS 24.04 LTS (Linux 6.17.9) | GNU Fortran / g++ 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) | CMake 3.28.3, `-O3 -flto`, OBJECT library |
 
-| | |
-|---|---|
-| **CPU** | Apple M1 Max (ARM64, 10 cores) |
-| **RAM** | 64 GB |
-| **OS** | macOS 26.3 (Darwin 25.3.0) |
-| **Fortran** | GNU Fortran (Homebrew GCC 15.2.0\_1) 15.2.0 |
-| **C++** | g++-15 (Homebrew GCC 15.2.0\_1) 15.2.0 |
-| **Build** | CMake 4.3.1, `-O3 -flto`, OBJECT library (not STATIC — macOS `ar` strips GIMPLE from Mach-O, breaking LTO through `.a` archives) |
-
-### Intel Skylake-SP (x86-64)
-
-| | |
-|---|---|
-| **CPU** | Intel Xeon, family 6 model 85 (Skylake-SP / Cascade Lake), 2.8 GHz, 16 cores, AVX-512 (KVM-virtualized) |
-| **RAM** | 22 GB |
-| **OS** | Ubuntu 24.04.4 LTS (Linux 4.4.0 kernel) |
-| **Fortran** | GNU Fortran (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0 |
-| **C++** | g++ (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0 |
-| **Build** | CMake 3.28.3, `-O3 -flto`, OBJECT library (gfortran LTO works through `.a` on Linux, but OBJECT is retained for ABI parity with the macOS build) |
-
-The speedups differ substantially between the two targets because the
-quad-precision reference (`real(16)` / `__float128`) on x86-64 uses
-gfortran's software `libquadmath`, which is 2–5× slower per operation
-than Apple's ARM64 path. That inflates the multifloats speedup numbers
-on x86-64 relative to M1 even though the DD kernel itself runs at
-similar speed on both machines.
+The x86-64 speedup numbers are generally higher than M1 for many
+operations because gfortran's software `libquadmath` on x86-64 is 2–5×
+slower per operation than Apple's ARM64 quad path, inflating the
+multifloats speedup relative to M1 even though the DD kernels themselves
+run at similar speed on all three machines.
 
 ## Precision key
 
 Precision is measured as the maximum relative error vs the quad-precision
-(`real(16)`) reference over ~1M random inputs. The "precision" column
-indicates the kernel implementation strategy:
+(`real(16)`) reference over ~1M random inputs:
 
 | Label | max\_rel | Meaning |
 |---|---|---|
-| **full DD** | ~1e-30 | Full double-double EFT kernel (~106 bits) |
+| **full DD** | ~1e-32 | Full double-double EFT kernel (~106 bits) |
 | **exact** | 0.0 | Bit-exact (no rounding involved) |
 | **deriv-corrected** | ~1e-25 to 1e-18 | `f(hi) + f'(hi)*lo` correction gives near-DD |
 | **single-double** | ~1e-16 to 1e-14 | Leading-limb libm call, no lo correction |
 
 ## Origin key
-
-Each kernel's origin and algorithm are noted in the "approach" column:
 
 | Tag | Meaning |
 |---|---|
@@ -63,476 +43,239 @@ Each kernel's origin and algorithm are noted in the "approach" column:
 | **original** | Developed for this project |
 | **sample** | Adapted from `external/float64x2-sample.cpp` |
 
-## Fortran: `float64x2` vs `real(16)` — Apple M1 Max
+## Fortran: `float64x2` vs `real(16)`
 
 Each operation is timed over 1024 elements × 400 repetitions (fast ops)
 or fewer reps (transcendentals), with a NOINLINE drain after each rep to
-prevent dead-code elimination. The "speedup" column is `qp_time / mf_time`:
-values > 1× mean multifloats is faster.
+prevent dead-code elimination. **×** = speedup (`qp_time / mf_time`,
+values > 1× mean multifloats is faster); **err** = max\_rel from the
+1M-input fuzz run; **prec** = precision label.
 
 ### Arithmetic
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| add | **1.9×** | 1.5e-32 | full DD | Julia: two\_sum EFT |
-| sub | **2.1×** | 6.2e-33 | full DD | Julia: two\_sum EFT (negate + add) |
-| mul | **8.6×** | 2.9e-32 | full DD | Julia: two\_prod EFT via FMA |
-| div | **3.1×** | 5.1e-32 | full DD | original: Newton refinement (1/y seed, one step) |
-| sqrt | **39×** | 5.5e-32 | full DD | Julia: Karp–Markstein (reciprocal sqrt seed + Newton) |
-| add (mf+dp) | **2.6×** | exact | full DD | Julia: two\_sum EFT |
-| mul (dp\*mf) | **8.9×** | 2.9e-32 | full DD | Julia: two\_prod EFT via FMA |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| add | Julia: two\_sum EFT | full DD | **1.9×** | 1.5e-32 | **3.6×** | 1.5e-32 | **4.4×** | 1.5e-32 |
+| sub | Julia: two\_sum EFT (negate + add) | full DD | **2.1×** | 6.2e-33 | **3.1×** | 6.2e-33 | **5.6×** | 6.2e-33 |
+| mul | Julia: two\_prod EFT via FMA | full DD | **8.6×** | 2.9e-32 | **5.9×** | 3.1e-32 | **6.8×** | 3.3e-32 |
+| div | original: Newton refinement (1/y seed, one step) | full DD | **3.1×** | 5.1e-32 | **3.2×** | 6.1e-32 | 1.7× | 6.2e-32 |
+| sqrt | Julia: Karp–Markstein (reciprocal sqrt seed + Newton) | full DD | **39×** | 5.5e-32 | **17×** | 5.4e-32 | **39×** | 5.7e-32 |
+| add (mf+dp) | Julia: two\_sum EFT | exact | **2.6×** | exact | **4.3×** | exact | **4.3×** | exact |
+| mul (dp\*mf) | Julia: two\_prod EFT via FMA | full DD | **8.9×** | 2.9e-32 | **6.1×** | 3.1e-32 | **7.1×** | 2.8e-32 |
 
 ### Unary
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| abs | 1.4× | exact | exact | original: sign-check + negate limbs |
-| neg | **2.2×** | exact | exact | original: negate both limbs |
-| aint | 1.6× | exact | exact | original: truncate hi, check DD fractional part |
-| anint | **2.4×** | exact | exact | original: truncate hi, DD fractional part vs ±0.5 |
-| fraction | 1.4× | exact | exact | original: scale both limbs by -exponent |
-| scale | 1.0× | exact | exact | original: ldexp on both limbs |
-| set\_exponent | 1.8× | exact | exact | original: scale + set\_exponent on hi |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| abs | original: sign-check + negate limbs | exact | 1.4× | exact | **2.4×** | exact | **2.8×** | exact |
+| neg | original: negate both limbs | exact | **2.2×** | exact | **4.4×** | exact | **5.2×** | exact |
+| aint | original: truncate hi, check DD fractional part | exact | 1.6× | exact | 1.4× | exact | 1.3× | exact |
+| anint | original: truncate hi, DD fractional part vs ±0.5 | exact | **2.4×** | exact | **2.5×** | exact | **3.5×** | exact |
+| fraction | original: scale both limbs by −exponent | exact | 1.4× | exact | 1.3× | exact | **2.4×** | exact |
+| scale | original: ldexp on both limbs | exact | 1.0× | exact | **3.5×** | exact | **5.9×** | exact |
+| set\_exponent | original: scale + set\_exponent on hi | exact | 1.8× | exact | **3.3×** | exact | **6.1×** | exact |
 
 ### Binary
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| min | **2.2×** | 6.0e-33 | full DD | original: DD comparison + select |
-| max | **2.1×** | 6.1e-33 | full DD | original: DD comparison + select |
-| min3 | **2.2×** | 5.7e-33 | full DD | original: chained min |
-| max3 | **4.3×** | 6.1e-33 | full DD | original: chained max |
-| sign | 1.2× | exact | exact | original: sign-check + negate |
-| dim | **2.8×** | 6.0e-33 | full DD | original: DD comparison, then subtract or zero |
-| hypot | **4.7×** | 8.2e-32 | full DD | original: scaled sqrt(x²+y²) |
-| mod | 0.53× | 1.9e-32 | full DD | sample: floor-multiple reduction loop; fallback to div chain for large quotients |
-| modulo | **1.3×** | 1.9e-32 | full DD | original: mod + sign adjustment |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| min | original: DD comparison + select | full DD | **2.2×** | 6.0e-33 | **4.2×** | 5.9e-33 | **4.9×** | 6.1e-33 |
+| max | original: DD comparison + select | full DD | **2.1×** | 6.1e-33 | **4.3×** | 6.0e-33 | **5.1×** | 6.1e-33 |
+| min3 | original: chained min | full DD | **2.2×** | 5.7e-33 | **6.9×** | 5.8e-33 | **3.2×** | 5.8e-33 |
+| max3 | original: chained max | full DD | **4.3×** | 6.1e-33 | **6.4×** | 5.7e-33 | **5.9×** | 5.9e-33 |
+| sign | original: sign-check + negate | exact | 1.2× | exact | **2.3×** | exact | **2.3×** | exact |
+| dim | original: DD comparison, then subtract or zero | full DD | **2.8×** | 6.0e-33 | **4.3×** | 5.9e-33 | **3.3×** | 6.1e-33 |
+| hypot | original: scaled sqrt(x²+y²) | full DD | **4.7×** | 8.2e-32 | **5.4×** | 7.2e-32 | **6.9×** | 7.7e-32 |
+| mod | sample: floor-multiple reduction loop; fallback to div chain | full DD | 0.53× | 1.9e-32 | 1.1× | 3.2e-32 | 0.84× | 2.0e-32 |
+| modulo | original: mod + sign adjustment | full DD | 1.3× | 1.9e-32 | 1.6× | 3.2e-32 | 1.5× | 2.0e-32 |
 
 ### Exponential / logarithmic
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| exp | **2.9×** | 2.5e-30 | full DD | Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction |
-| log | **5.0×** | 4.0e-32 | full DD | Julia: log2 with table lookup (32 centers) + polynomial (7-term Horner) |
-| log10 | **6.6×** | 2.9e-32 | full DD | Julia: log2 kernel × DD log10(2) |
-| pow | **4.3×** | 2.9e-30 | full DD | Julia: exp(y × log(x)) |
-| pow\_int | **16×** | 1.7e-32 | full DD | original: repeated squaring via DD mul |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| exp | Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction | full DD | **2.9×** | 2.5e-30 | **2.7×** | 2.8e-30 | **4.0×** | 3.4e-30 |
+| log | Julia: log2 table lookup (32 centers) + polynomial (7-term Horner) | full DD | **5.0×** | 4.0e-32 | **3.8×** | 3.0e-32 | **5.7×** | 3.1e-32 |
+| log10 | Julia: log2 kernel × DD log10(2) | full DD | **6.6×** | 2.9e-32 | **4.9×** | 3.4e-32 | **7.1×** | 2.9e-32 |
+| pow | Julia: exp(y × log(x)) | full DD | **4.3×** | 2.9e-30 | **4.1×** | 2.2e-30 | **5.0×** | 1.9e-30 |
+| pow\_int | original: repeated squaring via DD mul | full DD | **16×** | 1.7e-32 | **5.6×** | 2.2e-32 | **7.4×** | 2.1e-32 |
 
 ### Trigonometric
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| sin | **2.5×** | 5.3e-27 † | near-full DD † | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 reduction (DD arithmetic) + π/8 argument split |
-| cos | **2.5×** | 5.3e-27 † | near-full DD † | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 reduction (DD arithmetic) + π/8 argument split |
-| sinpi | **3.6×** | 4.9e-27 | full DD | Julia: sinpi Horner polynomial, direct (no range reduction needed) |
-| cospi | **3.6×** | 8.2e-27 | full DD | Julia: cospi Horner polynomial, direct (no range reduction needed) |
-| tan | 1.2× | 3.2e-27 † | near-full DD † | original: sin/cos Taylor kernels + DD divide |
-| asin | 1.8× | 5.7e-27 † | near-full DD † | original: Newton step on sin, seeded by libm asin(hi); limited by sin kernel precision |
-| acos | 1.9× | 3.6e-27 † | near-full DD † | original: Newton step on cos, seeded by libm acos(hi); limited by cos kernel precision |
-| atan | 1.1× | 8.2e-23 † | deriv-corrected † | original: Newton step on tan, seeded by libm atan(hi), with `atan(x)=π/2−atan(1/x)` for |x|>1 |
-| atan2 | 1.0× | 4.4e-28 † | near-full DD † | original: Newton step on atan, with quadrant correction |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| sin | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | full DD | **2.5×** | 5.3e-27 † | 1.5× | 3.8e-32 | **2.2×** | 4.2e-32 |
+| cos | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | full DD | **2.5×** | 5.3e-27 † | 1.5× | 4.2e-32 | **2.1×** | 3.6e-32 |
+| sinpi | Julia: sinpi Horner polynomial, direct | full DD | **3.6×** | 4.9e-27 | **2.8×** | 4.9e-27 | **3.9×** | 4.9e-27 |
+| cospi | Julia: cospi Horner polynomial, direct | full DD | **3.6×** | 8.2e-27 | **2.6×** | 8.2e-27 | **3.9×** | 8.2e-27 |
+| tan | original: sin/cos Taylor kernels + DD divide | full DD | 1.2× | 3.2e-27 † | 0.8× | 6.7e-32 | 1.1× | 6.2e-32 |
+| asin | original: Newton step on sin, seeded by libm asin(hi) | full DD | 1.8× | 5.7e-27 † | 1.2× | 4.3e-32 | 1.6× | 3.3e-32 |
+| acos | original: Newton step on cos, seeded by libm acos(hi) | full DD | 1.9× | 3.6e-27 † | 1.2× | 5.4e-32 | 1.6× | 1.1e-32 |
+| atan | original: Newton on tan + atan(x)=π/2·sign(x)−atan(1/x) for \|x\|>1 | full DD | 1.1× | 8.2e-23 † | 0.7× | 4.2e-32 | 0.91× | 5.5e-32 |
+| atan2 | original: Newton step on atan + quadrant correction | full DD | 1.0× | 4.4e-28 † | 0.8× | 3.0e-32 | 0.94× | 3.4e-32 |
 
-† The `max_rel` and "precision" columns for sin/cos/tan/asin/acos/atan/atan2
-were measured on Apple M1 **before** the Taylor extension and `atan`
-reciprocal-identity fixes landed. The kernels themselves have been
-updated and the x86-64 table (below) shows the post-fix precision
-(~4e-32 = full DD). The Apple M1 speedup numbers should be essentially
-unchanged (three extra Horner iterations add <1% overhead), but the
-precision figures will match the x86-64 post-fix values when the
-Apple M1 build is re-benchmarked.
+† M1 Max `err` values for sin/cos/tan/asin/acos/atan/atan2 were measured
+before the 13-term Taylor extension and `atan(x) = π/2·sign(x) − atan(1/x)`
+fix landed. Speedup values are unaffected (three extra Horner iterations add
+<1% overhead). Post-fix precision matches the x86-64 values (~4e-32 = full DD).
 
 ### Hyperbolic
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| sinh | **2.3×** | 4.6e-30 | full DD | original: Taylor series (|x|<0.1) or (exp−exp⁻¹)/2 |
-| cosh | 1.6× | 4.6e-30 | full DD | original: (exp+exp⁻¹)/2 |
-| tanh | **2.7×** | 6.6e-31 | full DD | original: sinh/cosh (|x|<0.5) or (1−e⁻²ˣ)/(1+e⁻²ˣ) |
-| asinh | **6.1×** | 4.5e-30 | full DD | original: Taylor series (|x|<0.01) or log(x+√(x²+1)) with Newton |
-| acosh | **5.6×** | 2.6e-32 | full DD | original: log(x+√(x²−1)) with Newton correction |
-| atanh | **5.1×** | 9.8e-31 | full DD | original: Taylor series (|x|<0.01) or ½ log((1+x)/(1−x)) |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| sinh | original: Taylor series (\|x\|<0.1) or (exp−exp⁻¹)/2 | full DD | **2.3×** | 4.6e-30 | 1.9× | 3.7e-30 | **2.4×** | 3.4e-30 |
+| cosh | original: (exp+exp⁻¹)/2 | full DD | 1.6× | 4.6e-30 | 1.6× | 3.7e-30 | **2.1×** | 3.4e-30 |
+| tanh | original: sinh/cosh (\|x\|<0.5) or (1−e⁻²ˣ)/(1+e⁻²ˣ) | full DD | **2.7×** | 6.6e-31 | **2.3×** | 1.2e-30 | **2.7×** | 6.7e-31 |
+| asinh | original: Taylor series (\|x\|<0.01) or log(x+√(x²+1)) with Newton | full DD | **6.1×** | 4.5e-30 | **5.8×** | 2.7e-30 | **8.7×** | 3.9e-30 |
+| acosh | original: log(x+√(x²−1)) with Newton correction | full DD | **5.6×** | 2.6e-32 | **4.9×** | 4.1e-32 | **7.1×** | 8.6e-32 |
+| atanh | original: Taylor series (\|x\|<0.01) or ½·log((1+x)/(1−x)) | full DD | **5.1×** | 9.8e-31 | **4.3×** | 1.2e-30 | **5.8×** | 8.6e-31 |
 
 ### Error / special functions
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| erf | **4.8×** | 1.4e-18 | deriv-corrected | original: Taylor series (|x|<2) + libm erf(hi) derivative correction |
-| erfc | **4.5×** | 6.0e-16 | deriv-corrected | original: 1 − erf(x), or libm erfc(hi) for large x |
-| erfc\_scaled | **162×** | 4.8e-16 | single-double | original: libm erfc\_scaled(hi), no lo correction |
-| gamma | **112×** | 1.1e-16 | single-double | original: libm gamma(hi), no lo correction |
-| log\_gamma | **68×** | 1.8e-16 | single-double | original: libm log\_gamma(hi), no lo correction |
-| bessel\_j0 | **96×** | 2.2e-15 | single-double | original: libm bessel\_j0(hi), no lo correction |
-| bessel\_j1 | **101×** | 9.1e-16 | single-double | original: libm bessel\_j1(hi), no lo correction |
-| bessel\_jn(3,.) | **104×** | 1.6e-14 | single-double | original: libm bessel\_jn(3,hi), no lo correction |
-| bessel\_y0 | **144×** | 6.7e-16 | single-double | original: libm bessel\_y0(hi), no lo correction |
-| bessel\_y1 | **145×** | 8.5e-16 | single-double | original: libm bessel\_y1(hi), no lo correction |
-| bessel\_yn(3,.) | **165×** | 4.7e-15 | single-double | original: libm bessel\_yn(3,hi), no lo correction |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| erf | original: Taylor series (\|x\|<2) + libm erf(hi) deriv correction | deriv-corrected | **4.8×** | 1.4e-18 | **5.4×** | 7.8e-19 | **8.7×** | 3.1e-19 |
+| erfc | original: 1−erf(x), or libm erfc(hi) for large x | deriv-corrected | **4.5×** | 6.0e-16 | **5.5×** | 2.5e-16 | **8.4×** | 1.7e-16 |
+| erfc\_scaled | original: libm erfc\_scaled(hi), no lo correction | single-double | **162×** | 4.8e-16 | **148×** | 5.7e-16 | **193×** | 6.3e-16 |
+| gamma | original: libm gamma(hi), no lo correction | single-double | **112×** | 1.1e-16 | **42×** | 4.1e-16 | **55×** | 3.2e-16 |
+| log\_gamma | original: libm log\_gamma(hi), no lo correction | single-double | **68×** | 1.8e-16 | **40×** | 2.1e-16 | **53×** | 2.6e-16 |
+| bessel\_j0 | original: libm bessel\_j0(hi), no lo correction | single-double | **96×** | 2.2e-15 | **68×** | 8.2e-16 | **94×** | 3.6e-16 |
+| bessel\_j1 | original: libm bessel\_j1(hi), no lo correction | single-double | **101×** | 9.1e-16 | **69×** | 1.7e-13 | **96×** | 1.9e-15 |
+| bessel\_jn(3,.) | original: libm bessel\_jn(3,hi), no lo correction | single-double | **104×** | 1.6e-14 | **67×** | 7.4e-15 | **84×** | 1.1e-14 |
+| bessel\_y0 | original: libm bessel\_y0(hi), no lo correction | single-double | **144×** | 6.7e-16 | **75×** | 4.9e-16 | **113×** | 5.0e-16 |
+| bessel\_y1 | original: libm bessel\_y1(hi), no lo correction | single-double | **145×** | 8.5e-16 | **71×** | 1.7e-15 | **47×** | 4.6e-15 |
+| bessel\_yn(3,.) | original: libm bessel\_yn(3,hi), no lo correction | single-double | **165×** | 4.7e-15 | **75×** | 1.3e-14 | **111×** | 6.7e-15 |
 
 ### Complex arithmetic
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| cx\_add | **3.4×** | 1.3e-32 | full DD | original: component-wise DD add |
-| cx\_sub | **3.5×** | 5.8e-33 | full DD | original: component-wise DD sub |
-| cx\_mul | **7.4×** | 1.9e-32 | full DD | original: (ac−bd, ad+bc) via DD ops |
-| cx\_div | **7.3×** | 4.2e-32 (re) / 6.4e-17 (im) | full DD / deriv | original: (ac+bd, bc−ad)/(c²+d²) |
-| cx\_conjg | 1.8× | exact | exact | original: negate im limbs |
-| cx\_abs | **4.0×** | 6.7e-32 | full DD | original: hypot(re, im) |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| cx\_add | original: component-wise DD add | full DD | **3.4×** | 1.3e-32 | **3.6×** | 1.3e-32 | **2.9×** | 1.5e-32 |
+| cx\_sub | original: component-wise DD sub | full DD | **3.5×** | 5.8e-33 | **3.4×** | 5.8e-33 | **2.8×** | 5.8e-33 |
+| cx\_mul | original: (ac−bd, ad+bc) via DD ops | full DD | **7.4×** | 1.9e-32 | **4.0×** | 2.0e-32 | **4.6×** | 1.9e-32 |
+| cx\_div | original: (ac+bd, bc−ad)/(c²+d²) | full DD / deriv | **7.3×** | 4.2e-32 (re) / 6.4e-17 (im) | **4.1×** | 4.6e-32 (re) / 1.1e-16 (im) | **4.3×** | 4.9e-32 (re) / 2.8e-16 (im) |
+| cx\_conjg | original: negate im limbs | exact | 1.8× | exact | **3.5×** | exact | **3.9×** | exact |
+| cx\_abs | original: hypot(re, im) | full DD | **4.0×** | 6.7e-32 | **4.9×** | 6.6e-32 | **5.9×** | 7.1e-32 |
 
 ### Complex transcendentals
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| cx\_sqrt | **5.8×** | 6.5e-32 | full DD | original: Kahan-style (|z|+|a|)/2 with scaling |
-| cx\_exp | **2.1×** | 1.0e-29 | full DD | original: exp(re)·(cos(im), sin(im)) |
-| cx\_log | **2.1×** | 3.6e-32 | full DD | original: (log(|z|), atan2(im,re)) |
-| cx\_sin | 1.9× | 1.5e-30 (re) / 9.3e-30 (im) | full DD | original: sin(re)cosh(im), cos(re)sinh(im) |
-| cx\_cos | 1.9× | 9.3e-30 (re) / 1.5e-30 (im) | full DD | original: cos(re)cosh(im), −sin(re)sinh(im) |
-| cx\_tan | 0.96× | 2.4e-30 | full DD | original: sin/cos complex |
-| cx\_sinh | **2.1×** | 1.0e-29 | full DD | original: sinh(re)cos(im), cosh(re)sin(im) |
-| cx\_cosh | **2.0×** | 1.0e-29 | full DD | original: cosh(re)cos(im), sinh(re)sin(im) |
-| cx\_tanh | 1.1× | 1.5e-30 | full DD | original: complex tanh via sinh/cosh |
-| cx\_asin | **2.5×** | 1.2e-23 (re) / 5.3e-31 (im) | deriv / full DD | original: −i·log(iz+√(1−z²)) |
-| cx\_acos | **2.5×** | 1.3e-32 (re) / 5.3e-31 (im) | full DD | original: π/2 − asin(z) |
-| cx\_atan | 1.8× | 3.9e-32 (re) / 1.3e-31 (im) | full DD | original: (i/2)·log((i+z)/(i−z)) |
-| cx\_asinh | **2.5×** | 1.4e-22 (re) / 9.3e-32 (im) | deriv / full DD | original: log(z+√(z²+1)) |
-| cx\_acosh | **2.2×** | 7.6e-31 (re) / 3.2e-32 (im) | full DD | original: log(z+√(z²−1)) |
-| cx\_atanh | **2.1×** | 9.4e-23 (re) / 3.7e-32 (im) | deriv / full DD | original: ½·log((1+z)/(1−z)) |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| cx\_sqrt | original: Kahan-style (\|z\|+\|a\|)/2 with scaling | full DD | **5.8×** | 6.5e-32 | **4.6×** | 6.4e-32 | **7.0×** | 6.3e-32 |
+| cx\_exp | original: exp(re)·(cos(im), sin(im)) | full DD | **2.1×** | 1.0e-29 | 1.5× | 7.8e-31 | **2.4×** | 1.3e-30 |
+| cx\_log | original: (log(\|z\|), atan2(im,re)) | full DD | **2.1×** | 3.6e-32 | 1.8× | 2.0e-29 (re) / 2.8e-32 (im) | **2.5×** | 4.2e-32 |
+| cx\_sin | original: sin(re)cosh(im), cos(re)sinh(im) | full DD | 1.9× | 1.5e-30 (re) / 9.3e-30 (im) | 1.4× | 4.9e-31 | **2.0×** | 8.5e-31 |
+| cx\_cos | original: cos(re)cosh(im), −sin(re)sinh(im) | full DD | 1.9× | 9.3e-30 (re) / 1.5e-30 (im) | 1.4× | 4.9e-31 | **2.0×** | 8.5e-31 |
+| cx\_tan | original: complex sin/cos ratio | full DD | 0.96× | 2.4e-30 | 0.7× | 3.1e-30 | 1.0× | 2.3e-30 |
+| cx\_sinh | original: sinh(re)cos(im), cosh(re)sin(im) | full DD | **2.1×** | 1.0e-29 | 1.5× | 1.2e-30 | **2.0×** | 1.4e-30 |
+| cx\_cosh | original: cosh(re)cos(im), sinh(re)sin(im) | full DD | **2.0×** | 1.0e-29 | 1.5× | 1.2e-30 | **2.0×** | 1.4e-30 |
+| cx\_tanh | original: complex tanh via sinh/cosh | full DD | 1.1× | 1.5e-30 | 0.8× | 1.1e-30 | 1.1× | 4.2e-30 |
+| cx\_asin | original: −i·log(iz+√(1−z²)) | deriv / full DD | **2.5×** | 1.2e-23 (re) / 5.3e-31 (im) | **2.4×** | 2.8e-23 (re) / 8.4e-31 (im) | **3.2×** | 4.0e-23 (re) / 1.0e-30 (im) |
+| cx\_acos | original: π/2 − asin(z) | full DD | **2.5×** | 1.3e-32 (re) / 5.3e-31 (im) | **2.4×** | 2.9e-32 (re) / 8.4e-31 (im) | **3.0×** | 3.8e-32 (re) / 1.0e-30 (im) |
+| cx\_atan | original: (i/2)·log((i+z)/(i−z)) | full DD | 1.8× | 3.9e-32 (re) / 1.3e-31 (im) | 1.4× | 3.8e-32 (re) / 4.8e-31 (im) | 1.8× | 2.1e-31 |
+| cx\_asinh | original: log(z+√(z²+1)) | deriv / full DD | **2.5×** | 1.4e-22 (re) / 9.3e-32 (im) | **2.2×** | 6.7e-22 (re) / 6.6e-32 (im) | **2.9×** | 1.3e-22 (re) / 7.3e-32 (im) |
+| cx\_acosh | original: log(z+√(z²−1)) | full DD | **2.2×** | 7.6e-31 (re) / 3.2e-32 (im) | **2.0×** | 7.2e-31 (re) / 2.9e-32 (im) | **2.6×** | 1.7e-30 (re) / 1.7e-32 (im) |
+| cx\_atanh | original: ½·log((1+z)/(1−z)) | deriv / full DD | **2.1×** | 9.4e-23 (re) / 3.7e-32 (im) | 1.5× | 7.2e-23 (re) / 6.7e-32 (im) | 1.9× | 1.5e-22 (re) / 4.5e-32 (im) |
 
 ### Array reductions
 
-| op | speedup | max\_rel | precision | approach |
-|---|---|---|---|---|
-| arr\_sum (n=8) | 1.2× | 2.3e-31 | full DD | original: chained DD add |
-| arr\_product (n=8) | **3.4×** | 1.1e-53 | full DD | original: chained DD mul |
-| arr\_maxval (n=8) | **4.6×** | 5.6e-33 | full DD | original: chained DD compare |
-| arr\_minval (n=8) | **4.5×** | 5.6e-33 | full DD | original: chained DD compare |
-| arr\_dot (n=8) | **5.0×** | 2.1e-31 | full DD | original: fused multiply-accumulate with periodic renormalization |
-| arr\_norm2 (n=8) | **5.6×** | 5.4e-32 | full DD | original: sqrt(dot(x,x)) |
-| arr\_matmul (8×8\*8) | **2.1×** | 1.9e-30 | full DD | original: fused multiply-accumulate with periodic renormalization |
+| op | approach | prec | M1 Max × | M1 Max err | Skylake × | Skylake err | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|---|---|
+| arr\_sum (n=8) | original: chained DD add | full DD | 1.2× | 2.3e-31 | 1.4× | 2.5e-31 | **2.1×** | 5.5e-31 |
+| arr\_product (n=8) | original: chained DD mul | full DD | **3.4×** | 1.1e-53 | **2.2×** | 4.3e-49 | **3.0×** | 5.8e-54 |
+| arr\_maxval (n=8) | original: chained DD compare | full DD | **4.6×** | 5.6e-33 | **5.8×** | 6.1e-33 | **7.2×** | 6.1e-33 |
+| arr\_minval (n=8) | original: chained DD compare | full DD | **4.5×** | 5.6e-33 | **5.2×** | 6.0e-33 | **5.5×** | 6.0e-33 |
+| arr\_dot (n=8) | original: fused multiply-accumulate with periodic renormalization | full DD | **5.0×** | 2.1e-31 | **4.6×** | 1.0e-31 | **6.3×** | 1.1e-30 |
+| arr\_norm2 (n=8) | original: sqrt(dot(x,x)) | full DD | **5.6×** | 5.4e-32 | **6.8×** | 6.4e-32 | **5.7×** | 5.8e-32 |
+| arr\_matmul (8×8\*8) | original: fused multiply-accumulate with periodic renormalization | full DD | **2.1×** | 1.9e-30 | 0.8× | 8.8e-30 | 0.96× | 2.0e-29 |
 
-## C++: `MultiFloat<double,2>` vs `__float128` — Apple M1 Max
+## C++: `MultiFloat<double,2>` vs `__float128`
 
 Header-only — all kernels inline into the call site. No LTO needed.
-Precision characteristics are the same as the Fortran version (same
-algorithms), so only speedup is shown.
+Precision characteristics are identical to the Fortran version (same
+algorithms); see the Fortran tables for `max_rel` and `prec` of
+corresponding operations. Only speedup is shown per system.
 
 ### Arithmetic
 
-| op | speedup |
-|---|---|
-| add | **3.0×** |
-| sub | **4.4×** |
-| mul | **11×** |
-| div | **3.9×** |
-| sqrt | **61×** |
-| cbrt | **43×** |
-| fma | **98×** |
-| abs | **2.1×** |
-| neg | **2.1×** |
+| op | approach | M1 Max × | Skylake × | Raptor Lake × |
+|---|---|---|---|---|
+| add | Julia: two\_sum EFT | **3.0×** | **4.1×** | **2.8×** |
+| sub | Julia: two\_sum EFT (negate + add) | **4.4×** | **4.2×** | **7.2×** |
+| mul | Julia: two\_prod EFT via FMA | **11×** | **7.7×** | **7.2×** |
+| div | original: Newton refinement (1/y seed, one step) | **3.9×** | **2.6×** | 1.3× |
+| sqrt | Julia: Karp–Markstein (reciprocal sqrt seed + Newton) | **61×** | **29×** | **56×** |
+| cbrt | original: Newton correction on cbrt(hi) seed | **43×** | **13×** | **16×** |
+| fma | original: x\*y + z via DD ops | **98×** | **69×** | **133×** |
+| abs | original: sign-check + negate limbs | **2.1×** | **5.1×** | **5.8×** |
+| neg | original: negate both limbs | **2.1×** | **3.6×** | **3.9×** |
 
 ### Rounding
 
-| op | speedup |
-|---|---|
-| floor | **2.9×** |
-| ceil | **3.2×** |
-| trunc | **2.6×** |
-| round | 1.0× |
-| rint | **11×** |
-| nearbyint | **34×** |
+| op | approach | M1 Max × | Skylake × | Raptor Lake × |
+|---|---|---|---|---|
+| floor | original: floor hi, adjust lo | **2.9×** | **4.2×** | **6.1×** |
+| ceil | original: ceil hi, adjust lo | **3.2×** | **3.9×** | **5.5×** |
+| trunc | original: signbit ? −floor(−x) : floor(x) | **2.6×** | **3.2×** | **4.5×** |
+| round | original: trunc(x + ½·sign(x)) | 1.0× | 1.0× | 1.1× |
+| rint | original: nearbyint on hi, adjust lo | **11×** | **11×** | **19×** |
+| nearbyint | original: nearbyint on hi, adjust lo | **34×** | **65×** | **138×** |
 
 ### Binary
 
-| op | speedup |
-|---|---|
-| fmin | **5.2×** |
-| fmax | **5.4×** |
-| fdim | **6.5×** |
-| copysign | 1.9× |
-| fmod | 0.66× |
-| hypot | **42×** |
-| ldexp(.,5) | **2.1×** |
+| op | approach | M1 Max × | Skylake × | Raptor Lake × |
+|---|---|---|---|---|
+| fmin | original: DD comparison + select | **5.2×** | **9.8×** | **9.9×** |
+| fmax | original: DD comparison + select | **5.4×** | **13×** | **10×** |
+| fdim | original: DD comparison, then subtract or zero | **6.5×** | **6.9×** | **8.4×** |
+| copysign | original: sign-bit copy to hi, propagate to lo | 1.9× | **5.2×** | **7.2×** |
+| fmod | sample: floor-multiple reduction loop; fallback to div chain | 0.66× | 0.76× | 0.82× |
+| hypot | original: scaled sqrt(x²+y²) | **42×** | **20×** | **38×** |
+| ldexp(.,5) | original: ldexp on both limbs | **2.1×** | **2.4×** | **4.1×** |
 
 ### Exponential / logarithmic
 
-| op | speedup |
-|---|---|
-| exp | **3.1×** |
-| exp2 | **3.6×** |
-| expm1 | **4.6×** |
-| log | **5.0×** |
-| log10 | **6.7×** |
-| log2 | **6.2×** |
-| log1p | **5.5×** |
-| pow | **4.5×** |
+| op | approach | M1 Max × | Skylake × | Raptor Lake × |
+|---|---|---|---|---|
+| exp | Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction | **3.1×** | **2.7×** | **3.9×** |
+| exp2 | Julia: exp2 polynomial (14-term Horner) | **3.6×** | **3.1×** | **4.2×** |
+| expm1 | original: exp(x) − 1 via DD sub | **4.6×** | **3.3×** | **3.9×** |
+| log | Julia: log2 table lookup (32 centers) + polynomial (7-term Horner) | **5.0×** | **4.0×** | **5.1×** |
+| log10 | Julia: log2 kernel × DD log10(2) | **6.7×** | **5.1×** | **6.9×** |
+| log2 | Julia: log2 table lookup + polynomial | **6.2×** | **4.7×** | **6.5×** |
+| log1p | original: log(1 + x) via DD add | **5.5×** | **4.3×** | **4.8×** |
+| pow | Julia: exp(y × log(x)) | **4.5×** | **4.1×** | **4.9×** |
 
 ### Trigonometric
 
-| op | speedup |
-|---|---|
-| sin | **3.2×** |
-| cos | **3.1×** |
-| tan | 1.4× |
-| asin | **2.1×** |
-| acos | **2.1×** |
-| atan | 1.3× |
-| atan2 | 1.1× |
+| op | approach | M1 Max × | Skylake × | Raptor Lake × |
+|---|---|---|---|---|
+| sin | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | **3.2×** | **2.3×** | **3.0×** |
+| cos | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | **3.1×** | **2.3×** | **3.1×** |
+| tan | original: sin/cos Taylor kernels + DD divide | 1.4× | 1.1× | 1.3× |
+| asin | original: Newton step on sin, seeded by libm asin(hi) | **2.1×** | 1.7× | **2.2×** |
+| acos | original: Newton step on cos, seeded by libm acos(hi) | **2.1×** | 1.7× | **2.3×** |
+| atan | original: Newton on tan + atan(x)=π/2·sign(x)−atan(1/x) for \|x\|>1 | 1.3× | 1.0× | 1.2× |
+| atan2 | original: Newton step on atan + quadrant correction | 1.1× | 1.1× | 1.2× |
 
 ### Hyperbolic
 
-| op | speedup |
-|---|---|
-| sinh | **2.6×** |
-| cosh | 1.8× |
-| tanh | **2.8×** |
-| asinh | **6.9×** |
-| acosh | **6.3×** |
-| atanh | **5.4×** |
+| op | approach | M1 Max × | Skylake × | Raptor Lake × |
+|---|---|---|---|---|
+| sinh | original: Taylor series (\|x\|<0.1) or (exp−exp⁻¹)/2 | **2.6×** | 1.9× | **2.3×** |
+| cosh | original: (exp+exp⁻¹)/2 | 1.8× | 1.5× | **2.1×** |
+| tanh | original: sinh/cosh (\|x\|<0.5) or (1−e⁻²ˣ)/(1+e⁻²ˣ) | **2.8×** | **2.2×** | **2.7×** |
+| asinh | original: Taylor series (\|x\|<0.01) or log(x+√(x²+1)) with Newton | **6.9×** | **6.0×** | **8.3×** |
+| acosh | original: log(x+√(x²−1)) with Newton correction | **6.3×** | **5.5×** | **7.6×** |
+| atanh | original: Taylor series (\|x\|<0.01) or ½·log((1+x)/(1−x)) | **5.4×** | **4.4×** | **5.5×** |
 
 ### Error / special functions
 
-| op | speedup |
-|---|---|
-| erf | **5.0×** |
-| erfc | **5.2×** |
-| tgamma | **105×** |
-| lgamma | **71×** |
-
-## Fortran: `float64x2` vs `real(16)` — Intel Skylake-SP (x86-64)
-
-Same harness as the Apple M1 run (1024 elements × 400 reps). The
-`max_rel` column is from the `fortran_fuzz` 1M-input precision report
-on the same build. Where Apple M1 and x86-64 max\_rel diverge, it's
-typically because the libm seed for the Newton-corrected functions
-(asin/acos/atan/atan2) has different precision between Apple's Accelerate
-framework and glibc.
-
-### Arithmetic
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| add | **3.6×** | 1.5e-32 | full DD |
-| sub | **3.1×** | 6.2e-33 | full DD |
-| mul | **5.9×** | 3.1e-32 | full DD |
-| div | **3.2×** | 6.1e-32 | full DD |
-| sqrt | **17×** | 5.4e-32 | full DD |
-| add (mf+dp) | **4.3×** | exact | full DD |
-| mul (dp\*mf) | **6.1×** | 3.1e-32 | full DD |
-
-### Unary
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| abs | **2.4×** | exact | exact |
-| neg | **4.4×** | exact | exact |
-| aint | 1.4× | exact | exact |
-| anint | **2.5×** | exact | exact |
-| fraction | 1.3× | exact | exact |
-| scale | **3.5×** | exact | exact |
-| set\_exponent | **3.3×** | exact | exact |
-
-### Binary
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| min | **4.2×** | 5.9e-33 | full DD |
-| max | **4.3×** | 6.0e-33 | full DD |
-| min3 | **6.9×** | 5.8e-33 | full DD |
-| max3 | **6.4×** | 5.7e-33 | full DD |
-| sign | **2.3×** | exact | exact |
-| dim | **4.3×** | 5.9e-33 | full DD |
-| hypot | **5.4×** | 7.2e-32 | full DD |
-| mod | 1.1× | 3.2e-32 | full DD |
-| modulo | **1.6×** | 3.2e-32 | full DD |
-
-### Exponential / logarithmic
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| exp | **2.7×** | 2.8e-30 | full DD |
-| log | **3.8×** | 3.0e-32 | full DD |
-| log10 | **4.9×** | 3.4e-32 | full DD |
-| pow | **4.1×** | 2.2e-30 | full DD |
-| pow\_int | **5.6×** | 2.2e-32 | full DD |
-
-### Trigonometric
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| sin | **1.5×** | 3.8e-32 | full DD |
-| cos | **1.5×** | 4.2e-32 | full DD |
-| sinpi | **2.8×** | 4.9e-27 | full DD |
-| cospi | **2.6×** | 8.2e-27 | full DD |
-| tan | 0.8× | 6.7e-32 | full DD |
-| asin | 1.2× | 4.3e-32 | full DD |
-| acos | 1.2× | 5.4e-32 | full DD |
-| atan | 0.7× | 4.2e-32 | full DD |
-| atan2 | 0.8× | 3.0e-32 | full DD |
-
-The Fortran trig `max_rel` values are at the DD floor (~5e-32) thanks
-to the 13-term Taylor kernels and the `atan(x) = π/2 - atan(1/x)`
-identity for |x| > 1 (both landed on this branch, see git log). The
-earlier 10-term kernels bottomed out at ~1e-27 on this x86-64 build
-because gfortran's x86-64 libm `sin`/`cos`/`atan` seeds have slightly
-different precision characteristics than Apple's Accelerate.
-
-### Hyperbolic
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| sinh | **1.9×** | 3.7e-30 | full DD |
-| cosh | **1.6×** | 3.7e-30 | full DD |
-| tanh | **2.3×** | 1.2e-30 | full DD |
-| asinh | **5.8×** | 2.7e-30 | full DD |
-| acosh | **4.9×** | 4.1e-32 | full DD |
-| atanh | **4.3×** | 1.2e-30 | full DD |
-
-### Error / special functions
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| erf | **5.4×** | 7.8e-19 | deriv-corrected |
-| erfc | **5.5×** | 2.5e-16 | deriv-corrected |
-| erfc\_scaled | **148×** | 5.7e-16 | single-double |
-| gamma | **42×** | 4.1e-16 | single-double |
-| log\_gamma | **40×** | 2.1e-16 | single-double |
-| bessel\_j0 | **68×** | 8.2e-16 | single-double |
-| bessel\_j1 | **69×** | 1.7e-13 | single-double |
-| bessel\_jn(3,.) | **67×** | 7.4e-15 | single-double |
-| bessel\_y0 | **75×** | 4.9e-16 | single-double |
-| bessel\_y1 | **71×** | 1.7e-15 | single-double |
-| bessel\_yn(3,.) | **75×** | 1.3e-14 | single-double |
-
-### Complex arithmetic
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| cx\_add | **3.6×** | 1.3e-32 | full DD |
-| cx\_sub | **3.4×** | 5.8e-33 | full DD |
-| cx\_mul | **4.0×** | 2.0e-32 | full DD |
-| cx\_div | **4.1×** | 4.6e-32 (re) / 1.1e-16 (im) | full DD / deriv |
-| cx\_conjg | **3.5×** | exact | exact |
-| cx\_abs | **4.9×** | 6.6e-32 | full DD |
-
-### Complex transcendentals
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| cx\_sqrt | **4.6×** | 6.4e-32 | full DD |
-| cx\_exp | 1.5× | 7.8e-31 | full DD |
-| cx\_log | 1.8× | 2.0e-29 (re) / 2.8e-32 (im) | full DD |
-| cx\_sin | 1.4× | 4.9e-31 | full DD |
-| cx\_cos | 1.4× | 4.9e-31 | full DD |
-| cx\_tan | 0.7× | 3.1e-30 | full DD |
-| cx\_sinh | 1.5× | 1.2e-30 | full DD |
-| cx\_cosh | 1.5× | 1.2e-30 | full DD |
-| cx\_tanh | 0.8× | 1.1e-30 | full DD |
-| cx\_asin | **2.4×** | 2.8e-23 (re) / 8.4e-31 (im) | deriv / full DD |
-| cx\_acos | **2.4×** | 2.9e-32 (re) / 8.4e-31 (im) | full DD |
-| cx\_atan | 1.4× | 3.8e-32 (re) / 4.8e-31 (im) | full DD |
-| cx\_asinh | **2.2×** | 6.7e-22 (re) / 6.6e-32 (im) | deriv / full DD |
-| cx\_acosh | **2.0×** | 7.2e-31 (re) / 2.9e-32 (im) | full DD |
-| cx\_atanh | 1.5× | 7.2e-23 (re) / 6.7e-32 (im) | deriv / full DD |
-
-### Array reductions
-
-| op | speedup | max\_rel | precision |
-|---|---|---|---|
-| arr\_sum (n=8) | 1.4× | 2.5e-31 | full DD |
-| arr\_product (n=8) | **2.2×** | 4.3e-49 | full DD |
-| arr\_maxval (n=8) | **5.8×** | 6.1e-33 | full DD |
-| arr\_minval (n=8) | **5.2×** | 6.0e-33 | full DD |
-| arr\_dot (n=8) | **4.6×** | 1.0e-31 | full DD |
-| arr\_norm2 (n=8) | **6.8×** | 6.4e-32 | full DD |
-| arr\_matmul (8×8\*8) | 0.8× | 8.8e-30 | full DD |
-
-## C++: `MultiFloat<double,2>` vs `__float128` — Intel Skylake-SP (x86-64)
-
-Same header-only path as the Apple M1 run; precision characteristics
-are identical to the Fortran version (shared algorithms).
-
-### Arithmetic
-
-| op | speedup |
-|---|---|
-| add | **4.1×** |
-| sub | **4.2×** |
-| mul | **7.7×** |
-| div | **2.6×** |
-| sqrt | **29×** |
-| cbrt | **13×** |
-| fma | **69×** |
-| abs | **5.1×** |
-| neg | **3.6×** |
-
-### Rounding
-
-| op | speedup |
-|---|---|
-| floor | **4.2×** |
-| ceil | **3.9×** |
-| trunc | **3.2×** |
-| round | 1.0× |
-| rint | **11×** |
-| nearbyint | **65×** |
-
-### Binary
-
-| op | speedup |
-|---|---|
-| fmin | **9.8×** |
-| fmax | **13×** |
-| fdim | **6.9×** |
-| copysign | **5.2×** |
-| fmod | 0.76× |
-| hypot | **20×** |
-| ldexp(.,5) | **2.4×** |
-
-### Exponential / logarithmic
-
-| op | speedup |
-|---|---|
-| exp | **2.7×** |
-| exp2 | **3.1×** |
-| expm1 | **3.3×** |
-| log | **4.0×** |
-| log10 | **5.1×** |
-| log2 | **4.7×** |
-| log1p | **4.3×** |
-| pow | **4.1×** |
-
-### Trigonometric
-
-| op | speedup |
-|---|---|
-| sin | **2.3×** |
-| cos | **2.3×** |
-| tan | 1.1× |
-| asin | 1.7× |
-| acos | 1.7× |
-| atan | 1.0× |
-| atan2 | 1.1× |
-
-### Hyperbolic
-
-| op | speedup |
-|---|---|
-| sinh | 1.9× |
-| cosh | 1.5× |
-| tanh | **2.2×** |
-| asinh | **6.0×** |
-| acosh | **5.5×** |
-| atanh | **4.4×** |
-
-### Error / special functions
-
-| op | speedup |
-|---|---|
-| erf | **5.7×** |
-| erfc | **5.5×** |
-| tgamma | **59×** |
-| lgamma | **46×** |
+| op | approach | M1 Max × | Skylake × | Raptor Lake × |
+|---|---|---|---|---|
+| erf | original: Taylor series (\|x\|<2) + libm erf(hi) deriv correction | **5.0×** | **5.7×** | **7.9×** |
+| erfc | original: 1−erf(x), or libm erfc(hi) for large x | **5.2×** | **5.5×** | **7.1×** |
+| tgamma | original: libm tgamma(hi), no lo correction | **105×** | **59×** | **84×** |
+| lgamma | original: libm lgamma(hi), no lo correction | **71×** | **46×** | **54×** |
 
 ## Notes
 
@@ -541,7 +284,7 @@ are identical to the Fortran version (shared algorithms).
   (adapted from `external/float64x2-sample.cpp`) for small quotients, or a
   full DD divide chain for large quotients; libquadmath's `fmodq` uses a
   specialized bit-level remainder algorithm. `modulo` (Fortran) now beats qp
-  at 1.3× thanks to the iterative approach. Precision degrades as
+  at 1.3–1.6× thanks to the iterative approach. Precision degrades as
   `~10^(log10(quotient) - 31)` for large quotients, which is the inherent DD
   precision limit.
 
@@ -572,7 +315,7 @@ are identical to the Fortran version (shared algorithms).
   and benefit both platforms.
 
 - **Single-double precision** functions (gamma, bessel, erfc\_scaled, etc.)
-  achieve 60–165× speedup by evaluating `f(hi)` via the leading-limb libm
+  achieve 60–193× speedup by evaluating `f(hi)` via the leading-limb libm
   intrinsic without a lo-limb correction. This gives `double`-level accuracy
   (~15 digits) rather than full DD (~31 digits). For applications needing
   full DD precision on these functions, a polynomial or series expansion
