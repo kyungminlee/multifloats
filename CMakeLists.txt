@@ -113,7 +113,24 @@ target_link_libraries(fortran_bench_c PRIVATE multifloatsf multifloat-c)
 add_library(dd-bindc OBJECT ./test/dd_bindc.f90)
 target_compile_options(dd-bindc PRIVATE -O3)
 set_target_properties(dd-bindc PROPERTIES
-    Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/modules)
+    Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/modules/test)
 
 add_executable(fortran_bench_abi ./test/bench_abi.f90)
 target_link_libraries(fortran_bench_abi PRIVATE multifloatsf multifloat-c dd-bindc)
+
+# =============================================================================
+# Install rules
+# =============================================================================
+include(GNUInstallDirs)
+
+# C++ library + header
+install(TARGETS multifloats
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES src/multifloats.hh
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# Fortran library + .mod file
+install(TARGETS multifloatsf
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(FILES ${CMAKE_BINARY_DIR}/modules/multifloats.mod
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/multifloats)
