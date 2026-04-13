@@ -193,85 +193,85 @@ algorithms); see the Fortran tables for additional `prec` columns.
 
 ### Arithmetic
 
-| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × |
-|---|---|---|---|---|---|
-| add | Julia: two\_sum EFT | **2.4×** | exact | **4.1×** | **5.0×** |
-| sub | Julia: two\_sum EFT (negate + add) | **2.7×** | 6.2e-26 | **4.2×** | **4.3×** |
-| mul | Julia: two\_prod EFT via FMA | **10×** | 4.0e-26 | **7.7×** | **5.6×** |
-| div | original: Newton refinement (1/y seed, one step) | **2.1×** | 2.2e-26 | **2.6×** | 1.3× |
-| sqrt | Julia: Karp–Markstein (reciprocal sqrt seed + Newton) | **50×** | 1.7e-32 | **29×** | **56×** |
-| cbrt | original: Newton correction on cbrt(hi) seed | **41×** | 1.2e-26 | **13×** | **16×** |
-| fma | original: x\*y + z via DD ops | **61×** | 7.5e-26 | **69×** | **126×** |
-| abs | original: sign-check + negate limbs | 1.9× | exact | **5.1×** | **5.8×** |
-| neg | original: negate both limbs | **2.1×** | exact | **3.6×** | **4.4×** |
+| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|
+| add | Julia: two\_sum EFT | **2.4×** | exact | **4.1×** | **5.5×** | exact |
+| sub | Julia: two\_sum EFT (negate + add) | **2.7×** | 6.2e-26 | **4.2×** | **3.9×** | 6.2e-26 |
+| mul | Julia: two\_prod EFT via FMA | **10×** | 4.0e-26 | **7.7×** | **6.6×** | 4.0e-26 |
+| div | original: Newton refinement (1/y seed, one step) | **2.1×** | 2.2e-26 | **2.6×** | 1.2× | 2.2e-26 |
+| sqrt | Julia: Karp–Markstein (reciprocal sqrt seed + Newton) | **50×** | 1.7e-32 | **29×** | **52×** | 1.7e-32 |
+| cbrt | original: Newton correction on cbrt(hi) seed | **41×** | 1.2e-26 | **13×** | **15×** | 1.2e-26 |
+| fma | original: x\*y + z via DD ops | **61×** | 7.5e-26 | **69×** | **128×** | 7.5e-26 |
+| abs | original: sign-check + negate limbs | 1.9× | exact | **5.1×** | **6.9×** | exact |
+| neg | original: negate both limbs | **2.1×** | exact | **3.6×** | **4.5×** | exact |
 
 ### Rounding
 
-| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × |
-|---|---|---|---|---|---|
-| floor | original: floor hi, adjust lo | **3.1×** | exact | **4.2×** | **5.5×** |
-| ceil | original: ceil hi, adjust lo | **3.1×** | exact | **3.9×** | **5.6×** |
-| trunc | original: signbit ? −floor(−x) : floor(x) | **2.5×** | exact | **3.2×** | **4.8×** |
-| round | original: trunc(x + ½·sign(x)) | 0.98× | exact | 1.0× | 1.3× |
-| rint | original: nearbyint on hi, adjust lo | **11×** | exact | **11×** | **19×** |
-| nearbyint | original: nearbyint on hi, adjust lo | **34×** | exact | **65×** | **143×** |
+| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|
+| floor | original: floor hi, adjust lo | **3.1×** | exact | **4.2×** | **5.4×** | exact |
+| ceil | original: ceil hi, adjust lo | **3.1×** | exact | **3.9×** | **5.5×** | exact |
+| trunc | original: signbit ? −floor(−x) : floor(x) | **2.5×** | exact | **3.2×** | **5.0×** | exact |
+| round | original: trunc(x + ½·sign(x)) | 0.98× | exact | 1.0× | 1.3× | exact |
+| rint | original: nearbyint on hi, adjust lo | **11×** | exact | **11×** | **19×** | exact |
+| nearbyint | original: nearbyint on hi, adjust lo | **34×** | exact | **65×** | **140×** | exact |
 
 ### Binary
 
-| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × |
-|---|---|---|---|---|---|
-| fmin | original: DD comparison + select | **6.1×** | exact | **9.8×** | **9.5×** |
-| fmax | original: DD comparison + select | **5.9×** | exact | **13×** | **9.6×** |
-| fdim | original: DD comparison, then subtract or zero | **5.8×** | 3.4e-24 | **6.9×** | **8.4×** |
-| copysign | original: sign-bit copy to hi, propagate to lo | 1.9× | exact | **5.2×** | **6.9×** |
-| fmod | sample: floor-multiple reduction loop; fallback to div chain | 0.86× | 4.0e-24 | 0.76× | 0.82× |
-| hypot | original: scaled sqrt(x²+y²) | **37×** | 1.2e-24 | **20×** | **38×** |
-| ldexp(.,5) | original: ldexp on both limbs | **2.1×** | exact | **2.4×** | **4.0×** |
+| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|
+| fmin | original: DD comparison + select | **6.1×** | exact | **9.8×** | **8.4×** | exact |
+| fmax | original: DD comparison + select | **5.9×** | exact | **13×** | **8.8×** | exact |
+| fdim | original: DD comparison, then subtract or zero | **5.8×** | 3.4e-24 | **6.9×** | **3.7×** | 3.4e-24 |
+| copysign | original: sign-bit copy to hi, propagate to lo | 1.9× | exact | **5.2×** | **7.1×** | exact |
+| fmod | sample: floor-multiple reduction loop; fallback to div chain | 0.86× | 4.0e-24 | 0.76× | 0.81× | 4.0e-24 |
+| hypot | original: scaled sqrt(x²+y²) | **37×** | 1.2e-24 | **20×** | **38×** | 1.2e-24 |
+| ldexp(.,5) | original: ldexp on both limbs | **2.1×** | exact | **2.4×** | **4.0×** | exact |
 
 ### Exponential / logarithmic
 
-| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × |
-|---|---|---|---|---|---|
-| exp | Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction | **3.0×** | 8.9e-19 | **2.7×** | **3.8×** |
-| exp2 | Julia: exp2 polynomial (14-term Horner) | **3.2×** | 8.9e-19 | **3.1×** | **4.5×** |
-| expm1 | original: exp(x) − 1 via DD sub | **4.2×** | 3.0e-18 | **3.3×** | **3.9×** |
-| log | Julia: log2 table lookup (32 centers) + polynomial (7-term Horner) | **4.4×** | 9.0e-17 | **4.0×** | **5.1×** |
-| log10 | Julia: log2 kernel × DD log10(2) | **5.8×** | 9.0e-17 | **5.1×** | **6.4×** |
-| log2 | Julia: log2 table lookup + polynomial | **5.7×** | 9.0e-17 | **4.7×** | **6.3×** |
-| log1p | original: log(1 + x) via DD add | **4.7×** | 1.2e-19 | **4.3×** | **5.5×** |
-| pow | Julia: exp(y × log(x)) | **4.2×** | 1.5e-18 | **4.1×** | **5.3×** |
+| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|
+| exp | Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction | **3.0×** | 8.9e-19 | **2.7×** | **4.0×** | 8.9e-19 |
+| exp2 | Julia: exp2 polynomial (14-term Horner) | **3.2×** | 8.9e-19 | **3.1×** | **4.4×** | 8.9e-19 |
+| expm1 | original: exp(x) − 1 via DD sub | **4.2×** | 3.0e-18 | **3.3×** | **3.9×** | 3.0e-18 |
+| log | Julia: log2 table lookup (32 centers) + polynomial (7-term Horner) | **4.4×** | 9.0e-17 | **4.0×** | **5.1×** | 9.0e-17 |
+| log10 | Julia: log2 kernel × DD log10(2) | **5.8×** | 9.0e-17 | **5.1×** | **6.7×** | 9.0e-17 |
+| log2 | Julia: log2 table lookup + polynomial | **5.7×** | 9.0e-17 | **4.7×** | **6.2×** | 9.0e-17 |
+| log1p | original: log(1 + x) via DD add | **4.7×** | 1.2e-19 | **4.3×** | **5.5×** | 1.2e-19 |
+| pow | Julia: exp(y × log(x)) | **4.2×** | 1.5e-18 | **4.1×** | **5.0×** | 1.5e-18 |
 
 ### Trigonometric
 
-| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × |
-|---|---|---|---|---|---|
-| sin | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | **2.8×** | 2.8e-25 | **2.3×** | **3.0×** |
-| cos | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | **2.9×** | 3.3e-25 | **2.3×** | **2.9×** |
-| tan | original: sin/cos Taylor kernels + DD divide | 1.2× | 5.4e-32 | 1.1× | 1.3× |
-| asin | original: Newton step on sin, seeded by libm asin(hi) | 1.8× | 1.2e-27 | 1.7× | **2.1×** |
-| acos | original: Newton step on cos, seeded by libm acos(hi) | 1.9× | 9.5e-28 | 1.7× | **2.4×** |
-| atan | original: Newton on tan + atan(x)=π/2·sign(x)−atan(1/x) for \|x\|>1 | 0.93× | 9.1e-25 | 1.0× | 1.2× |
-| atan2 | original: Newton step on atan + quadrant correction | 1.0× | 1.2e-24 | 1.1× | 1.2× |
+| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|
+| sin | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | **2.8×** | 2.8e-25 | **2.3×** | **3.0×** | 2.8e-25 |
+| cos | original: 13-term Taylor Horner + 3-part Cody–Waite π/2 + π/8 split | **2.9×** | 3.3e-25 | **2.3×** | **2.9×** | 3.3e-25 |
+| tan | original: sin/cos Taylor kernels + DD divide | 1.2× | 5.4e-32 | 1.1× | 1.6× | 5.4e-32 |
+| asin | original: Newton step on sin, seeded by libm asin(hi) | 1.8× | 1.2e-27 | 1.7× | **2.9×** | 1.2e-27 |
+| acos | original: Newton step on cos, seeded by libm acos(hi) | 1.9× | 9.5e-28 | 1.7× | **2.6×** | 9.5e-28 |
+| atan | original: Newton on tan + atan(x)=π/2·sign(x)−atan(1/x) for \|x\|>1 | 0.93× | 9.1e-25 | 1.0× | 1.1× | 9.1e-25 |
+| atan2 | original: Newton step on atan + quadrant correction | 1.0× | 1.2e-24 | 1.1× | 1.2× | 1.2e-24 |
 
 ### Hyperbolic
 
-| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × |
-|---|---|---|---|---|---|
-| sinh | original: Taylor series (\|x\|<0.1) or (exp−exp⁻¹)/2 | **2.3×** | 9.3e-19 | 1.9× | **2.3×** |
-| cosh | original: (exp+exp⁻¹)/2 | 1.7× | 8.9e-19 | 1.5× | 2.0× |
-| tanh | original: sinh/cosh (\|x\|<0.5) or (1−e⁻²ˣ)/(1+e⁻²ˣ) | **2.3×** | 6.6e-19 | **2.2×** | **2.6×** |
-| asinh | original: Taylor series (\|x\|<0.01) or log(x+√(x²+1)) with Newton | **6.0×** | 7.7e-20 | **6.0×** | **7.7×** |
-| acosh | original: log(x+√(x²−1)) with Newton correction | **5.4×** | 2.8e-20 | **5.5×** | **8.2×** |
-| atanh | original: Taylor series (\|x\|<0.01) or ½·log((1+x)/(1−x)) | **4.4×** | 5.1e-16 | **4.4×** | **6.1×** |
+| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|
+| sinh | original: Taylor series (\|x\|<0.1) or (exp−exp⁻¹)/2 | **2.3×** | 9.3e-19 | 1.9× | **2.3×** | 9.3e-19 |
+| cosh | original: (exp+exp⁻¹)/2 | 1.7× | 8.9e-19 | 1.5× | **2.2×** | 8.9e-19 |
+| tanh | original: sinh/cosh (\|x\|<0.5) or (1−e⁻²ˣ)/(1+e⁻²ˣ) | **2.3×** | 6.6e-19 | **2.2×** | **2.7×** | 6.6e-19 |
+| asinh | original: Taylor series (\|x\|<0.01) or log(x+√(x²+1)) with Newton | **6.0×** | 7.7e-20 | **6.0×** | **8.2×** | 7.7e-20 |
+| acosh | original: log(x+√(x²−1)) with Newton correction | **5.4×** | 2.8e-20 | **5.5×** | **7.3×** | 2.8e-20 |
+| atanh | original: Taylor series (\|x\|<0.01) or ½·log((1+x)/(1−x)) | **4.4×** | 5.1e-16 | **4.4×** | **5.3×** | 5.1e-16 |
 
 ### Error / special functions
 
-| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × |
-|---|---|---|---|---|---|
-| erf | original: Taylor series (\|x\|<2) + libm erf(hi) deriv correction | **4.7×** | 2.4e-18 | **5.7×** | **7.9×** |
-| erfc | original: 1−erf(x), or libm erfc(hi) for large x | **4.6×** | 5.7e-16 | **5.5×** | **7.5×** |
-| tgamma | original: libm tgamma(hi), no lo correction | **120×** | 1.2e-16 | **59×** | **81×** |
-| lgamma | original: libm lgamma(hi), no lo correction | **69×** | 4.4e-16 | **46×** | **55×** |
+| op | approach | M1 Max × | M1 Max err | Skylake × | Raptor Lake × | Raptor Lake err |
+|---|---|---|---|---|---|---|
+| erf | original: Taylor series (\|x\|<2) + libm erf(hi) deriv correction | **4.7×** | 2.4e-18 | **5.7×** | **7.6×** | 7.0e-19 |
+| erfc | original: 1−erf(x), or libm erfc(hi) for large x | **4.6×** | 5.7e-16 | **5.5×** | **7.4×** | 2.3e-16 |
+| tgamma | original: libm tgamma(hi), no lo correction | **120×** | 1.2e-16 | **59×** | **85×** | 4.6e-16 |
+| lgamma | original: libm lgamma(hi), no lo correction | **69×** | 4.4e-16 | **46×** | **53×** | 3.1e-16 |
 
 ## Notes
 
