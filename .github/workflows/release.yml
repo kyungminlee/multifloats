@@ -60,36 +60,43 @@ jobs:
           # GCC / gfortran
           - compiler: gcc
             version: "12"
-            fc: gfortran-12
+            cc: gcc-12
             cxx: g++-12
+            fc: gfortran-12
           - compiler: gcc
             version: "13"
-            fc: gfortran-13
+            cc: gcc-13
             cxx: g++-13
+            fc: gfortran-13
           - compiler: gcc
             version: "14"
-            fc: gfortran-14
+            cc: gcc-14
             cxx: g++-14
+            fc: gfortran-14
 
-          # LLVM Flang
+          # LLVM Flang (matched C/C++ from same LLVM version)
           - compiler: llvm
             version: "18"
+            cc: clang-18
+            cxx: clang++-18
             fc: flang-new-18
-            cxx: g++-14
           - compiler: llvm
             version: "19"
+            cc: clang-19
+            cxx: clang++-19
             fc: flang-new-19
-            cxx: g++-14
           - compiler: llvm
             version: "20"
+            cc: clang-20
+            cxx: clang++-20
             fc: flang-new-20
-            cxx: g++-14
 
           # Intel oneAPI
           - compiler: intel
             version: "2025.0"
+            cc: icx
+            cxx: icpx
             fc: ifx
-            cxx: g++-14
 
     steps:
       - uses: actions/checkout@v4
@@ -113,7 +120,7 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-${{ matrix.version }} main" \
             | sudo tee /etc/apt/sources.list.d/llvm.list
           sudo apt-get update
-          sudo apt-get install -y flang-${{ matrix.version }} lld-${{ matrix.version }}
+          sudo apt-get install -y clang-${{ matrix.version }} flang-${{ matrix.version }} lld-${{ matrix.version }}
           # Ensure flang-new-<ver> symlink exists
           if ! command -v flang-new-${{ matrix.version }} &>/dev/null; then
             sudo ln -sf $(which flang-${{ matrix.version }}) /usr/bin/flang-new-${{ matrix.version }}
@@ -128,7 +135,7 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/intel.gpg] https://apt.repos.intel.com/oneapi all main" \
             | sudo tee /etc/apt/sources.list.d/intel-oneapi.list
           sudo apt-get update
-          sudo apt-get install -y intel-oneapi-compiler-fortran
+          sudo apt-get install -y intel-oneapi-compiler-fortran intel-oneapi-compiler-dpcpp-cpp
 
       # --- Build Fortran library only ---
       - name: Configure
@@ -138,6 +145,7 @@ jobs:
           fi
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
