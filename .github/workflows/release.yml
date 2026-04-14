@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # GCC / gfortran versions
+          - compiler: gcc
+            version: "12"
+            cc: gcc-12
+            cxx: g++-12
+            fc: gfortran-12
+          - compiler: gcc
+            version: "13"
+            cc: gcc-13
+            cxx: g++-13
+            fc: gfortran-13
+          - compiler: gcc
+            version: "14"
+            cc: gcc-14
+            cxx: g++-14
+            fc: gfortran-14
+
+          # LLVM Flang
+          - compiler: llvm
+            version: "18"
+            cc: clang-18
+            cxx: clang++-18
+            fc: flang-new-18
+          - compiler: llvm
+            version: "19"
+            cc: clang-19
+            cxx: clang++-19
+            fc: flang-new-19
+          - compiler: llvm
+            version: "20"
+            cc: clang-20
+            cxx: clang++-20
+            fc: flang-new-20
+
+          # Intel oneAPI
+          - compiler: intel
+            version: "2025.0"
+            cc: icx
+            cxx: icpx
+            fc: ifx
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fypp
+        run: pip install fypp
+
+      # --- GCC ---
+      - name: Install GCC ${{ matrix.version }}
+        if: matrix.compiler == 'gcc'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-${{ matrix.version }} g++-${{ matrix.version }} gfortran-${{ matrix.version }}
+
+      # --- LLVM / Flang ---
+      - name: Install LLVM ${{ matrix.version }}
+        if: matrix.compiler == 'llvm'
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo gpg --dearmor -o /usr/share/keyrings/llvm.gpg
+          . /etc/os-release
+          echo "deb [signed-by=/usr/share/keyrings/llvm.gpg] http://apt.llvm.org/${VERSION_CODENAME}/ llvm-toolchain-${VERSION_CODENAME}-${{ matrix.version }} main" \
+            | sudo tee /etc/apt/sources.list.d/llvm.list
+          sudo apt-get update
+          sudo apt-get install -y clang-${{ matrix.version }} flang-${{ matrix.version }} \
+            lld-${{ matrix.version }} libmlir-${{ matrix.version }}-dev
+          # flang-new may be named flang-new-<ver> or flang-<ver>
+          if ! command -v flang-new-${{ matrix.version }} &>/dev/null; then
+            sudo ln -sf $(which flang-${{ matrix.version }}) /usr/bin/flang-new-${{ matrix.version }}
+          fi
+          # LLVM flang needs a GCC toolchain for linking
+          sudo apt-get install -y gfortran
+
+      # --- Intel oneAPI ---
+      - name: Install Intel oneAPI ${{ matrix.version }}
+        if: matrix.compiler == 'intel'
+        run: |
+          wget -qO- https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB \
+            | sudo gpg --dearmor -o /usr/share/keyrings/intel.gpg
+          echo "deb [signed-by=/usr/share/keyrings/intel.gpg] https://apt.repos.intel.com/oneapi all main" \
+            | sudo tee /etc/apt/sources.list.d/intel-oneapi.list
+          sudo apt-get update
+          sudo apt-get install -y intel-oneapi-compiler-fortran intel-oneapi-compiler-dpcpp-cpp
+          # Also need GCC g++ for the C++ library (Intel C++ may not support __float128)
+          sudo apt-get install -y g++
+
+      - name: Set Intel environment
+        if: matrix.compiler == 'intel'
+        run: |
+          echo "source /opt/intel/oneapi/setvars.sh" >> $GITHUB_ENV
+          # setvars.sh sets PATH, LD_LIBRARY_PATH, etc.
+          source /opt/intel/oneapi/setvars.sh
+          echo "PATH=$PATH" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "CMAKE_PREFIX_PATH=$CMAKE_PREFIX_PATH" >> $GITHUB_ENV
+
+      # --- Build ---
+      - name: Configure
+        run: |
+          if [ "${{ matrix.compiler }}" = "intel" ]; then
+            source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
+          fi
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Install
+        run: cmake --install build
+
+      # --- Test (GCC only — tests need libquadmath) ---
+      - name: Test
+        if: matrix.compiler == 'gcc'
+        run: |
+          cd build
+          ctest --output-on-failure -j$(nproc)
+
+      # --- Package ---
+      - name: Package
+        run: |
+          cd install
+          TAG="${GITHUB_REF_NAME}"
+          ARCHIVE="multifloats-${TAG}-linux-x86_64-${{ matrix.compiler }}-${{ matrix.version }}.tar.gz"
+          tar czf "${GITHUB_WORKSPACE}/${ARCHIVE}" .
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARCHIVE }}
+          path: ${{ env.ARCHIVE }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/**/*.tar.gz
+          generate_release_notes: true
