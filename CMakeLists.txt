@@ -45,13 +45,16 @@ set_target_properties(multifloatsf PROPERTIES
 target_include_directories(multifloatsf PUBLIC
     ${CMAKE_BINARY_DIR}/modules
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
-# Fat LTO: embed both GIMPLE IR and native code in .o files so that
-# ar preserves LTO information in .a archives (unlike plain -flto,
-# which macOS ar would strip). Consumers linking with -flto get
-# cross-TU inlining; consumers without -flto get normal native code.
+# Fat LTO for GCC: embed both GIMPLE IR and native code so ar preserves
+# LTO in .a archives. Flang/LLVM uses -flto=full (thin LTO also works).
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
-    target_compile_options(multifloatsf PUBLIC -flto -ffat-lto-objects)
-    target_link_options(multifloatsf PUBLIC -flto)
+    if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(multifloatsf PUBLIC -flto -ffat-lto-objects)
+        target_link_options(multifloatsf PUBLIC -flto)
+    elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang")
+        target_compile_options(multifloatsf PUBLIC -flto)
+        target_link_options(multifloatsf PUBLIC -flto)
+    endif()
 endif()
 
 add_executable(fortran_precision ./test/precision.f90)
@@ -80,7 +83,11 @@ add_library(multifloats STATIC ./src/multifloats_math.cc)
 target_include_directories(multifloats PRIVATE src)
 target_compile_options(multifloats PRIVATE -O3)
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
-    target_compile_options(multifloats PRIVATE -flto -ffat-lto-objects)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(multifloats PRIVATE -flto -ffat-lto-objects)
+    else()
+        target_compile_options(multifloats PRIVATE -flto)
+    endif()
 endif()
 
 # C++ tests for src/multifloats.hh — use __float128 / libquadmath as a
