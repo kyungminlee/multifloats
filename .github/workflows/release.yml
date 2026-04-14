@@ -198,8 +198,24 @@ jobs:
         with:
           path: artifacts
 
+      # Merge all per-compiler installs into a single combined tarball.
+      # Files are laid out so multiple compiler variants coexist (each has
+      # its own library name, .mod path, and cmake targets file).
+      - name: Create combined archive
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          mkdir -p combined
+          for tarball in artifacts/**/*.tar.gz; do
+            tar xzf "$tarball" -C combined
+          done
+          COMBINED="libmultifloats-${TAG}-linux-x86_64.tar.gz"
+          tar czf "${COMBINED}" -C combined .
+          echo "COMBINED=${COMBINED}" >> $GITHUB_ENV
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/**/*.tar.gz
+          files: |
+            ${{ env.COMBINED }}
+            artifacts/**/*.tar.gz
           generate_release_notes: true
