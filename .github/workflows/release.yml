@@ -76,11 +76,6 @@ jobs:
 
           # LLVM Flang (matched C/C++ from same LLVM version)
           - compiler: llvm
-            version: "18"
-            cc: clang-18
-            cxx: clang++-18
-            fc: flang-new-18
-          - compiler: llvm
             version: "19"
             cc: clang-19
             cxx: clang++-19
@@ -90,13 +85,25 @@ jobs:
             cc: clang-20
             cxx: clang++-20
             fc: flang-new-20
+          - compiler: llvm
+            version: "21"
+            cc: clang-21
+            cxx: clang++-21
+            fc: flang-new-21
 
           # Intel oneAPI
+          - compiler: intel
+            version: "2024.0"
+            cc: icx
+            cxx: icpx
+            fc: ifx
+            oneapi_pkg: intel-oneapi-compiler-fortran-2024.0 intel-oneapi-compiler-dpcpp-cpp-2024.0
           - compiler: intel
             version: "2025.0"
             cc: icx
             cxx: icpx
             fc: ifx
+            oneapi_pkg: intel-oneapi-compiler-fortran-2025.0 intel-oneapi-compiler-dpcpp-cpp-2025.0
 
     steps:
       - uses: actions/checkout@v4
@@ -135,7 +142,7 @@ jobs:
           echo "deb [signed-by=/usr/share/keyrings/intel.gpg] https://apt.repos.intel.com/oneapi all main" \
             | sudo tee /etc/apt/sources.list.d/intel-oneapi.list
           sudo apt-get update
-          sudo apt-get install -y intel-oneapi-compiler-fortran intel-oneapi-compiler-dpcpp-cpp
+          sudo apt-get install -y ${{ matrix.oneapi_pkg }}
 
       # --- Build Fortran library only ---
       - name: Configure
