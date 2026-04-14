@@ -107,9 +107,16 @@ module multifloats
     implicit none
     private
 
-    integer, parameter :: qp = 16  ! Quad precision
+#:if defined('MULTIFLOATS_NO_QUAD')
+#:set HAS_QUAD = False
+#:else
+#:set HAS_QUAD = True
+#:endif
     integer, parameter :: dp = 8   ! Double precision
     integer, parameter :: sp = 4   ! Single precision
+#:if HAS_QUAD
+    integer, parameter :: qp = 16  ! Quad precision (not available on all compilers)
+#:endif
 
     ! SEQUENCE is required so derived-type variables of these types may
     ! appear in EQUIVALENCE statements (used by some LAPACK routines
@@ -555,20 +562,26 @@ module multifloats
     ! Named constants
     ! ================================================================
 
-    type(float64x2), parameter, public :: MF_ZERO  = float64x2([0.0_dp, 0.0_dp])
-    type(float64x2), parameter, public :: MF_ONE   = float64x2([1.0_dp, 0.0_dp])
-    type(float64x2), parameter, public :: MF_TWO   = float64x2([2.0_dp, 0.0_dp])
-    type(float64x2), parameter, public :: MF_HALF  = float64x2([0.5_dp, 0.0_dp])
-    type(float64x2), parameter, public :: MF_EIGHT = float64x2([8.0_dp, 0.0_dp])
-
-    type(float64x2), parameter, public :: MF_SAFMIN = float64x2([tiny(0.0_dp),  0.0_dp])
-    type(float64x2), parameter, public :: MF_SAFMAX = float64x2([huge(0.0_dp),  0.0_dp])
-    type(float64x2), parameter, public :: MF_TSML   = float64x2([1.0e-100_dp,   0.0_dp])
-    type(float64x2), parameter, public :: MF_TBIG   = float64x2([1.0e+100_dp,   0.0_dp])
-    type(float64x2), parameter, public :: MF_SSML   = float64x2([1.0e-50_dp,    0.0_dp])
-    type(float64x2), parameter, public :: MF_SBIG   = float64x2([1.0e+50_dp,    0.0_dp])
-    type(float64x2), parameter, public :: MF_RTMIN  = float64x2([1.0e-150_dp,   0.0_dp])
-    type(float64x2), parameter, public :: MF_RTMAX  = float64x2([1.0e+150_dp,   0.0_dp])
+    ! Named constants — using component initialization for portability
+    ! (flang does not support sequence-type structure constructors in
+    ! constant expressions).
+#:def MF_CONST(name, val)
+    type(float64x2), parameter, public :: ${name}$ = &
+        float64x2(limbs=[${val}$, 0.0_dp])
+#:enddef
+    $:MF_CONST('MF_ZERO',   '0.0_dp')
+    $:MF_CONST('MF_ONE',    '1.0_dp')
+    $:MF_CONST('MF_TWO',    '2.0_dp')
+    $:MF_CONST('MF_HALF',   '0.5_dp')
+    $:MF_CONST('MF_EIGHT',  '8.0_dp')
+    $:MF_CONST('MF_SAFMIN', '2.2250738585072014e-308_dp')
+    $:MF_CONST('MF_SAFMAX', '1.7976931348623157e+308_dp')
+    $:MF_CONST('MF_TSML',   '1.0e-100_dp')
+    $:MF_CONST('MF_TBIG',   '1.0e+100_dp')
+    $:MF_CONST('MF_SSML',   '1.0e-50_dp')
+    $:MF_CONST('MF_SBIG',   '1.0e+50_dp')
+    $:MF_CONST('MF_RTMIN',  '1.0e-150_dp')
+    $:MF_CONST('MF_RTMAX',  '1.0e+150_dp')
 
     ! Renormalization interval for fused multiply-accumulate reductions
     ! (dot_product, matmul). The accumulator s_lo drifts by ~1 ulp per
@@ -1050,6 +1063,7 @@ contains
     ! Internal conversion helpers (elemental)
     ! ================================================================
 
+#:if HAS_QUAD
     elemental function to_qp(mf) result(res)
         type(float64x2), intent(in) :: mf
         real(qp) :: res
@@ -1061,9 +1075,6 @@ contains
         type(float64x2) :: res
         real(dp) :: s, bprime
         if (.not. ieee_is_finite(v)) then
-            ! Non-finite values are represented with the leading limb only;
-            ! the lo limb is conventionally zero so callers don't see Inf/NaN
-            ! arithmetic propagating into it.
             res%limbs = [real(v, dp), 0.0_dp]
         else
             res%limbs(1) = real(v, dp)
@@ -1087,6 +1098,7 @@ contains
         res%re = from_qp(real(v, qp))
         res%im = from_qp(aimag(v))
     end function
+#:endif
 
     ! ================================================================
     ! Constructors
@@ -1139,9 +1151,15 @@ contains
     function mf_from_char(v) result(res)
         character(len=*), intent(in) :: v
         type(float64x2) :: res
+#:if HAS_QUAD
         real(qp) :: val_qp
         read(v, *) val_qp
         res = from_qp(val_qp)
+#:else
+        ! Without quad precision, parse to double (loses low limb).
+        read(v, *) res%limbs(1)
+        res%limbs(2) = 0.0_dp
+#:endif
     end function
 
     elemental function mf_from_cx(cx) result(res)
@@ -4599,6 +4617,7 @@ $:mf_minmax_body(func, n)
         integer, intent(in) :: v_list(:)
         integer, intent(out) :: iostat
         character(*), intent(inout) :: iomsg
+#:if HAS_QUAD
         real(qp) :: val_qp
         val_qp = to_qp(dtv)
         if (iotype == 'LISTDIRECTED') then
@@ -4608,6 +4627,14 @@ $:mf_minmax_body(func, n)
         else
             write(unit, *, iostat=iostat, iomsg=iomsg) val_qp
         end if
+#:else
+        if (iotype == 'LISTDIRECTED') then
+            write(unit, *, iostat=iostat, iomsg=iomsg) dtv%limbs(1), dtv%limbs(2)
+        else
+            write(unit, '(ES23.16,1X,ES23.16)', iostat=iostat, iomsg=iomsg) &
+                dtv%limbs(1), dtv%limbs(2)
+        end if
+#:endif
     end subroutine
 
     subroutine write_cx_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
@@ -4617,6 +4644,7 @@ $:mf_minmax_body(func, n)
         integer, intent(in) :: v_list(:)
         integer, intent(out) :: iostat
         character(*), intent(inout) :: iomsg
+#:if HAS_QUAD
         complex(qp) :: val_cqp
         val_cqp = to_cqp(dtv)
         if (iotype == 'LISTDIRECTED') then
@@ -4626,6 +4654,15 @@ $:mf_minmax_body(func, n)
         else
             write(unit, *, iostat=iostat, iomsg=iomsg) val_cqp
         end if
+#:else
+        if (iotype == 'LISTDIRECTED') then
+            write(unit, *, iostat=iostat, iomsg=iomsg) &
+                dtv%re%limbs(1), dtv%re%limbs(2), dtv%im%limbs(1), dtv%im%limbs(2)
+        else
+            write(unit, '(4(ES23.16,1X))', iostat=iostat, iomsg=iomsg) &
+                dtv%re%limbs(1), dtv%re%limbs(2), dtv%im%limbs(1), dtv%im%limbs(2)
+        end if
+#:endif
     end subroutine
 
     subroutine read_mf_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
@@ -4635,6 +4672,7 @@ $:mf_minmax_body(func, n)
         integer, intent(in) :: v_list(:)
         integer, intent(out) :: iostat
         character(*), intent(inout) :: iomsg
+#:if HAS_QUAD
         real(qp) :: val_qp
         if (iotype == 'LISTDIRECTED') then
             read(unit, *, iostat=iostat, iomsg=iomsg) val_qp
@@ -4647,6 +4685,14 @@ $:mf_minmax_body(func, n)
             dtv%limbs(1) = real(val_qp, dp)
             dtv%limbs(2) = real(val_qp - real(dtv%limbs(1), qp), dp)
         end if
+#:else
+        ! Without quad, read both limbs as doubles.
+        if (iotype == 'LISTDIRECTED') then
+            read(unit, *, iostat=iostat, iomsg=iomsg) dtv%limbs(1), dtv%limbs(2)
+        else
+            read(unit, *, iostat=iostat, iomsg=iomsg) dtv%limbs(1), dtv%limbs(2)
+        end if
+#:endif
     end subroutine
 
     subroutine read_cx_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
@@ -4656,6 +4702,7 @@ $:mf_minmax_body(func, n)
         integer, intent(in) :: v_list(:)
         integer, intent(out) :: iostat
         character(*), intent(inout) :: iomsg
+#:if HAS_QUAD
         complex(qp) :: val_cqp
         if (iotype == 'LISTDIRECTED') then
             read(unit, *, iostat=iostat, iomsg=iomsg) val_cqp
@@ -4670,6 +4717,15 @@ $:mf_minmax_body(func, n)
             dtv%im%limbs(1) = real(aimag(val_cqp), dp)
             dtv%im%limbs(2) = real(aimag(val_cqp) - real(dtv%im%limbs(1), qp), dp)
         end if
+#:else
+        if (iotype == 'LISTDIRECTED') then
+            read(unit, *, iostat=iostat, iomsg=iomsg) &
+                dtv%re%limbs(1), dtv%re%limbs(2), dtv%im%limbs(1), dtv%im%limbs(2)
+        else
+            read(unit, *, iostat=iostat, iomsg=iomsg) &
+                dtv%re%limbs(1), dtv%re%limbs(2), dtv%im%limbs(1), dtv%im%limbs(2)
+        end if
+#:endif
     end subroutine
 
 end module multifloats

@@ -32,10 +32,21 @@ find_program(FYPP_EXECUTABLE fypp REQUIRED)
 set(MULTIFLOATS_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
 set(MULTIFLOATS_GENERATED_SRC ${MULTIFLOATS_GENERATED_DIR}/multifloats.f90)
 
+# Detect REAL(16) support: gfortran has it, flang on ARM64 does not.
+include(CheckFortranSourceCompiles)
+check_fortran_source_compiles(
+    "program t; real(16) :: x; x = 1.0; end program"
+    FORTRAN_HAS_REAL16
+    SRC_EXT f90)
+set(_FYPP_DEFS "")
+if(NOT FORTRAN_HAS_REAL16)
+    list(APPEND _FYPP_DEFS "-DMULTIFLOATS_NO_QUAD")
+endif()
+
 add_custom_command(
     OUTPUT ${MULTIFLOATS_GENERATED_SRC}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${MULTIFLOATS_GENERATED_DIR}
-    COMMAND ${FYPP_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/fsrc/multifloats.fypp ${MULTIFLOATS_GENERATED_SRC}
+    COMMAND ${FYPP_EXECUTABLE} ${_FYPP_DEFS} ${CMAKE_CURRENT_SOURCE_DIR}/fsrc/multifloats.fypp ${MULTIFLOATS_GENERATED_SRC}
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/fsrc/multifloats.fypp
     VERBATIM)
 
