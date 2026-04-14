@@ -132,7 +132,7 @@ All M1 Max values are post-fix (13-term Taylor + `atan(x) = π/2·sign(x) − at
 |---|---|---|---|---|---|---|---|---|
 | erf | piecewise rational approx (libquadmath erfq.c) | full DD | 1.5e-32 | — | — | **5.3×** | **5.4×** | **8.1×** |
 | erfc | piecewise rational approx + split exp(-x^2) | full DD | 6.6e-30 | — | — | **5.1×** | **5.5×** | **8.0×** |
-| erfc\_scaled | original: libm erfc\_scaled(hi), no lo correction | single-double | 4.3e-16 | 5.7e-16 | 4.9e-16 | **182×** | **148×** | **198×** |
+| erfc\_scaled | exp(x^2)·erfc(x) with asymptotic cancellation | full DD | 7.7e-30 | — | — | **182×** | **148×** | **198×** |
 | gamma | original: libm gamma(hi), no lo correction | single-double | 8.4e-17 | 4.1e-16 | 3.4e-16 | **116×** | **42×** | **58×** |
 | log\_gamma | original: libm log\_gamma(hi), no lo correction | single-double | 1.2e-16 | 2.1e-16 | 2.2e-16 | **69×** | **40×** | **50×** |
 | bessel\_j0 | original: libm bessel\_j0(hi), no lo correction | single-double | 1.9e-16 | 8.2e-16 | 4.1e-16 | **99×** | **68×** | **92×** |
@@ -342,7 +342,7 @@ fuzz/bench split.
   in [−1, 1]. All three fixes are in both the Fortran and C++ codebases
   and benefit both platforms.
 
-- **Single-double precision** functions (bessel, erfc\_scaled, etc.)
+- **Single-double precision** functions (bessel, etc.)
   achieve 40–198× speedup by evaluating `f(hi)` via the leading-limb libm
   intrinsic without a lo-limb correction. This gives `double`-level accuracy
   (~15 digits) rather than full DD (~31 digits). For applications needing

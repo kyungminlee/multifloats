@@ -1998,6 +1998,88 @@ contains
         end if
     end function
 
+    ! erfc_scaled(x) = exp(x^2) * erfc(x)
+    ! For x >= 1.25, erfc(x) = (1/x)*exp(-x^2 - 0.5625 + R), so the x^2
+    ! terms cancel: erfc_scaled(x) = (1/x)*exp(R - 0.5625). This avoids
+    ! overflow/underflow that would occur from computing exp(x^2) and erfc(x)
+    ! separately. For |x| < 1.25, both factors are moderate and we compute
+    ! the product directly.
+    elemental function dd_erfc_scaled_full(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, ax, z, y, p, ca, cb, x2, exp_x2, erfc_x, two
+        logical :: neg
+        integer :: idx
+        real(dp), parameter :: INF_DP = &
+            transfer(int(Z'7FF0000000000000', 8), 1.0_dp)
+        if (.not. ieee_is_finite(x%limbs(1))) then
+            if (x%limbs(1) > 0.0_dp) then
+                res%limbs = [0.0_dp, 0.0_dp]     ! erfc_scaled(+inf) = 0
+            else if (x%limbs(1) < 0.0_dp) then
+                res%limbs = [INF_DP, 0.0_dp]      ! erfc_scaled(-inf) = +inf
+            else
+                res%limbs = [x%limbs(1), 0.0_dp]  ! NaN
+            end if
+            return
+        end if
+        neg = x%limbs(1) < 0.0_dp
+        if (neg) then
+            ax%limbs = -x%limbs
+        else
+            ax = x
+        end if
+        if (ax%limbs(1) >= 1.25_dp) then
+            ! Asymptotic: erfc_scaled(x) = (1/x) * exp(R(1/x^2) - 0.5625)
+            x2 = ax * ax
+            z = MF_ONE / x2
+            idx = int(8.0_dp / ax%limbs(1))
+            if (idx > 7) idx = 7
+            select case (idx)
+            case (0)
+                p = dd_neval(z, erfc_AN1_hi, erfc_AN1_lo) / &
+                    dd_deval(z, erfc_AD1_hi, erfc_AD1_lo)
+            case (1)
+                p = dd_neval(z, erfc_AN2_hi, erfc_AN2_lo) / &
+                    dd_deval(z, erfc_AD2_hi, erfc_AD2_lo)
+            case (2)
+                p = dd_neval(z, erfc_AN3_hi, erfc_AN3_lo) / &
+                    dd_deval(z, erfc_AD3_hi, erfc_AD3_lo)
+            case (3)
+                p = dd_neval(z, erfc_AN4_hi, erfc_AN4_lo) / &
+                    dd_deval(z, erfc_AD4_hi, erfc_AD4_lo)
+            case (4)
+                p = dd_neval(z, erfc_AN5_hi, erfc_AN5_lo) / &
+                    dd_deval(z, erfc_AD5_hi, erfc_AD5_lo)
+            case (5)
+                p = dd_neval(z, erfc_AN6_hi, erfc_AN6_lo) / &
+                    dd_deval(z, erfc_AD6_hi, erfc_AD6_lo)
+            case (6)
+                p = dd_neval(z, erfc_AN7_hi, erfc_AN7_lo) / &
+                    dd_deval(z, erfc_AD7_hi, erfc_AD7_lo)
+            case default
+                p = dd_neval(z, erfc_AN8_hi, erfc_AN8_lo) / &
+                    dd_deval(z, erfc_AD8_hi, erfc_AD8_lo)
+            end select
+            z%limbs = [-0.5625_dp, 0.0_dp]
+            res = dd_exp_full(p + z) / ax
+            if (neg) then
+                ! erfc_scaled(-|x|) = 2*exp(x^2) - erfc_scaled(|x|)
+                exp_x2 = dd_exp_full(x2)
+                if (.not. ieee_is_finite(exp_x2%limbs(1))) then
+                    res%limbs = [INF_DP, 0.0_dp]
+                    return
+                end if
+                two%limbs = [2.0_dp, 0.0_dp]
+                res = two * exp_x2 - res
+            end if
+        else
+            ! |x| < 1.25: compute exp(x^2) * erfc(x) directly
+            x2 = x * x
+            exp_x2 = dd_exp_full(x2)
+            erfc_x = dd_erfc_full(x)
+            res = exp_x2 * erfc_x
+        end if
+    end function
+
     elemental function dd_atanh_full(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res, num, den, ratio, half
@@ -2260,7 +2342,9 @@ contains
         res = dd_erf_full(x)
 #:elif func == 'erfc'
         res = dd_erfc_full(x)
-#:elif func in ('erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1')
+#:elif func == 'erfc_scaled'
+        res = dd_erfc_scaled_full(x)
+#:elif func in ('gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1')
         ! Derivative-corrected DD evaluation:
         !     func(hi + lo) ≈ func(hi) + func'(hi) * lo
         ! combined via fast_two_sum into a normalized DD result. Roughly
