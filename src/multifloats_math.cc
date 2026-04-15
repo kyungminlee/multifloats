@@ -656,21 +656,156 @@ MFD2 dd_lgamma_stirling(MFD2 const &x) {
          dd_pair(half_log_2pi_hi, half_log_2pi_lo) + corr;
 }
 
-// Shift x up to y = x+N so y._limbs[0] ≥ 25, then evaluate
-// Stirling(y) − log(x·(x+1)·...·(x+N−1)). Assumes x._limbs[0] ≥ 0.5.
-MFD2 dd_lgamma_stirling_shift(MFD2 const &x) {
-  constexpr double shift_target = 25.0;
-  MFD2 y = x;
-  MFD2 prod = MFD2(1.0);
-  bool any = false;
-  while (y._limbs[0] < shift_target) {
-    prod = prod * y;
-    y = y + MFD2(1.0);
-    any = true;
+// Exact DD subtraction: z = x - c, where c is exact in double precision.
+static inline MFD2 dd_sub_exact(MFD2 const &x, double c) {
+  MFD2 z;
+  z._limbs[0] = x._limbs[0] - c;
+  z._limbs[1] = x._limbs[1] + ((x._limbs[0] - z._limbs[0]) - c);
+  return z;
+}
+
+// Piecewise rational approximation for lgamma(x), 0.5 <= x <= 13.5.
+// Mirrors lgammaq.c structure: P(z)/Q(z) with z = x - center.
+MFD2 dd_lgamma_rational(MFD2 const &x) {
+  int nn = (int)std::nearbyint(x._limbs[0]);
+  MFD2 z, p, q, c;
+  switch (nn) {
+  case 0: // x ≈ 0.5: lgamma(x+1) via near-minimum, then - log(x)
+    z = x + MFD2(1.0) - dd_pair(lgam_x0_hi, lgam_x0_lo);
+    p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+    q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+    return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo) - dd_log_full(x);
+  case 1:
+    if (x._limbs[0] < 0.875) {
+      if (x._limbs[0] <= 0.625) {
+        z = x + MFD2(1.0) - dd_pair(lgam_x0_hi, lgam_x0_lo);
+        p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+        q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+        return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo) - dd_log_full(x);
+      }
+      // (0.625, 0.875): z = x - 0.75, lgamma(x+1) = lgam1r75 + z*P/Q
+      z = dd_sub_exact(x, 0.75);
+      p = dd_neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo, 8);
+      q = dd_deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo, 8);
+      return z * (p / q) + dd_pair(lgam1r75_hi, lgam1r75_lo) - dd_log_full(x);
+    }
+    if (x._limbs[0] < 1.0) {
+      z = x - MFD2(1.0);
+      p = dd_neval(z, lgam_RNr9_hi, lgam_RNr9_lo, 8);
+      q = dd_deval(z, lgam_RDr9_hi, lgam_RDr9_lo, 8);
+      return z * (p / q);
+    }
+    if (x._limbs[0] <= 1.125) {
+      z = x - MFD2(1.0);
+      p = dd_neval(z, lgam_RN1_hi, lgam_RN1_lo, 8);
+      q = dd_deval(z, lgam_RD1_hi, lgam_RD1_lo, 7);
+      return z * (p / q);
+    }
+    if (x._limbs[0] <= 1.375) {
+      z = dd_sub_exact(x, 1.25);
+      p = dd_neval(z, lgam_RN1r25_hi, lgam_RN1r25_lo, 9);
+      q = dd_deval(z, lgam_RD1r25_hi, lgam_RD1r25_lo, 8);
+      return z * (p / q) + dd_pair(lgam1r25_hi, lgam1r25_lo);
+    }
+    // [1.375, 1.5]: near minimum x0
+    z = x - dd_pair(lgam_x0_hi, lgam_x0_lo);
+    p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+    q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+    return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo);
+  case 2:
+    if (x._limbs[0] < 1.625) {
+      z = x - dd_pair(lgam_x0_hi, lgam_x0_lo);
+      p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+      q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+      return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo);
+    }
+    if (x._limbs[0] < 1.875) {
+      z = dd_sub_exact(x, 1.75);
+      p = dd_neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo, 8);
+      q = dd_deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo, 8);
+      return z * (p / q) + dd_pair(lgam1r75_hi, lgam1r75_lo);
+    }
+    if (x._limbs[0] < 2.375) {
+      z = dd_sub_exact(x, 2.0);
+      p = dd_neval(z, lgam_RN2_hi, lgam_RN2_lo, 9);
+      q = dd_deval(z, lgam_RD2_hi, lgam_RD2_lo, 9);
+      return z * (p / q);
+    }
+    z = dd_sub_exact(x, 2.5);
+    p = dd_neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo, 8);
+    q = dd_deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo, 8);
+    return z * (p / q) + dd_pair(lgam2r5_hi, lgam2r5_lo);
+  case 3:
+    if (x._limbs[0] < 2.75) {
+      z = dd_sub_exact(x, 2.5);
+      p = dd_neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo, 8);
+      q = dd_deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo, 8);
+      return z * (p / q) + dd_pair(lgam2r5_hi, lgam2r5_lo);
+    }
+    z = dd_sub_exact(x, 3.0);
+    p = dd_neval(z, lgam_RN3_hi, lgam_RN3_lo, 9);
+    q = dd_deval(z, lgam_RD3_hi, lgam_RD3_lo, 9);
+    return z * (p / q) + dd_pair(lgam3_hi, lgam3_lo);
+  case 4:
+    z = dd_sub_exact(x, 4.0);
+    p = dd_neval(z, lgam_RN4_hi, lgam_RN4_lo, 9);
+    q = dd_deval(z, lgam_RD4_hi, lgam_RD4_lo, 9);
+    return z * (p / q) + dd_pair(lgam4_hi, lgam4_lo);
+  case 5:
+    z = dd_sub_exact(x, 5.0);
+    p = dd_neval(z, lgam_RN5_hi, lgam_RN5_lo, 9);
+    q = dd_deval(z, lgam_RD5_hi, lgam_RD5_lo, 8);
+    return z * (p / q) + dd_pair(lgam5_hi, lgam5_lo);
+  case 6:
+    z = dd_sub_exact(x, 6.0);
+    p = dd_neval(z, lgam_RN6_hi, lgam_RN6_lo, 8);
+    q = dd_deval(z, lgam_RD6_hi, lgam_RD6_lo, 8);
+    return z * (p / q) + dd_pair(lgam6_hi, lgam6_lo);
+  case 7:
+    z = dd_sub_exact(x, 7.0);
+    p = dd_neval(z, lgam_RN7_hi, lgam_RN7_lo, 8);
+    q = dd_deval(z, lgam_RD7_hi, lgam_RD7_lo, 7);
+    return z * (p / q) + dd_pair(lgam7_hi, lgam7_lo);
+  case 8:
+    z = dd_sub_exact(x, 8.0);
+    p = dd_neval(z, lgam_RN8_hi, lgam_RN8_lo, 8);
+    q = dd_deval(z, lgam_RD8_hi, lgam_RD8_lo, 7);
+    return z * (p / q) + dd_pair(lgam8_hi, lgam8_lo);
+  case 9:
+    z = dd_sub_exact(x, 9.0);
+    p = dd_neval(z, lgam_RN9_hi, lgam_RN9_lo, 7);
+    q = dd_deval(z, lgam_RD9_hi, lgam_RD9_lo, 7);
+    return z * (p / q) + dd_pair(lgam9_hi, lgam9_lo);
+  case 10:
+    z = dd_sub_exact(x, 10.0);
+    p = dd_neval(z, lgam_RN10_hi, lgam_RN10_lo, 7);
+    q = dd_deval(z, lgam_RD10_hi, lgam_RD10_lo, 7);
+    return z * (p / q) + dd_pair(lgam10_hi, lgam10_lo);
+  case 11:
+    z = dd_sub_exact(x, 11.0);
+    p = dd_neval(z, lgam_RN11_hi, lgam_RN11_lo, 7);
+    q = dd_deval(z, lgam_RD11_hi, lgam_RD11_lo, 6);
+    return z * (p / q) + dd_pair(lgam11_hi, lgam11_lo);
+  case 12:
+    z = dd_sub_exact(x, 12.0);
+    p = dd_neval(z, lgam_RN12_hi, lgam_RN12_lo, 7);
+    q = dd_deval(z, lgam_RD12_hi, lgam_RD12_lo, 6);
+    return z * (p / q) + dd_pair(lgam12_hi, lgam12_lo);
+  case 13:
+    z = dd_sub_exact(x, 13.0);
+    p = dd_neval(z, lgam_RN13_hi, lgam_RN13_lo, 7);
+    q = dd_deval(z, lgam_RD13_hi, lgam_RD13_lo, 6);
+    return z * (p / q) + dd_pair(lgam13_hi, lgam13_lo);
+  default:
+    return dd_lgamma_stirling(x);
   }
-  MFD2 stir = dd_lgamma_stirling(y);
-  if (!any) return stir;
-  return stir - dd_log_full(prod);
+}
+
+// Compute lgamma for positive x >= 0.5.
+MFD2 dd_lgamma_positive(MFD2 const &x) {
+  if (x._limbs[0] >= 13.5)
+    return dd_lgamma_stirling(x);
+  return dd_lgamma_rational(x);
 }
 
 MFD2 dd_lgamma_full(MFD2 const &x) {
@@ -700,10 +835,10 @@ MFD2 dd_lgamma_full(MFD2 const &x) {
       s._limbs[1] = -s._limbs[1];
     }
     MFD2 one_minus_x = MFD2(1.0) - x;
-    MFD2 lgam_1mx = dd_lgamma_stirling_shift(one_minus_x);
+    MFD2 lgam_1mx = dd_lgamma_positive(one_minus_x);
     return dd_pair(log_pi_hi, log_pi_lo) - dd_log_full(s) - lgam_1mx;
   }
-  return dd_lgamma_stirling_shift(x);
+  return dd_lgamma_positive(x);
 }
 
 MFD2 dd_tgamma_full(MFD2 const &x) {
@@ -743,7 +878,7 @@ MFD2 dd_tgamma_full(MFD2 const &x) {
     MFD2 one_minus_x = MFD2(1.0) - x;
     // Use lgamma path for the (1-x) branch so we avoid a double tgamma
     // recursion and keep the large factor inside a log.
-    MFD2 lg = dd_lgamma_stirling_shift(one_minus_x);
+    MFD2 lg = dd_lgamma_positive(one_minus_x);
     // Γ(1-x) = exp(lg). sin(πx) may be negative → track sign separately.
     bool neg = s._limbs[0] < 0.0;
     if (neg) {
@@ -759,7 +894,7 @@ MFD2 dd_tgamma_full(MFD2 const &x) {
     }
     return out;
   }
-  return dd_exp_full(dd_lgamma_stirling_shift(x));
+  return dd_exp_full(dd_lgamma_positive(x));
 }
 
 

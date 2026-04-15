@@ -2185,7 +2185,7 @@ contains
         if (x%limbs(1) < 0.0_dp) res%limbs = -res%limbs
     end function
 
-    ! Stirling series for log Γ(x).  Assumes x ≥ ~20.
+    ! Stirling series for log Γ(x).  Assumes x ≥ 13.5.
     elemental function dd_lgamma_stirling(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res, inv_x, inv_x2, poly, corr, logx, xm_half, hlp
@@ -2195,29 +2195,213 @@ contains
         corr   = poly * inv_x
         logx   = dd_log_full(x)
         xm_half%limbs = [x%limbs(1) - 0.5_dp, x%limbs(2)]
-        ! Adjust for the subtraction rounding
         xm_half%limbs(2) = xm_half%limbs(2) + ((x%limbs(1) - xm_half%limbs(1)) - 0.5_dp)
         hlp%limbs = [half_log_2pi_hi, half_log_2pi_lo]
         res = xm_half * logx - x + hlp + corr
     end function
 
-    ! Shift x up so that x ≥ 25, then apply Stirling.
-    ! lgamma(x) = stirling(x+N) - log(x*(x+1)*...*(x+N-1))
-    elemental function dd_lgamma_stirling_shift(x) result(res)
+    ! Piecewise rational approximation for lgamma(x), x in [0.5, 13.5].
+    ! Uses lgammaq.c-style P/Q polynomials per sub-interval.
+    ! Helper: exact DD subtraction z = x - c where c is exact in dp.
+    elemental function dd_lgamma_rational(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, y, prod
-        real(dp), parameter :: shift_target = 25.0_dp
-        logical :: any_shift
-        y = x
-        prod = MF_ONE
-        any_shift = .false.
-        do while (y%limbs(1) < shift_target)
-            prod = prod * y
-            y = y + MF_ONE
-            any_shift = .true.
-        end do
-        res = dd_lgamma_stirling(y)
-        if (any_shift) res = res - dd_log_full(prod)
+        type(float64x2) :: res, z, p, q, c, x0
+        integer :: nn
+        nn = nint(x%limbs(1))
+        select case (nn)
+        case (:0)
+            ! x ≈ 0.5 (nint rounds 0.5 to 0): lgamma(x) = lgamma(x+1) - log(x)
+            ! x+1 is in [1.5, 1.5], use near-minimum approximation
+            x0%limbs = [lgam_x0_hi, lgam_x0_lo]
+            z = x + MF_ONE - x0
+            p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo)
+            q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo)
+            c%limbs = [lgam_y0_hi, lgam_y0_lo]
+            res = z * z * (p / q) + c - dd_log_full(x)
+        case (1)
+            if (x%limbs(1) < 0.875_dp) then
+                if (x%limbs(1) <= 0.625_dp) then
+                    ! [0.5, 0.625]: lgamma(x+1) via near-minimum, then - log(x)
+                    x0%limbs = [lgam_x0_hi, lgam_x0_lo]
+                    z = x + MF_ONE - x0
+                    p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo)
+                    q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo)
+                    c%limbs = [lgam_y0_hi, lgam_y0_lo]
+                    res = z * z * (p / q) + c - dd_log_full(x)
+                else
+                    ! (0.625, 0.875): z = x - 0.75, lgamma(x+1) via RN1r75
+                    z%limbs = [x%limbs(1) - 0.75_dp, x%limbs(2)]
+                    z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 0.75_dp)
+                    p = dd_neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo)
+                    q = dd_deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo)
+                    c%limbs = [lgam1r75_hi, lgam1r75_lo]
+                    res = z * (p / q) + c - dd_log_full(x)
+                end if
+            else if (x%limbs(1) < 1.0_dp) then
+                ! [0.875, 1.0): z = x - 1
+                z = x - MF_ONE
+                p = dd_neval(z, lgam_RNr9_hi, lgam_RNr9_lo)
+                q = dd_deval(z, lgam_RDr9_hi, lgam_RDr9_lo)
+                res = z * (p / q)
+            else if (x%limbs(1) <= 1.125_dp) then
+                ! [1.0, 1.125]: z = x - 1
+                z = x - MF_ONE
+                p = dd_neval(z, lgam_RN1_hi, lgam_RN1_lo)
+                q = dd_deval(z, lgam_RD1_hi, lgam_RD1_lo)
+                res = z * (p / q)
+            else if (x%limbs(1) <= 1.375_dp) then
+                ! (1.125, 1.375]: z = x - 1.25
+                z%limbs = [x%limbs(1) - 1.25_dp, x%limbs(2)]
+                z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 1.25_dp)
+                p = dd_neval(z, lgam_RN1r25_hi, lgam_RN1r25_lo)
+                q = dd_deval(z, lgam_RD1r25_hi, lgam_RD1r25_lo)
+                c%limbs = [lgam1r25_hi, lgam1r25_lo]
+                res = z * (p / q) + c
+            else
+                ! (1.375, 1.5]: near minimum x0
+                x0%limbs = [lgam_x0_hi, lgam_x0_lo]
+                z = x - x0
+                p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo)
+                q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo)
+                c%limbs = [lgam_y0_hi, lgam_y0_lo]
+                res = z * z * (p / q) + c
+            end if
+        case (2)
+            if (x%limbs(1) < 1.625_dp) then
+                ! [1.5, 1.625): near minimum x0
+                x0%limbs = [lgam_x0_hi, lgam_x0_lo]
+                z = x - x0
+                p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo)
+                q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo)
+                c%limbs = [lgam_y0_hi, lgam_y0_lo]
+                res = z * z * (p / q) + c
+            else if (x%limbs(1) < 1.875_dp) then
+                ! [1.625, 1.875): z = x - 1.75
+                z%limbs = [x%limbs(1) - 1.75_dp, x%limbs(2)]
+                z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 1.75_dp)
+                p = dd_neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo)
+                q = dd_deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo)
+                c%limbs = [lgam1r75_hi, lgam1r75_lo]
+                res = z * (p / q) + c
+            else if (x%limbs(1) < 2.375_dp) then
+                ! [1.875, 2.375): z = x - 2
+                z%limbs = [x%limbs(1) - 2.0_dp, x%limbs(2)]
+                z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 2.0_dp)
+                p = dd_neval(z, lgam_RN2_hi, lgam_RN2_lo)
+                q = dd_deval(z, lgam_RD2_hi, lgam_RD2_lo)
+                res = z * (p / q)
+            else
+                ! [2.375, 2.5]: z = x - 2.5
+                z%limbs = [x%limbs(1) - 2.5_dp, x%limbs(2)]
+                z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 2.5_dp)
+                p = dd_neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo)
+                q = dd_deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo)
+                c%limbs = [lgam2r5_hi, lgam2r5_lo]
+                res = z * (p / q) + c
+            end if
+        case (3)
+            if (x%limbs(1) < 2.75_dp) then
+                ! [2.5, 2.75): z = x - 2.5
+                z%limbs = [x%limbs(1) - 2.5_dp, x%limbs(2)]
+                z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 2.5_dp)
+                p = dd_neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo)
+                q = dd_deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo)
+                c%limbs = [lgam2r5_hi, lgam2r5_lo]
+                res = z * (p / q) + c
+            else
+                ! [2.75, 3.5]: z = x - 3
+                z%limbs = [x%limbs(1) - 3.0_dp, x%limbs(2)]
+                z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 3.0_dp)
+                p = dd_neval(z, lgam_RN3_hi, lgam_RN3_lo)
+                q = dd_deval(z, lgam_RD3_hi, lgam_RD3_lo)
+                c%limbs = [lgam3_hi, lgam3_lo]
+                res = z * (p / q) + c
+            end if
+        case (4)
+            z%limbs = [x%limbs(1) - 4.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 4.0_dp)
+            p = dd_neval(z, lgam_RN4_hi, lgam_RN4_lo)
+            q = dd_deval(z, lgam_RD4_hi, lgam_RD4_lo)
+            c%limbs = [lgam4_hi, lgam4_lo]
+            res = z * (p / q) + c
+        case (5)
+            z%limbs = [x%limbs(1) - 5.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 5.0_dp)
+            p = dd_neval(z, lgam_RN5_hi, lgam_RN5_lo)
+            q = dd_deval(z, lgam_RD5_hi, lgam_RD5_lo)
+            c%limbs = [lgam5_hi, lgam5_lo]
+            res = z * (p / q) + c
+        case (6)
+            z%limbs = [x%limbs(1) - 6.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 6.0_dp)
+            p = dd_neval(z, lgam_RN6_hi, lgam_RN6_lo)
+            q = dd_deval(z, lgam_RD6_hi, lgam_RD6_lo)
+            c%limbs = [lgam6_hi, lgam6_lo]
+            res = z * (p / q) + c
+        case (7)
+            z%limbs = [x%limbs(1) - 7.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 7.0_dp)
+            p = dd_neval(z, lgam_RN7_hi, lgam_RN7_lo)
+            q = dd_deval(z, lgam_RD7_hi, lgam_RD7_lo)
+            c%limbs = [lgam7_hi, lgam7_lo]
+            res = z * (p / q) + c
+        case (8)
+            z%limbs = [x%limbs(1) - 8.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 8.0_dp)
+            p = dd_neval(z, lgam_RN8_hi, lgam_RN8_lo)
+            q = dd_deval(z, lgam_RD8_hi, lgam_RD8_lo)
+            c%limbs = [lgam8_hi, lgam8_lo]
+            res = z * (p / q) + c
+        case (9)
+            z%limbs = [x%limbs(1) - 9.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 9.0_dp)
+            p = dd_neval(z, lgam_RN9_hi, lgam_RN9_lo)
+            q = dd_deval(z, lgam_RD9_hi, lgam_RD9_lo)
+            c%limbs = [lgam9_hi, lgam9_lo]
+            res = z * (p / q) + c
+        case (10)
+            z%limbs = [x%limbs(1) - 10.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 10.0_dp)
+            p = dd_neval(z, lgam_RN10_hi, lgam_RN10_lo)
+            q = dd_deval(z, lgam_RD10_hi, lgam_RD10_lo)
+            c%limbs = [lgam10_hi, lgam10_lo]
+            res = z * (p / q) + c
+        case (11)
+            z%limbs = [x%limbs(1) - 11.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 11.0_dp)
+            p = dd_neval(z, lgam_RN11_hi, lgam_RN11_lo)
+            q = dd_deval(z, lgam_RD11_hi, lgam_RD11_lo)
+            c%limbs = [lgam11_hi, lgam11_lo]
+            res = z * (p / q) + c
+        case (12)
+            z%limbs = [x%limbs(1) - 12.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 12.0_dp)
+            p = dd_neval(z, lgam_RN12_hi, lgam_RN12_lo)
+            q = dd_deval(z, lgam_RD12_hi, lgam_RD12_lo)
+            c%limbs = [lgam12_hi, lgam12_lo]
+            res = z * (p / q) + c
+        case (13)
+            z%limbs = [x%limbs(1) - 13.0_dp, x%limbs(2)]
+            z%limbs(2) = z%limbs(2) + ((x%limbs(1) - z%limbs(1)) - 13.0_dp)
+            p = dd_neval(z, lgam_RN13_hi, lgam_RN13_lo)
+            q = dd_deval(z, lgam_RD13_hi, lgam_RD13_lo)
+            c%limbs = [lgam13_hi, lgam13_lo]
+            res = z * (p / q) + c
+        case default
+            ! x >= 13.5: Stirling asymptotic (no shifting needed)
+            res = dd_lgamma_stirling(x)
+        end select
+    end function
+
+    ! Compute lgamma(x) for positive x >= 0.5.
+    elemental function dd_lgamma_positive(x) result(res)
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res
+        if (x%limbs(1) >= 13.5_dp) then
+            res = dd_lgamma_stirling(x)
+        else
+            res = dd_lgamma_rational(x)
+        end if
     end function
 
     ! Full DD log_gamma(x) = log|Γ(x)|
@@ -2246,12 +2430,12 @@ contains
             s = dd_sinpi_full(x)
             if (s%limbs(1) < 0.0_dp) s%limbs = -s%limbs
             one_minus_x = MF_ONE - x
-            lgam_1mx = dd_lgamma_stirling_shift(one_minus_x)
+            lgam_1mx = dd_lgamma_positive(one_minus_x)
             lpi%limbs = [log_pi_hi, log_pi_lo]
             res = lpi - dd_log_full(s) - lgam_1mx
             return
         end if
-        res = dd_lgamma_stirling_shift(x)
+        res = dd_lgamma_positive(x)
     end function
 
     ! Full DD gamma(x) = Γ(x)
@@ -2289,7 +2473,7 @@ contains
             ! Reflection: Γ(x) = π / (sin(πx) · Γ(1−x))
             s = dd_sinpi_full(x)
             one_minus_x = MF_ONE - x
-            lg = dd_lgamma_stirling_shift(one_minus_x)
+            lg = dd_lgamma_positive(one_minus_x)
             neg = s%limbs(1) < 0.0_dp
             if (neg) s%limbs = -s%limbs
             pi_dd%limbs = [pi_dd_hi, pi_dd_lo]
@@ -2299,7 +2483,7 @@ contains
             res = out_val
             return
         end if
-        res = dd_exp_full(dd_lgamma_stirling_shift(x))
+        res = dd_exp_full(dd_lgamma_positive(x))
     end function
 
     ! ================================================================
