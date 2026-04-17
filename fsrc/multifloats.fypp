@@ -103,7 +103,7 @@ module multifloats
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_is_nan, &
                                               ieee_value, ieee_quiet_nan
     use, intrinsic :: iso_fortran_env, only: int8, int16, int32, int64
-    use, intrinsic :: iso_c_binding, only: c_double
+    use, intrinsic :: iso_c_binding, only: c_double, c_int64_t, c_ptr, c_loc
     implicit none
     private
 
@@ -115,6 +115,30 @@ module multifloats
             real(c_double), value, intent(in) :: x, y, z
             real(c_double) :: c_fma
         end function
+    end interface
+
+    ! C-ABI matmul kernels (defined in multifloats_math.cc). The Fortran
+    ! float64x2 type has SEQUENCE layout [hi, lo] which is bit-compatible
+    ! with the C dd_t struct, so we pass arrays by c_loc.
+    interface
+        pure subroutine c_dd_matmul_mm(a, b, c, m, k, n) &
+                bind(c, name="dd_matmul_mm")
+            import :: c_ptr, c_int64_t
+            type(c_ptr), value, intent(in) :: a, b, c
+            integer(c_int64_t), value, intent(in) :: m, k, n
+        end subroutine
+        pure subroutine c_dd_matmul_mv(a, x, y, m, k) &
+                bind(c, name="dd_matmul_mv")
+            import :: c_ptr, c_int64_t
+            type(c_ptr), value, intent(in) :: a, x, y
+            integer(c_int64_t), value, intent(in) :: m, k
+        end subroutine
+        pure subroutine c_dd_matmul_vm(x, b, y, k, n) &
+                bind(c, name="dd_matmul_vm")
+            import :: c_ptr, c_int64_t
+            type(c_ptr), value, intent(in) :: x, b, y
+            integer(c_int64_t), value, intent(in) :: k, n
+        end subroutine
     end interface
 
 #:if defined('MULTIFLOATS_NO_QUAD')
@@ -3948,6 +3972,29 @@ $:mf_minmax_body(func, n)
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         type(float64x2) :: res
         integer :: ${IVARS(rank)}$
+#:if func == 'sum'
+        real(dp) :: s_hi, s_lo, x_hi, x_lo, t, bp, ap, aerr, berr
+        s_hi = 0.0_dp; s_lo = 0.0_dp
+#:for d in range(rank, 0, -1)
+        do i${d}$ = 1, size(array, ${d}$)
+#:endfor
+            if (present(mask)) then
+                if (.not. mask(${IDXS(rank)}$)) cycle
+            end if
+            x_hi = array(${IDXS(rank)}$)%limbs(1)
+            x_lo = array(${IDXS(rank)}$)%limbs(2)
+            t = s_hi + x_hi
+            bp = t - s_hi; ap = t - bp
+            aerr = s_hi - ap; berr = x_hi - bp
+            s_lo = s_lo + (x_lo + aerr + berr)
+            s_hi = t
+#:for d in range(rank)
+        end do
+#:endfor
+        t = s_hi + s_lo; bp = t - s_hi
+        res%limbs(1) = t
+        res%limbs(2) = s_lo - bp
+#:else
         res = mf_from_dp(${INIT_VAL}$)
 #:for d in range(rank, 0, -1)
         do i${d}$ = 1, size(array, ${d}$)
@@ -3959,6 +4006,7 @@ $:mf_minmax_body(func, n)
 #:for d in range(rank)
         end do
 #:endfor
+#:endif
     end function
 
 #:if rank == 1
@@ -4371,105 +4419,29 @@ $:mf_minmax_body(func, n)
     ! matmul (pure) — mf + cx
     ! ================================================================
 
-    ! mf matmul: 2D × 2D → 2D
+    ! mf matmul: 2D × 2D → 2D (delegates to C kernel dd_matmul_mm)
     pure function mf_matmul_mm(a, b) result(res)
-        type(float64x2), intent(in) :: a(:,:), b(:,:)
-        type(float64x2) :: res(size(a,1), size(b,2))
-        real(dp) :: s_hi, s_lo, ah, al, bh, bl
-        real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: i1, i2, k, n, ri
-        ri = MF_FMA_RENORM_INTERVAL
-        n = size(a, 2)
-        do i2 = 1, size(b,2)
-            do i1 = 1, size(a,1)
-                s_hi = 0.0_dp; s_lo = 0.0_dp
-                do k = 1, n
-                    ah = a(i1,k)%limbs(1); al = a(i1,k)%limbs(2)
-                    bh = b(k,i2)%limbs(1); bl = b(k,i2)%limbs(2)
-                    p = ah * bh
-                    e = c_fma(ah, bh, -p)
-                    cross = ah * bl + al * bh
-                    t = s_hi + p
-                    bp = t - s_hi; ap = t - bp
-                    aerr = s_hi - ap; berr = p - bp
-                    s_lo = s_lo + (e + cross + aerr + berr)
-                    s_hi = t
-                    if (ri > 0 .and. mod(k, ri) == 0) then
-                        t = s_hi + s_lo; bp = t - s_hi
-                        s_hi = t; s_lo = s_lo - bp
-                    end if
-                end do
-                t = s_hi + s_lo; bp = t - s_hi
-                res(i1,i2)%limbs(1) = t
-                res(i1,i2)%limbs(2) = s_lo - bp
-            end do
-        end do
+        type(float64x2), intent(in), target, contiguous :: a(:,:), b(:,:)
+        type(float64x2), target :: res(size(a,1), size(b,2))
+        call c_dd_matmul_mm(c_loc(a), c_loc(b), c_loc(res), &
+            int(size(a,1), c_int64_t), int(size(a,2), c_int64_t), &
+            int(size(b,2), c_int64_t))
     end function
 
-    ! mf matmul: 2D × 1D → 1D
+    ! mf matmul: 2D × 1D → 1D (delegates to C kernel dd_matmul_mv)
     pure function mf_matmul_mv(a, b) result(res)
-        type(float64x2), intent(in) :: a(:,:), b(:)
-        type(float64x2) :: res(size(a,1))
-        real(dp) :: s_hi, s_lo, ah, al, bh, bl
-        real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: i1, k, n, ri
-        ri = MF_FMA_RENORM_INTERVAL
-        n = size(a, 2)
-        do i1 = 1, size(a,1)
-            s_hi = 0.0_dp; s_lo = 0.0_dp
-            do k = 1, n
-                ah = a(i1,k)%limbs(1); al = a(i1,k)%limbs(2)
-                bh = b(k)%limbs(1);    bl = b(k)%limbs(2)
-                p = ah * bh
-                e = c_fma(ah, bh, -p)
-                cross = ah * bl + al * bh
-                t = s_hi + p
-                bp = t - s_hi; ap = t - bp
-                aerr = s_hi - ap; berr = p - bp
-                s_lo = s_lo + (e + cross + aerr + berr)
-                s_hi = t
-                if (ri > 0 .and. mod(k, ri) == 0) then
-                    t = s_hi + s_lo; bp = t - s_hi
-                    s_hi = t; s_lo = s_lo - bp
-                end if
-            end do
-            t = s_hi + s_lo; bp = t - s_hi
-            res(i1)%limbs(1) = t
-            res(i1)%limbs(2) = s_lo - bp
-        end do
+        type(float64x2), intent(in), target, contiguous :: a(:,:), b(:)
+        type(float64x2), target :: res(size(a,1))
+        call c_dd_matmul_mv(c_loc(a), c_loc(b), c_loc(res), &
+            int(size(a,1), c_int64_t), int(size(a,2), c_int64_t))
     end function
 
-    ! mf matmul: 1D × 2D → 1D
+    ! mf matmul: 1D × 2D → 1D (delegates to C kernel dd_matmul_vm)
     pure function mf_matmul_vm(a, b) result(res)
-        type(float64x2), intent(in) :: a(:), b(:,:)
-        type(float64x2) :: res(size(b,2))
-        real(dp) :: s_hi, s_lo, ah, al, bh, bl
-        real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: i2, k, n, ri
-        ri = MF_FMA_RENORM_INTERVAL
-        n = size(a)
-        do i2 = 1, size(b,2)
-            s_hi = 0.0_dp; s_lo = 0.0_dp
-            do k = 1, n
-                ah = a(k)%limbs(1);    al = a(k)%limbs(2)
-                bh = b(k,i2)%limbs(1); bl = b(k,i2)%limbs(2)
-                p = ah * bh
-                e = c_fma(ah, bh, -p)
-                cross = ah * bl + al * bh
-                t = s_hi + p
-                bp = t - s_hi; ap = t - bp
-                aerr = s_hi - ap; berr = p - bp
-                s_lo = s_lo + (e + cross + aerr + berr)
-                s_hi = t
-                if (ri > 0 .and. mod(k, ri) == 0) then
-                    t = s_hi + s_lo; bp = t - s_hi
-                    s_hi = t; s_lo = s_lo - bp
-                end if
-            end do
-            t = s_hi + s_lo; bp = t - s_hi
-            res(i2)%limbs(1) = t
-            res(i2)%limbs(2) = s_lo - bp
-        end do
+        type(float64x2), intent(in), target, contiguous :: a(:), b(:,:)
+        type(float64x2), target :: res(size(b,2))
+        call c_dd_matmul_vm(c_loc(a), c_loc(b), c_loc(res), &
+            int(size(a), c_int64_t), int(size(b,2), c_int64_t))
     end function
 
     ! cx matmul: 2D × 2D → 2D

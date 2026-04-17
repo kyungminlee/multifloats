@@ -164,7 +164,29 @@ template <typename T, std::size_t N> struct MultiFloat {
   }
 
   constexpr MultiFloat operator-(MultiFloat const &rhs) const {
-    return (*this) + (-rhs);
+    MultiFloat out;
+    if constexpr (N == 1) {
+      out._limbs[0] = _limbs[0] - rhs._limbs[0];
+    } else { // N == 2 — dedicated two_diff, mirrors operator+
+      T s = _limbs[0] - rhs._limbs[0];
+      if (!std::isfinite(s)) {
+        out._limbs[0] = s;
+        return out;
+      }
+      if (_limbs[0] == T(0) && rhs._limbs[0] == T(0)) {
+        out._limbs[0] = s;
+        out._limbs[1] = _limbs[1] - rhs._limbs[1];
+        return out;
+      }
+      T a, b, c, d;
+      detail::two_sum(_limbs[0], -rhs._limbs[0], a, b);
+      detail::two_sum(_limbs[1], -rhs._limbs[1], c, d);
+      detail::fast_two_sum(a, c, a, c);
+      b += d;
+      b += c;
+      detail::fast_two_sum(a, b, out._limbs[0], out._limbs[1]);
+    }
+    return out;
   }
 
   constexpr MultiFloat operator*(MultiFloat const &rhs) const {
@@ -188,27 +210,36 @@ template <typename T, std::size_t N> struct MultiFloat {
       MultiFloat out;
       out._limbs[0] = _limbs[0] / rhs._limbs[0];
       return out;
-    } else { // N == 2 — single Newton refinement
-      T s = _limbs[0] / rhs._limbs[0];
-      // Non-finite quotient: y=0, 0/0, inf/finite, NaN.
-      if (!std::isfinite(s)) {
+    } else { // N == 2 — Dekker-style: q1 = hi/rhs.hi, refine once.
+      T q1 = _limbs[0] / rhs._limbs[0];
+      if (!std::isfinite(q1)) {
         MultiFloat out;
-        out._limbs[0] = s;
+        out._limbs[0] = q1;
         return out;
       }
-      // Infinite divisor: quotient is ±0 (already in s). The Newton
-      // refinement would compute 0*inf = NaN; short-circuit.
       if (!std::isfinite(rhs._limbs[0])) {
         MultiFloat out;
-        out._limbs[0] = s;
+        out._limbs[0] = q1;
         return out;
       }
-      MultiFloat u;
-      u._limbs[0] = T(1) / rhs._limbs[0];
-      MultiFloat quotient = (*this) * u;
-      MultiFloat residual = quotient * rhs - (*this);
-      MultiFloat correction = residual * u;
-      return quotient - correction;
+      // r = this - q1 * rhs, computed as a full DD (q1 is a single-limb
+      // scalar so q1*rhs is one two_prod + one one_prod = one DD).
+      T p00, e00;
+      detail::two_prod(q1, rhs._limbs[0], p00, e00);
+      T p01 = detail::one_prod(q1, rhs._limbs[1]);
+      T qhi = p00;
+      T qlo = e00 + p01;
+      // r = this - (qhi, qlo) via two_diff
+      T r0, r0e;
+      detail::two_sum(_limbs[0], -qhi, r0, r0e);
+      T r1 = (_limbs[1] - qlo) + r0e;
+      T rh, rl;
+      detail::fast_two_sum(r0, r1, rh, rl);
+      // q2 = r.hi / rhs.hi
+      T q2 = rh / rhs._limbs[0];
+      MultiFloat out;
+      detail::fast_two_sum(q1, q2, out._limbs[0], out._limbs[1]);
+      return out;
     }
   }
 
@@ -290,8 +321,12 @@ constexpr int fpclassify(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 constexpr MultiFloat<T, N> ldexp(MultiFloat<T, N> const &x, int n) {
   MultiFloat<T, N> r;
+  // Build the power-of-two scale once; multiplication by an exact power of
+  // two is exact for every limb (no rounding, no renorm), avoiding the
+  // two library calls of std::ldexp.
+  T scale = std::ldexp(T(1), n);
   for (std::size_t i = 0; i < N; ++i) {
-    r._limbs[i] = std::ldexp(x._limbs[i], n);
+    r._limbs[i] = x._limbs[i] * scale;
   }
   return r;
 }
@@ -378,9 +413,29 @@ MultiFloat<T, N> trunc(MultiFloat<T, N> const &x) {
 
 template <typename T, std::size_t N>
 MultiFloat<T, N> round(MultiFloat<T, N> const &x) {
-  // Round half away from zero, matching std::round.
-  MultiFloat<T, N> half(T(0.5));
-  return std::signbit(x._limbs[0]) ? -floor(-x + half) : floor(x + half);
+  // Round half away from zero, matching std::round. Mirrors nearbyint's
+  // structure: round hi first, then disambiguate lo. Correctness hinge:
+  // when hi is exactly half-integer, std::round rounds away from zero
+  // unconditionally, but the true DD value may lie on the other side of
+  // the half-boundary depending on lo's sign — undo the step in that case.
+  MultiFloat<T, N> r;
+  if constexpr (N == 1) {
+    r._limbs[0] = std::round(x._limbs[0]);
+  } else {
+    T hi = std::round(x._limbs[0]);
+    if (hi == x._limbs[0]) {
+      r._limbs[0] = hi;
+      r._limbs[1] = std::round(x._limbs[1]);
+      detail::renorm_fast(r._limbs[0], r._limbs[1]);
+    } else {
+      T diff = x._limbs[0] - hi;
+      if (diff == T(-0.5) && x._limbs[1] < T(0)) hi -= T(1);
+      else if (diff == T(0.5) && x._limbs[1] > T(0)) hi += T(1);
+      r._limbs[0] = hi;
+      r._limbs[1] = T(0);
+    }
+  }
+  return r;
 }
 
 template <typename T, std::size_t N>

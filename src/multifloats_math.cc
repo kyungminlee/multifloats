@@ -15,6 +15,8 @@ MFD2 dd_exp2_full(MFD2 const &x);
 MFD2 dd_log_full(MFD2 const &x);
 MFD2 dd_sin_full(MFD2 const &x);
 MFD2 dd_cos_full(MFD2 const &x);
+MFD2 dd_sin_eval(MFD2 const &r);
+MFD2 dd_cos_eval(MFD2 const &r);
 MFD2 dd_sinpi_full(MFD2 const &x);
 MFD2 dd_erfc_full(MFD2 const &x);
 MFD2 dd_lgamma_positive(MFD2 const &x);
@@ -143,6 +145,11 @@ MFD2 dd_cospi_kernel(MFD2 const &x) {
   return dd_horner(x * x, cospi_coefs_hi, cospi_coefs_lo, 15);
 }
 
+// Route sinpi/cospi through the full-DD sin/cos kernels on π·rx. The
+// pre-existing polynomial tables (sinpi_coefs, cospi_coefs) were only good
+// to ~5e-27; evaluating sin/cos on DD-exact π·rx reuses the proven ~4e-32
+// sin_eval/cos_eval path instead. |rx| ≤ 0.25 ⇒ |π·rx| ≤ π/4, matching
+// the eval range.
 MFD2 dd_sinpi_full(MFD2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     MFD2 r;
@@ -154,13 +161,15 @@ MFD2 dd_sinpi_full(MFD2 const &x) {
   MFD2 ax = sign ? -x : x;
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
   MFD2 rx = ax + dd_pair(-0.5 * n_float, 0.0);
+  MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
+  MFD2 pr = pi_dd * rx;
   long long n_mod = static_cast<long long>(n_float) & 3LL;
   MFD2 res;
   switch (n_mod) {
-  case 0: res = dd_sinpi_kernel(rx); break;
-  case 1: res = dd_cospi_kernel(rx); break;
-  case 2: res = -dd_sinpi_kernel(rx); break;
-  default: res = -dd_cospi_kernel(rx); break;
+  case 0: res = dd_sin_eval(pr); break;
+  case 1: res = dd_cos_eval(pr); break;
+  case 2: res = -dd_sin_eval(pr); break;
+  default: res = -dd_cos_eval(pr); break;
   }
   return sign ? -res : res;
 }
@@ -175,12 +184,14 @@ MFD2 dd_cospi_full(MFD2 const &x) {
   MFD2 ax = (x._limbs[0] < 0.0) ? -x : x;
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
   MFD2 rx = ax + dd_pair(-0.5 * n_float, 0.0);
+  MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
+  MFD2 pr = pi_dd * rx;
   long long n_mod = static_cast<long long>(n_float) & 3LL;
   switch (n_mod) {
-  case 0: return dd_cospi_kernel(rx);
-  case 1: return -dd_sinpi_kernel(rx);
-  case 2: return -dd_cospi_kernel(rx);
-  default: return dd_sinpi_kernel(rx);
+  case 0: return dd_cos_eval(pr);
+  case 1: return -dd_sin_eval(pr);
+  case 2: return -dd_cos_eval(pr);
+  default: return dd_sin_eval(pr);
   }
 }
 
@@ -1243,6 +1254,77 @@ dd_t dd_j0(dd_t a) { return to(dd_bessel_j0_full(from(a))); }
 dd_t dd_j1(dd_t a) { return to(dd_bessel_j1_full(from(a))); }
 dd_t dd_y0(dd_t a) { return to(dd_bessel_y0_full(from(a))); }
 dd_t dd_y1(dd_t a) { return to(dd_bessel_y1_full(from(a))); }
+
+// Matrix multiply (column-major).
+// Inner accumulator uses Neumaier-style compensation on the DD-product stream:
+//   p, e = two_prod(ah, bh)          (exact)
+//   cross = fma(ah, bl, al*bh)       (DD-mul cross term, ignoring bl*bl)
+//   (s_hi, s_lo) += (p + cross + e)  via two_sum on s_hi
+// Final fast_two_sum renormalizes s_hi/s_lo into the DD result.
+namespace {
+
+static inline void dd_mac(double ah, double al, double bh, double bl,
+                          double &s_hi, double &s_lo) {
+  double p = ah * bh;
+  double e = std::fma(ah, bh, -p);
+  double cross = std::fma(ah, bl, al * bh);
+  double t = s_hi + p;
+  double bp = t - s_hi;
+  double ap = t - bp;
+  double aerr = s_hi - ap;
+  double berr = p - bp;
+  s_lo += (e + cross) + (aerr + berr);
+  s_hi = t;
+}
+
+static inline dd_t dd_finalize(double s_hi, double s_lo) {
+  double t = s_hi + s_lo;
+  double bp = t - s_hi;
+  return {t, s_lo - bp};
+}
+
+} // namespace
+
+void dd_matmul_mm(const dd_t *a, const dd_t *b, dd_t *c,
+                  int64_t m, int64_t k, int64_t n) {
+  for (int64_t j = 0; j < n; ++j) {
+    for (int64_t i = 0; i < m; ++i) {
+      double s_hi = 0.0, s_lo = 0.0;
+      for (int64_t p = 0; p < k; ++p) {
+        dd_t aa = a[i + p * m];
+        dd_t bb = b[p + j * k];
+        dd_mac(aa.hi, aa.lo, bb.hi, bb.lo, s_hi, s_lo);
+      }
+      c[i + j * m] = dd_finalize(s_hi, s_lo);
+    }
+  }
+}
+
+void dd_matmul_mv(const dd_t *a, const dd_t *x, dd_t *y,
+                  int64_t m, int64_t k) {
+  for (int64_t i = 0; i < m; ++i) {
+    double s_hi = 0.0, s_lo = 0.0;
+    for (int64_t p = 0; p < k; ++p) {
+      dd_t aa = a[i + p * m];
+      dd_t bb = x[p];
+      dd_mac(aa.hi, aa.lo, bb.hi, bb.lo, s_hi, s_lo);
+    }
+    y[i] = dd_finalize(s_hi, s_lo);
+  }
+}
+
+void dd_matmul_vm(const dd_t *x, const dd_t *b, dd_t *y,
+                  int64_t k, int64_t n) {
+  for (int64_t j = 0; j < n; ++j) {
+    double s_hi = 0.0, s_lo = 0.0;
+    for (int64_t p = 0; p < k; ++p) {
+      dd_t aa = x[p];
+      dd_t bb = b[p + j * k];
+      dd_mac(aa.hi, aa.lo, bb.hi, bb.lo, s_hi, s_lo);
+    }
+    y[j] = dd_finalize(s_hi, s_lo);
+  }
+}
 
 // Comparison
 int dd_eq(dd_t a, dd_t b) { return from(a) == from(b) ? 1 : 0; }

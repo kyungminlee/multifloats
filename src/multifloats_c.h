@@ -7,6 +7,8 @@
 #ifndef MULTIFLOATS_C_H
 #define MULTIFLOATS_C_H
 
+#include <stdint.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -78,6 +80,18 @@ DD_API dd_t dd_j0(dd_t a);
 DD_API dd_t dd_j1(dd_t a);
 DD_API dd_t dd_y0(dd_t a);
 DD_API dd_t dd_y1(dd_t a);
+
+/* Matrix multiply (column-major, Fortran layout).
+ *   dd_matmul_mm: C(m,n) = A(m,k) * B(k,n)
+ *   dd_matmul_mv: y(m)   = A(m,k) * x(k)
+ *   dd_matmul_vm: y(n)   = x(k)   * B(k,n)
+ * Leading dimensions equal the first extent (no strides). */
+DD_API void dd_matmul_mm(const dd_t *a, const dd_t *b, dd_t *c,
+                         int64_t m, int64_t k, int64_t n);
+DD_API void dd_matmul_mv(const dd_t *a, const dd_t *x, dd_t *y,
+                         int64_t m, int64_t k);
+DD_API void dd_matmul_vm(const dd_t *x, const dd_t *b, dd_t *y,
+                         int64_t k, int64_t n);
 
 /* Comparison (return int: 1 = true, 0 = false) */
 DD_API int dd_eq(dd_t a, dd_t b);
