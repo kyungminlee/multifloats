@@ -40,7 +40,7 @@ def to_dd(value):
     return hi, lo
 
 
-def verify_dd(value, hi, lo, name=""):
+def verify_dd(value, hi, lo):
     """Verify |value - (hi+lo)| / |value| < tol. Returns relative error."""
     dd = mpf(hi) + mpf(lo)
     if value == 0:
@@ -1336,13 +1336,12 @@ def verify_all(groups):
     n_checked = 0
     for g in groups:
         if g['kind'] == 'scalar':
-            err = verify_dd(g['exact'], g['hi'], g['lo'], g['name'])
+            err = verify_dd(g['exact'], g['hi'], g['lo'])
             max_err = max(max_err, err)
             n_checked += 1
         elif g['kind'] == 'array':
             for i in range(len(g['hi'])):
-                err = verify_dd(g['exact'][i], g['hi'][i], g['lo'][i],
-                                f"{g['name']}[{i}]")
+                err = verify_dd(g['exact'][i], g['hi'][i], g['lo'][i])
                 max_err = max(max_err, err)
                 n_checked += 1
     return max_err, n_checked

@@ -137,19 +137,10 @@ MFD2 dd_log10_full(MFD2 const &x) {
   return dd_log2_full(x) * dd_pair(log10_2_hi, log10_2_lo);
 }
 
-// ---- sinpi / cospi / sin / cos / tan ---------------------------------------
-MFD2 dd_sinpi_kernel(MFD2 const &x) {
-  return x * dd_horner(x * x, sinpi_coefs_hi, sinpi_coefs_lo, 15);
-}
-MFD2 dd_cospi_kernel(MFD2 const &x) {
-  return dd_horner(x * x, cospi_coefs_hi, cospi_coefs_lo, 15);
-}
-
-// Route sinpi/cospi through the full-DD sin/cos kernels on π·rx. The
-// pre-existing polynomial tables (sinpi_coefs, cospi_coefs) were only good
-// to ~5e-27; evaluating sin/cos on DD-exact π·rx reuses the proven ~4e-32
-// sin_eval/cos_eval path instead. |rx| ≤ 0.25 ⇒ |π·rx| ≤ π/4, matching
-// the eval range.
+// ---- sinpi / sin / cos / tan -----------------------------------------------
+// sinpi routes through the full-DD sin_eval kernel on π·rx (|rx| ≤ 0.25,
+// so |π·rx| ≤ π/4, matching the eval range). Used internally by gamma /
+// lgamma reflection.
 MFD2 dd_sinpi_full(MFD2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     MFD2 r;
@@ -174,28 +165,6 @@ MFD2 dd_sinpi_full(MFD2 const &x) {
   return sign ? -res : res;
 }
 
-MFD2 dd_cospi_full(MFD2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
-    return r;
-  }
-  MFD2 ax = (x._limbs[0] < 0.0) ? -x : x;
-  double n_float = std::nearbyint(2.0 * ax._limbs[0]);
-  MFD2 rx = ax + dd_pair(-0.5 * n_float, 0.0);
-  MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
-  MFD2 pr = pi_dd * rx;
-  long long n_mod = static_cast<long long>(n_float) & 3LL;
-  switch (n_mod) {
-  case 0: return dd_cos_eval(pr);
-  case 1: return -dd_sin_eval(pr);
-  case 2: return -dd_cos_eval(pr);
-  default: return dd_sin_eval(pr);
-  }
-}
-
-// ---- sin / cos / tan -------------------------------------------------------
 // Cody-Waite range reduction: n = nearest(x·2/π), r = x − n·(π/2) using a
 // 3-part π/2 constant (~161 bits). Each n·pi_half_cwK is an exact DD
 // product via FMA, then subtracted from r as full DD. This preserves ~106
@@ -681,14 +650,15 @@ MFD2 dd_erfc_full(MFD2 const &x) {
     default: p = dd_neval(z, erfc_AN8_hi, erfc_AN8_lo, 9) / dd_deval(z, erfc_AD8_hi, erfc_AD8_lo, 8); break;
     }
 
-    // Split x for accurate exp(-x^2): truncate hi limb to ~27 bits
-    // so s^2 is exact in double precision
+    // Split x for accurate exp(-x^2): truncate hi limb by zeroing the
+    // low 35 mantissa bits (keeps ~17 high bits), so s^2 fits exactly
+    // in a double (2·18 = 36 bits ≤ 53).
     union {
       double d;
       uint64_t u;
     } uu;
     uu.d = ax._limbs[0];
-    uu.u &= 0xFFFFFFF800000000ULL; // keep top 27 bits of mantissa
+    uu.u &= 0xFFFFFFF800000000ULL;
     MFD2 s = dd_pair(uu.d, 0.0);
 
     MFD2 e1 = dd_exp_full(-(s * s) - MFD2(0.5625));
@@ -903,11 +873,7 @@ MFD2 dd_lgamma_full(MFD2 const &x) {
   }
   if (hi < 0.5) {
     // Reflection: log|Γ(x)| = log π - log|sin(πx)| - log|Γ(1-x)|
-    MFD2 s = dd_sinpi_full(x);
-    if (s._limbs[0] < 0.0) {
-      s._limbs[0] = -s._limbs[0];
-      s._limbs[1] = -s._limbs[1];
-    }
+    MFD2 s = multifloats::abs(dd_sinpi_full(x));
     MFD2 one_minus_x = MFD2(1.0) - x;
     MFD2 lgam_1mx = dd_lgamma_positive(one_minus_x);
     return dd_pair(log_pi_hi, log_pi_lo) - dd_log_full(s) - lgam_1mx;
@@ -1079,8 +1045,10 @@ MFD2 dd_bessel_j0_full(MFD2 const &x) {
 }
 
 MFD2 dd_bessel_j1_full(MFD2 const &x) {
-  bool neg = x._limbs[0] < 0.0;
-  MFD2 ax = neg ? MFD2(0.0) - x : x;
+  // j1 is odd, so (+0, -eps) must be detected as negative — checking
+  // only the hi limb would miss that case.
+  bool neg = x._limbs[0] < 0.0 || (x._limbs[0] == 0.0 && x._limbs[1] < 0.0);
+  MFD2 ax = neg ? -x : x;
   double xx = ax._limbs[0];
   if (xx == 0.0) return MFD2(0.0);
   if (!std::isfinite(xx)) return MFD2(0.0);
@@ -1187,7 +1155,7 @@ MFD2 dd_bessel_y1_full(MFD2 const &x) {
 // multifloats.hh and the Fortran bind(C) interfaces both call these.
 // =============================================================================
 
-#include "multifloats_c.h"
+// multifloats_c.h is already pulled in via multifloats.hh.
 
 namespace {
 namespace mf = multifloats;
@@ -1195,8 +1163,7 @@ using MF2 = mf::MultiFloat<double, 2>;
 static inline MF2 from(dd_t x) { MF2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
 static inline dd_t to(MF2 const &x) { return {x._limbs[0], x._limbs[1]}; }
 
-// Matmul building blocks (duplicated here so the templates can reference
-// them — the extern "C" dd_mac/dd_finalize are in a nested namespace).
+// Inline matmul micro-ops used by the dispatched panel templates below.
 static inline void dd_mac_inl(double ah, double al, double bh, double bl,
                               double &s_hi, double &s_lo) {
   double p = ah * bh;
@@ -1211,16 +1178,28 @@ static inline void dd_mac_inl(double ah, double al, double bh, double bl,
   s_hi = t;
 }
 
-static inline dd_t dd_finalize_inl(double s_hi, double s_lo) {
+// Renormalize an accumulator pair. Uses full two_sum rather than
+// fast_two_sum because |s_hi| >= |s_lo| is not guaranteed after
+// cancellation in a long compensated dot-product.
+static inline void dd_renorm_inl(double &s_hi, double &s_lo) {
   double t = s_hi + s_lo;
   double bp = t - s_hi;
-  return {t, s_lo - bp};
+  double ap = t - bp;
+  double aerr = s_hi - ap;
+  double berr = s_lo - bp;
+  s_lo = aerr + berr;
+  s_hi = t;
+}
+
+static inline dd_t dd_finalize_inl(double s_hi, double s_lo) {
+  dd_renorm_inl(s_hi, s_lo);
+  return {s_hi, s_lo};
 }
 
 // AXPY-style panel µkernel. Processes a row-panel of A of compile-time
 // height MR against a contiguous x / b-column, writing MR finalized DD
 // outputs. `lda` is the leading dim of A (so the panel can sit in a
-// larger matrix); `renorm_interval > 0` triggers a fast_two_sum of each
+// larger matrix); `renorm_interval > 0` triggers a two_sum of each
 // accumulator pair every `renorm_interval` reductions (keeps s_lo
 // bounded and precision ~DD for large k, matching dot_product).
 template <int MR>
@@ -1244,7 +1223,7 @@ static inline void dd_gaxpy_mv_panel(const dd_t *__restrict__ a,
     return;
   }
   // Chunked path: for large k, do `renorm_interval` reductions then
-  // fast_two_sum each accumulator pair to keep s_lo bounded.
+  // two_sum each accumulator pair to keep s_lo bounded.
   const int64_t chunk = renorm_interval;
   int64_t p0 = 0;
   while (p0 < k) {
@@ -1260,12 +1239,7 @@ static inline void dd_gaxpy_mv_panel(const dd_t *__restrict__ a,
     }
     p0 = pend;
     if (p0 < k) {
-      for (int i = 0; i < MR; ++i) {
-        double t = s_hi[i] + s_lo[i];
-        double bp = t - s_hi[i];
-        s_hi[i] = t;
-        s_lo[i] = s_lo[i] - bp;
-      }
+      for (int i = 0; i < MR; ++i) dd_renorm_inl(s_hi[i], s_lo[i]);
     }
   }
   for (int i = 0; i < MR; ++i) y[i] = dd_finalize_inl(s_hi[i], s_lo[i]);
@@ -1374,8 +1348,8 @@ dd_t dd_y1(dd_t a) { return to(dd_bessel_y1_full(from(a))); }
 //   p, e = two_prod(ah, bh)          (exact)
 //   cross = fma(ah, bl, al*bh)       (DD-mul cross term, ignoring bl*bl)
 //   (s_hi, s_lo) += (p + cross + e)  via two_sum on s_hi
-// A final fast_two_sum renormalizes s_hi/s_lo into the DD result; if
-// `renorm_interval > 0`, intermediate fast_two_sums also fire every
+// A final two_sum renormalizes s_hi/s_lo into the DD result; if
+// `renorm_interval > 0`, intermediate two_sums also fire every
 // that-many reductions to keep s_lo bounded at large k.
 //
 // Loop order is AXPY / gaxpy: outer p (shared dim), inner i (output row)
@@ -1422,12 +1396,7 @@ void dd_matmul_vm(const dd_t *__restrict__ x, const dd_t *__restrict__ b,
           dd_mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
         }
         p0 = pend;
-        if (p0 < k) {
-          double t = s_hi + s_lo;
-          double bp = t - s_hi;
-          s_hi = t;
-          s_lo = s_lo - bp;
-        }
+        if (p0 < k) dd_renorm_inl(s_hi, s_lo);
       }
     }
     y[j] = dd_finalize_inl(s_hi, s_lo);

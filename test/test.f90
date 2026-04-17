@@ -18,6 +18,7 @@ program multifloat_test
   call test_renormalize()
   call test_builtins()
   call test_math_intrinsics()
+  call test_overflow_paths()
 
   if (num_errors == 0) then
     print *, "-------------------------------"
@@ -440,6 +441,52 @@ contains
     double precision, intent(out) :: p, e
     p = a * b
     e = ieee_fma(a, b, -p)
+  end subroutine
+
+  subroutine test_overflow_paths()
+    ! After P1, overflow / pole paths return IEEE infinity rather than
+    ! huge(0.0_dp). These assertions catch the regression.
+    type(float64x2) :: a, r
+    double precision :: inf
+
+    inf = ieee_value(inf, ieee_positive_inf)
+
+    ! exp2 / exp overflow → +inf
+    a = 2000.0d0
+    r = exp2(a)
+    call assert(is_inf(r%limbs(1)) .and. r%limbs(1) > 0.0d0, &
+                "exp2(2000) is +inf")
+    r = exp(a)
+    call assert(is_inf(r%limbs(1)) .and. r%limbs(1) > 0.0d0, &
+                "exp(2000) is +inf")
+
+    ! log2(0) → -inf; log2(+inf) → +inf
+    a = 0.0d0
+    r = log2(a)
+    call assert(is_inf(r%limbs(1)) .and. r%limbs(1) < 0.0d0, &
+                "log2(0) is -inf")
+    a = inf
+    r = log2(a)
+    call assert(is_inf(r%limbs(1)) .and. r%limbs(1) > 0.0d0, &
+                "log2(+inf) is +inf")
+
+    ! gamma(200) overflows → +inf
+    a = 200.0d0
+    r = gamma(a)
+    call assert(is_inf(r%limbs(1)) .and. r%limbs(1) > 0.0d0, &
+                "gamma(200) is +inf")
+
+    ! log_gamma at non-positive integer pole → +inf
+    a = 0.0d0
+    r = log_gamma(a)
+    call assert(is_inf(r%limbs(1)) .and. r%limbs(1) > 0.0d0, &
+                "log_gamma(0) is +inf")
+
+    ! bessel_yn(n, 0) → -inf
+    a = 0.0d0
+    r = bessel_yn(2, a)
+    call assert(is_inf(r%limbs(1)) .and. r%limbs(1) < 0.0d0, &
+                "bessel_yn(2, 0) is -inf")
   end subroutine
 
   ! Local shims for facilities the multifloats module does not expose.

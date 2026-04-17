@@ -263,7 +263,15 @@ template <typename T, std::size_t N> struct MultiFloat {
 
 template <typename T, std::size_t N>
 constexpr MultiFloat<T, N> abs(MultiFloat<T, N> const &x) {
-  return std::signbit(x._limbs[0]) ? -x : x;
+  // A DD like (+0, -eps) represents a negative value; flipping only on
+  // signbit(hi) would leave it untouched. Use the first nonzero limb to
+  // decide — matches the Fortran mf_abs path.
+  for (std::size_t i = 0; i < N; ++i) {
+    if (x._limbs[i] != T(0)) {
+      return std::signbit(x._limbs[i]) ? -x : x;
+    }
+  }
+  return x;
 }
 
 template <typename T, std::size_t N>
@@ -285,6 +293,14 @@ constexpr MultiFloat<T, N> fmax(MultiFloat<T, N> const &a,
 
 template <typename T, std::size_t N>
 constexpr bool signbit(MultiFloat<T, N> const &x) {
+  // For non-canonical zero-hi DDs (e.g. (+0, -eps)), the sign lives in
+  // the first nonzero limb. Fall through to signbit(hi) when every limb
+  // is a (possibly signed) zero, preserving IEEE -0 semantics.
+  for (std::size_t i = 0; i < N; ++i) {
+    if (x._limbs[i] != T(0)) {
+      return std::signbit(x._limbs[i]);
+    }
+  }
   return std::signbit(x._limbs[0]);
 }
 
@@ -344,9 +360,7 @@ constexpr int ilogb(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 constexpr MultiFloat<T, N> copysign(MultiFloat<T, N> const &x,
                                     MultiFloat<T, N> const &y) {
-  bool xs = std::signbit(x._limbs[0]);
-  bool ys = std::signbit(y._limbs[0]);
-  return (xs == ys) ? x : -x;
+  return (signbit(x) == signbit(y)) ? x : -x;
 }
 
 namespace detail {

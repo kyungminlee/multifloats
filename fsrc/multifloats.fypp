@@ -101,7 +101,8 @@
 
 module multifloats
     use, intrinsic :: ieee_arithmetic, only: ieee_is_finite, ieee_is_nan, &
-                                              ieee_value, ieee_quiet_nan
+                                              ieee_value, ieee_quiet_nan,  &
+                                              ieee_positive_inf, ieee_negative_inf
     use, intrinsic :: iso_fortran_env, only: int8, int16, int32, int64
     use, intrinsic :: iso_c_binding, only: c_double, c_int64_t, c_ptr, c_loc
     implicit none
@@ -1264,7 +1265,7 @@ contains
         else if (x%limbs(1) < exp2_min) then
             res%limbs = [0.0_dp, 0.0_dp]
         else if (x%limbs(1) > exp2_max) then
-            res%limbs = [huge(0.0_dp), 0.0_dp]
+            res%limbs = [ieee_value(0.0_dp, ieee_positive_inf), 0.0_dp]
         else
             res = dd_exp2_kernel(x)
         end if
@@ -1326,9 +1327,9 @@ contains
         if (ieee_is_nan(x%limbs(1)) .or. x%limbs(1) < 0.0_dp) then
             res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
         else if (x%limbs(1) == 0.0_dp) then
-            res%limbs = [-huge(0.0_dp), 0.0_dp]
+            res%limbs = [ieee_value(0.0_dp, ieee_negative_inf), 0.0_dp]
         else if (.not. ieee_is_finite(x%limbs(1))) then
-            res%limbs = [huge(0.0_dp), 0.0_dp]
+            res%limbs = [ieee_value(0.0_dp, ieee_positive_inf), 0.0_dp]
         else
             res = dd_log2_kernel(x)
         end if
@@ -2051,7 +2052,7 @@ contains
             ! Asymptotic: erfc(x) = (1/x)*exp(-x^2 - 0.5625 + R(1/x^2))
             if (neg .and. ax%limbs(1) >= 9.0_dp) then
                 res%limbs = [2.0_dp, 0.0_dp]
-                if (neg) return
+                return
             end if
             x2 = ax * ax
             z = MF_ONE / x2
@@ -2108,7 +2109,7 @@ contains
     ! the product directly.
     elemental function dd_erfc_scaled_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, ax, z, y, p, ca, cb, x2, exp_x2, erfc_x, two
+        type(float64x2) :: res, ax, z, p, x2, exp_x2, erfc_x, two
         logical :: neg
         integer :: idx
         real(dp), parameter :: INF_DP = &
@@ -2519,12 +2520,12 @@ contains
         end if
         ! +/-Inf
         if (.not. ieee_is_finite(hi)) then
-            res%limbs = [huge(0.0_dp), 0.0_dp]
+            res%limbs = [ieee_value(0.0_dp, ieee_positive_inf), 0.0_dp]
             return
         end if
         ! Non-positive integer poles
         if (hi <= 0.0_dp .and. hi == anint(hi) .and. x%limbs(2) == 0.0_dp) then
-            res%limbs = [huge(0.0_dp), 0.0_dp]
+            res%limbs = [ieee_value(0.0_dp, ieee_positive_inf), 0.0_dp]
             return
         end if
         if (hi < 0.5_dp) then
@@ -2568,7 +2569,7 @@ contains
         end if
         ! Overflow guard
         if (hi > 171.624_dp) then
-            res%limbs = [huge(0.0_dp), 0.0_dp]
+            res%limbs = [ieee_value(0.0_dp, ieee_positive_inf), 0.0_dp]
             return
         end if
         if (hi < 0.5_dp) then
@@ -2587,110 +2588,6 @@ contains
         end if
         res = dd_exp_full(dd_lgamma_positive(x))
     end function
-
-    ! ================================================================
-    ! Bessel P/Q asymptotic dispatch (order 0, shared by j0 and y0)
-    ! ================================================================
-    elemental subroutine dd_bessel_pq0(xinv, z, p, q)
-        real(dp), intent(in) :: xinv
-        type(float64x2), intent(in) :: z
-        type(float64x2), intent(out) :: p, q
-        if (xinv <= 0.25_dp) then
-            if (xinv <= 0.125_dp) then
-                if (xinv <= 0.0625_dp) then
-                    p = dd_neval(z, j0_P16_IN_hi, j0_P16_IN_lo) / dd_deval(z, j0_P16_ID_hi, j0_P16_ID_lo)
-                    q = dd_neval(z, j0_Q16_IN_hi, j0_Q16_IN_lo) / dd_deval(z, j0_Q16_ID_hi, j0_Q16_ID_lo)
-                else
-                    p = dd_neval(z, j0_P8_16N_hi, j0_P8_16N_lo) / dd_deval(z, j0_P8_16D_hi, j0_P8_16D_lo)
-                    q = dd_neval(z, j0_Q8_16N_hi, j0_Q8_16N_lo) / dd_deval(z, j0_Q8_16D_hi, j0_Q8_16D_lo)
-                end if
-            else if (xinv <= 0.1875_dp) then
-                p = dd_neval(z, j0_P5_8N_hi, j0_P5_8N_lo) / dd_deval(z, j0_P5_8D_hi, j0_P5_8D_lo)
-                q = dd_neval(z, j0_Q5_8N_hi, j0_Q5_8N_lo) / dd_deval(z, j0_Q5_8D_hi, j0_Q5_8D_lo)
-            else
-                p = dd_neval(z, j0_P4_5N_hi, j0_P4_5N_lo) / dd_deval(z, j0_P4_5D_hi, j0_P4_5D_lo)
-                q = dd_neval(z, j0_Q4_5N_hi, j0_Q4_5N_lo) / dd_deval(z, j0_Q4_5D_hi, j0_Q4_5D_lo)
-            end if
-        else
-            if (xinv <= 0.375_dp) then
-                if (xinv <= 0.3125_dp) then
-                    p = dd_neval(z, j0_P3r2_4N_hi, j0_P3r2_4N_lo) / dd_deval(z, j0_P3r2_4D_hi, j0_P3r2_4D_lo)
-                    q = dd_neval(z, j0_Q3r2_4N_hi, j0_Q3r2_4N_lo) / dd_deval(z, j0_Q3r2_4D_hi, j0_Q3r2_4D_lo)
-                else
-                    p = dd_neval(z, j0_P2r7_3r2N_hi, j0_P2r7_3r2N_lo) / dd_deval(z, j0_P2r7_3r2D_hi, j0_P2r7_3r2D_lo)
-                    q = dd_neval(z, j0_Q2r7_3r2N_hi, j0_Q2r7_3r2N_lo) / dd_deval(z, j0_Q2r7_3r2D_hi, j0_Q2r7_3r2D_lo)
-                end if
-            else if (xinv <= 0.4375_dp) then
-                p = dd_neval(z, j0_P2r3_2r7N_hi, j0_P2r3_2r7N_lo) / dd_deval(z, j0_P2r3_2r7D_hi, j0_P2r3_2r7D_lo)
-                q = dd_neval(z, j0_Q2r3_2r7N_hi, j0_Q2r3_2r7N_lo) / dd_deval(z, j0_Q2r3_2r7D_hi, j0_Q2r3_2r7D_lo)
-            else
-                p = dd_neval(z, j0_P2_2r3N_hi, j0_P2_2r3N_lo) / dd_deval(z, j0_P2_2r3D_hi, j0_P2_2r3D_lo)
-                q = dd_neval(z, j0_Q2_2r3N_hi, j0_Q2_2r3N_lo) / dd_deval(z, j0_Q2_2r3D_hi, j0_Q2_2r3D_lo)
-            end if
-        end if
-    end subroutine
-
-    ! Bessel P/Q asymptotic dispatch (order 1, shared by j1 and y1)
-    elemental subroutine dd_bessel_pq1(xinv, z, p, q)
-        real(dp), intent(in) :: xinv
-        type(float64x2), intent(in) :: z
-        type(float64x2), intent(out) :: p, q
-        if (xinv <= 0.25_dp) then
-            if (xinv <= 0.125_dp) then
-                if (xinv <= 0.0625_dp) then
-                    p = dd_neval(z, j1_P16_IN_hi, j1_P16_IN_lo) / dd_deval(z, j1_P16_ID_hi, j1_P16_ID_lo)
-                    q = dd_neval(z, j1_Q16_IN_hi, j1_Q16_IN_lo) / dd_deval(z, j1_Q16_ID_hi, j1_Q16_ID_lo)
-                else
-                    p = dd_neval(z, j1_P8_16N_hi, j1_P8_16N_lo) / dd_deval(z, j1_P8_16D_hi, j1_P8_16D_lo)
-                    q = dd_neval(z, j1_Q8_16N_hi, j1_Q8_16N_lo) / dd_deval(z, j1_Q8_16D_hi, j1_Q8_16D_lo)
-                end if
-            else if (xinv <= 0.1875_dp) then
-                p = dd_neval(z, j1_P5_8N_hi, j1_P5_8N_lo) / dd_deval(z, j1_P5_8D_hi, j1_P5_8D_lo)
-                q = dd_neval(z, j1_Q5_8N_hi, j1_Q5_8N_lo) / dd_deval(z, j1_Q5_8D_hi, j1_Q5_8D_lo)
-            else
-                p = dd_neval(z, j1_P4_5N_hi, j1_P4_5N_lo) / dd_deval(z, j1_P4_5D_hi, j1_P4_5D_lo)
-                q = dd_neval(z, j1_Q4_5N_hi, j1_Q4_5N_lo) / dd_deval(z, j1_Q4_5D_hi, j1_Q4_5D_lo)
-            end if
-        else
-            if (xinv <= 0.375_dp) then
-                if (xinv <= 0.3125_dp) then
-                    p = dd_neval(z, j1_P3r2_4N_hi, j1_P3r2_4N_lo) / dd_deval(z, j1_P3r2_4D_hi, j1_P3r2_4D_lo)
-                    q = dd_neval(z, j1_Q3r2_4N_hi, j1_Q3r2_4N_lo) / dd_deval(z, j1_Q3r2_4D_hi, j1_Q3r2_4D_lo)
-                else
-                    p = dd_neval(z, j1_P2r7_3r2N_hi, j1_P2r7_3r2N_lo) / dd_deval(z, j1_P2r7_3r2D_hi, j1_P2r7_3r2D_lo)
-                    q = dd_neval(z, j1_Q2r7_3r2N_hi, j1_Q2r7_3r2N_lo) / dd_deval(z, j1_Q2r7_3r2D_hi, j1_Q2r7_3r2D_lo)
-                end if
-            else if (xinv <= 0.4375_dp) then
-                p = dd_neval(z, j1_P2r3_2r7N_hi, j1_P2r3_2r7N_lo) / dd_deval(z, j1_P2r3_2r7D_hi, j1_P2r3_2r7D_lo)
-                q = dd_neval(z, j1_Q2r3_2r7N_hi, j1_Q2r3_2r7N_lo) / dd_deval(z, j1_Q2r3_2r7D_hi, j1_Q2r3_2r7D_lo)
-            else
-                p = dd_neval(z, j1_P2_2r3N_hi, j1_P2_2r3N_lo) / dd_deval(z, j1_P2_2r3D_hi, j1_P2_2r3D_lo)
-                q = dd_neval(z, j1_Q2_2r3N_hi, j1_Q2_2r3N_lo) / dd_deval(z, j1_Q2_2r3D_hi, j1_Q2_2r3D_lo)
-            end if
-        end if
-    end subroutine
-
-    ! sin(x-pi/4) and cos(x-pi/4) via direct DD trig of shifted angle
-    elemental subroutine dd_bessel_sincos0(x_arg, ss, cc)
-        type(float64x2), intent(in) :: x_arg
-        type(float64x2), intent(out) :: ss, cc
-        type(float64x2) :: angle, c
-        c%limbs = [pi_quarter_hi, pi_quarter_lo]
-        angle = x_arg - c
-        ss = dd_sin_full(angle)
-        cc = dd_cos_full(angle)
-    end subroutine
-
-    ! sin(x-3pi/4) and cos(x-3pi/4) via direct DD trig of shifted angle
-    elemental subroutine dd_bessel_sincos1(x_arg, ss, cc)
-        type(float64x2), intent(in) :: x_arg
-        type(float64x2), intent(out) :: ss, cc
-        type(float64x2) :: angle, c
-        c%limbs = [three_pi_quarter_hi, three_pi_quarter_lo]
-        angle = x_arg - c
-        ss = dd_sin_full(angle)
-        cc = dd_cos_full(angle)
-    end subroutine
 
     ! Bessel j0/j1/y0/y1: thin wrappers around C++ implementations
     ! (C++ is ~4x faster due to Estrin polynomial evaluation + inlining)
@@ -3017,7 +2914,7 @@ contains
                 small = ax
             end if
             if (big%limbs(1) == 0.0_dp) then
-                res%re%limbs = [-huge(0.0_dp), 0.0_dp]
+                res%re%limbs = [ieee_value(0.0_dp, ieee_negative_inf), 0.0_dp]
             else
                 ratio = small / big
                 half%limbs = [0.5_dp, 0.0_dp]
@@ -3621,7 +3518,7 @@ $:mf_minmax_body(func, n)
         xx = x%limbs(1)
         if (xx <= 0.0_dp) then
             if (xx == 0.0_dp) then
-                res%limbs = [-huge(0.0_dp), 0.0_dp]
+                res%limbs = [ieee_value(0.0_dp, ieee_negative_inf), 0.0_dp]
             else
                 res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
             end if

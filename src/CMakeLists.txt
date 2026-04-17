@@ -32,7 +32,7 @@ endif()
 install(TARGETS multifloats
     EXPORT multifloatsTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(FILES multifloats.hh
+install(FILES multifloats.hh multifloats_c.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT multifloatsTargets
     FILE multifloatsTargets.cmake

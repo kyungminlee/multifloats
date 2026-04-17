@@ -344,6 +344,20 @@ static void test_classification() {
   REQUIRE(mf::fpclassify(zero) == FP_ZERO);
   REQUIRE(mf::fpclassify(pinf) == FP_INFINITE);
   REQUIRE(mf::fpclassify(mnan) == FP_NAN);
+
+  // Non-canonical DDs where hi is (signed) zero: the value lives in lo,
+  // so signbit/abs must consult lo rather than blindly trusting hi.
+  MF2 tiny_neg;
+  tiny_neg._limbs[0] = 0.0;
+  tiny_neg._limbs[1] = -1e-300;
+  REQUIRE(mf::signbit(tiny_neg));
+  REQUIRE(!mf::signbit(mf::abs(tiny_neg)));
+
+  MF2 tiny_pos;
+  tiny_pos._limbs[0] = -0.0;
+  tiny_pos._limbs[1] = 1e-300;
+  REQUIRE(!mf::signbit(tiny_pos));
+  REQUIRE(!mf::signbit(mf::abs(tiny_pos)));
 }
 
 static void test_ldexp_scalbn_ilogb(Stats &stats) {
