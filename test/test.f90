@@ -21,6 +21,7 @@ program multifloat_test
   call test_overflow_paths()
   call test_sinpi_cospi_precision()
   call test_cx_matmul_dot()
+  call test_compensated_reductions()
 
   if (num_errors == 0) then
     print *, "-------------------------------"
@@ -547,6 +548,55 @@ contains
     s = dot_product(u, v)
     call assert_approx(s%re, 0.0d0, 0.0d0, "cx_dot(u, i·u) real == 0")
     call assert_approx(s%im, 2.0d0, 0.0d0, "cx_dot(u, i·u) imag == 2")
+  end subroutine
+
+  subroutine test_compensated_reductions()
+    ! P4: sum / sum(..., dim=...) / cx sum all route through Neumaier
+    ! compensation. Verify that the dim-reduction sum of a 1xN array
+    ! matches the rank-1 sum bit-exactly, and that cx sum preserves
+    ! near-cancellation the same way the real sum does.
+    type(float64x2) :: a(6), ma(1, 6), col(1)
+    type(float64x2) :: s_flat, s_col_scalar
+    type(complex128x2) :: ca(6), cm(1, 6), ccol(1), cs, cs_col
+
+    ! Choose values that straddle DD exponents; naive left-fold loses
+    ! the last element's contribution when accumulated before the
+    ! large terms cancel. The compensated path should preserve it.
+    a(1) = float64x2(1.0d30)
+    a(2) = float64x2(1.0d0)
+    a(3) = float64x2(-1.0d30)
+    a(4) = float64x2(1.0d0)
+    a(5) = float64x2(1.0d30)
+    a(6) = float64x2(-1.0d30)
+
+    s_flat = sum(a)
+    ma(1, :) = a
+    col = sum(ma, dim=2)
+    s_col_scalar = col(1)
+
+    call assert_approx(s_flat, 2.0d0, 0.0d0, "sum(a) == 2 (compensated)")
+    call assert_approx(s_col_scalar, 2.0d0, 0.0d0, &
+                       "sum(ma, dim=2) == 2 (compensated)")
+
+    ! Same pattern in the real / imag limbs of a complex array.
+    ca(1)%re = float64x2(1.0d30); ca(1)%im = float64x2(2.0d30)
+    ca(2)%re = float64x2(1.0d0);  ca(2)%im = float64x2(2.0d0)
+    ca(3)%re = float64x2(-1.0d30);ca(3)%im = float64x2(-2.0d30)
+    ca(4)%re = float64x2(1.0d0);  ca(4)%im = float64x2(2.0d0)
+    ca(5)%re = float64x2(1.0d30); ca(5)%im = float64x2(2.0d30)
+    ca(6)%re = float64x2(-1.0d30);ca(6)%im = float64x2(-2.0d30)
+
+    cs = sum(ca)
+    cm(1, :) = ca
+    ccol = sum(cm, dim=2)
+    cs_col = ccol(1)
+
+    call assert_approx(cs%re, 2.0d0, 0.0d0, "cx_sum.re == 2 (compensated)")
+    call assert_approx(cs%im, 4.0d0, 0.0d0, "cx_sum.im == 4 (compensated)")
+    call assert_approx(cs_col%re, 2.0d0, 0.0d0, &
+                       "cx_sum(dim=2).re == 2 (compensated)")
+    call assert_approx(cs_col%im, 4.0d0, 0.0d0, &
+                       "cx_sum(dim=2).im == 4 (compensated)")
   end subroutine
 
   ! Local shims for facilities the multifloats module does not expose.

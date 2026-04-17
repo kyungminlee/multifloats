@@ -49,10 +49,16 @@ already; these are the ones that needed explicit review.
       future revisit if cx reductions become a profile hotspot.
       `test_cx_matmul_dot` covers 8 identities in `test/test.f90`.
 
-- [ ] **P4. `mf_product` / `*_dim` reductions are naive.**
-      `fsrc/multifloats.fypp:3998-4009, 4040-4046`. Inconsistent with the
-      Neumaier-compensated `mf_sum` right next to them. Decide: compensate
-      or document that only `sum` / `dot_product` are compensated.
+- [x] **P4. `mf_product` / `*_dim` reductions are naive.**
+      Fixed: `mf_sum_${rank}d_dim` (rank>1), `cx_sum_${rank}d`, and
+      `cx_sum_${rank}d_dim` (rank>1) now inline the Neumaier-compensated
+      accumulator (two accumulators for complex) that was previously only
+      in the rank-N no-dim `mf_sum`. Product paths stay naive — each DD×DD
+      is already ~1 DD ulp, Neumaier compensation does not apply to
+      multiplication (documented inline). Final renorm upgraded from
+      fast_two_sum to full two_sum. `test_compensated_reductions` covers
+      sum, sum(..., dim), cx sum, and cx sum(..., dim) with a
+      cancellation-prone input.
 
 ## Speed
 

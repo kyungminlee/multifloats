@@ -3902,7 +3902,11 @@ $:mf_minmax_body(func, n)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         type(float64x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
+#:if func == 'sum'
+        real(dp) :: s_hi, s_lo, x_hi, x_lo, t, bp, ap, aerr, berr
+#:else
         type(float64x2) :: cur
+#:endif
         integer :: ${IVARS(rank)}$
         select case (dim)
 #:for d in range(1, rank+1)
@@ -3910,6 +3914,30 @@ $:mf_minmax_body(func, n)
 #:for i in [j for j in range(rank, 0, -1) if j != d]
             do i${i}$ = 1, size(array, ${i}$)
 #:endfor
+#:if func == 'sum'
+                ! Neumaier-compensated scalar accumulator, matching
+                ! mf_sum_${rank}$d above.
+                s_hi = 0.0_dp; s_lo = 0.0_dp
+                do i${d}$ = 1, size(array, ${d}$)
+                    if (present(mask)) then
+                        if (.not. mask(${IDXS(rank)}$)) cycle
+                    end if
+                    x_hi = array(${IDXS(rank)}$)%limbs(1)
+                    x_lo = array(${IDXS(rank)}$)%limbs(2)
+                    t = s_hi + x_hi
+                    bp = t - s_hi; ap = t - bp
+                    aerr = s_hi - ap; berr = x_hi - bp
+                    s_lo = s_lo + (x_lo + aerr + berr)
+                    s_hi = t
+                end do
+                t = s_hi + s_lo
+                bp = t - s_hi; ap = t - bp
+                aerr = s_hi - ap; berr = s_lo - bp
+                res(${OUT_IDXS(rank, d)}$)%limbs(1) = t
+                res(${OUT_IDXS(rank, d)}$)%limbs(2) = aerr + berr
+#:else
+                ! Product: each DD*DD is already ~1 DD ulp; Neumaier-style
+                ! compensation does not apply to multiplication.
                 cur = mf_from_dp(${INIT_VAL}$)
                 do i${d}$ = 1, size(array, ${d}$)
                     if (present(mask)) then
@@ -3918,6 +3946,7 @@ $:mf_minmax_body(func, n)
                     cur = cur ${OP_SYM}$ array(${IDXS(rank)}$)
                 end do
                 res(${OUT_IDXS(rank, d)}$) = cur
+#:endif
 #:for i in [j for j in range(rank, 0, -1) if j != d]
             end do
 #:endfor
@@ -3931,17 +3960,55 @@ $:mf_minmax_body(func, n)
         type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         type(complex128x2) :: res
+#:if func == 'sum'
+        real(dp) :: re_hi, re_lo, im_hi, im_lo
+        real(dp) :: xh, xl, t, bp, ap, aerr, berr
+#:else
         type(float64x2) :: zero, one
+#:endif
         integer :: ${IVARS(rank)}$
+#:if func == 'sum'
+        ! Neumaier-compensated accumulators on both real and imaginary limbs.
+        re_hi = 0.0_dp; re_lo = 0.0_dp
+        im_hi = 0.0_dp; im_lo = 0.0_dp
+#:for d in range(rank, 0, -1)
+        do i${d}$ = 1, size(array, ${d}$)
+#:endfor
+            if (present(mask)) then
+                if (.not. mask(${IDXS(rank)}$)) cycle
+            end if
+            xh = array(${IDXS(rank)}$)%re%limbs(1)
+            xl = array(${IDXS(rank)}$)%re%limbs(2)
+            t = re_hi + xh
+            bp = t - re_hi; ap = t - bp
+            aerr = re_hi - ap; berr = xh - bp
+            re_lo = re_lo + (xl + aerr + berr)
+            re_hi = t
+            xh = array(${IDXS(rank)}$)%im%limbs(1)
+            xl = array(${IDXS(rank)}$)%im%limbs(2)
+            t = im_hi + xh
+            bp = t - im_hi; ap = t - bp
+            aerr = im_hi - ap; berr = xh - bp
+            im_lo = im_lo + (xl + aerr + berr)
+            im_hi = t
+#:for d in range(rank)
+        end do
+#:endfor
+        t = re_hi + re_lo
+        bp = t - re_hi; ap = t - bp
+        aerr = re_hi - ap; berr = re_lo - bp
+        res%re%limbs(1) = t
+        res%re%limbs(2) = aerr + berr
+        t = im_hi + im_lo
+        bp = t - im_hi; ap = t - bp
+        aerr = im_hi - ap; berr = im_lo - bp
+        res%im%limbs(1) = t
+        res%im%limbs(2) = aerr + berr
+#:else
         zero = mf_from_dp(0.0_dp)
         one = mf_from_dp(1.0_dp)
-#:if func == 'sum'
-        res%re = zero
-        res%im = zero
-#:else
         res%re = one
         res%im = zero
-#:endif
 #:for d in range(rank, 0, -1)
         do i${d}$ = 1, size(array, ${d}$)
 #:endfor
@@ -3952,6 +4019,7 @@ $:mf_minmax_body(func, n)
 #:for d in range(rank)
         end do
 #:endfor
+#:endif
     end function
 
 #:if rank == 1
@@ -3972,11 +4040,18 @@ $:mf_minmax_body(func, n)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         type(complex128x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
+#:if func == 'sum'
+        real(dp) :: re_hi, re_lo, im_hi, im_lo
+        real(dp) :: xh, xl, t, bp, ap, aerr, berr
+#:else
         type(complex128x2) :: cur
         type(float64x2) :: zero, one
+#:endif
         integer :: ${IVARS(rank)}$
+#:if func == 'product'
         zero = mf_from_dp(0.0_dp)
         one = mf_from_dp(1.0_dp)
+#:endif
         select case (dim)
 #:for d in range(1, rank+1)
         case (${d}$)
@@ -3984,12 +4059,41 @@ $:mf_minmax_body(func, n)
             do i${i}$ = 1, size(array, ${i}$)
 #:endfor
 #:if func == 'sum'
-                cur%re = zero
-                cur%im = zero
+                ! Neumaier-compensated real + imag accumulators.
+                re_hi = 0.0_dp; re_lo = 0.0_dp
+                im_hi = 0.0_dp; im_lo = 0.0_dp
+                do i${d}$ = 1, size(array, ${d}$)
+                    if (present(mask)) then
+                        if (.not. mask(${IDXS(rank)}$)) cycle
+                    end if
+                    xh = array(${IDXS(rank)}$)%re%limbs(1)
+                    xl = array(${IDXS(rank)}$)%re%limbs(2)
+                    t = re_hi + xh
+                    bp = t - re_hi; ap = t - bp
+                    aerr = re_hi - ap; berr = xh - bp
+                    re_lo = re_lo + (xl + aerr + berr)
+                    re_hi = t
+                    xh = array(${IDXS(rank)}$)%im%limbs(1)
+                    xl = array(${IDXS(rank)}$)%im%limbs(2)
+                    t = im_hi + xh
+                    bp = t - im_hi; ap = t - bp
+                    aerr = im_hi - ap; berr = xh - bp
+                    im_lo = im_lo + (xl + aerr + berr)
+                    im_hi = t
+                end do
+                t = re_hi + re_lo
+                bp = t - re_hi; ap = t - bp
+                aerr = re_hi - ap; berr = re_lo - bp
+                res(${OUT_IDXS(rank, d)}$)%re%limbs(1) = t
+                res(${OUT_IDXS(rank, d)}$)%re%limbs(2) = aerr + berr
+                t = im_hi + im_lo
+                bp = t - im_hi; ap = t - bp
+                aerr = im_hi - ap; berr = im_lo - bp
+                res(${OUT_IDXS(rank, d)}$)%im%limbs(1) = t
+                res(${OUT_IDXS(rank, d)}$)%im%limbs(2) = aerr + berr
 #:else
                 cur%re = one
                 cur%im = zero
-#:endif
                 do i${d}$ = 1, size(array, ${d}$)
                     if (present(mask)) then
                         if (.not. mask(${IDXS(rank)}$)) cycle
@@ -3997,6 +4101,7 @@ $:mf_minmax_body(func, n)
                     cur = cur ${OP_SYM}$ array(${IDXS(rank)}$)
                 end do
                 res(${OUT_IDXS(rank, d)}$) = cur
+#:endif
 #:for i in [j for j in range(rank, 0, -1) if j != d]
             end do
 #:endfor
