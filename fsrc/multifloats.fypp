@@ -119,25 +119,26 @@ module multifloats
 
     ! C-ABI matmul kernels (defined in multifloats_math.cc). The Fortran
     ! float64x2 type has SEQUENCE layout [hi, lo] which is bit-compatible
-    ! with the C dd_t struct, so we pass arrays by c_loc.
+    ! with the C dd_t struct, so we pass arrays by c_loc. The final
+    ! renorm_interval arg mirrors MF_FMA_RENORM_INTERVAL (0 = off).
     interface
-        pure subroutine c_dd_matmul_mm(a, b, c, m, k, n) &
+        pure subroutine c_dd_matmul_mm(a, b, c, m, k, n, ri) &
                 bind(c, name="dd_matmul_mm")
             import :: c_ptr, c_int64_t
             type(c_ptr), value, intent(in) :: a, b, c
-            integer(c_int64_t), value, intent(in) :: m, k, n
+            integer(c_int64_t), value, intent(in) :: m, k, n, ri
         end subroutine
-        pure subroutine c_dd_matmul_mv(a, x, y, m, k) &
+        pure subroutine c_dd_matmul_mv(a, x, y, m, k, ri) &
                 bind(c, name="dd_matmul_mv")
             import :: c_ptr, c_int64_t
             type(c_ptr), value, intent(in) :: a, x, y
-            integer(c_int64_t), value, intent(in) :: m, k
+            integer(c_int64_t), value, intent(in) :: m, k, ri
         end subroutine
-        pure subroutine c_dd_matmul_vm(x, b, y, k, n) &
+        pure subroutine c_dd_matmul_vm(x, b, y, k, n, ri) &
                 bind(c, name="dd_matmul_vm")
             import :: c_ptr, c_int64_t
             type(c_ptr), value, intent(in) :: x, b, y
-            integer(c_int64_t), value, intent(in) :: k, n
+            integer(c_int64_t), value, intent(in) :: k, n, ri
         end subroutine
     end interface
 
@@ -4425,7 +4426,8 @@ $:mf_minmax_body(func, n)
         type(float64x2), target :: res(size(a,1), size(b,2))
         call c_dd_matmul_mm(c_loc(a), c_loc(b), c_loc(res), &
             int(size(a,1), c_int64_t), int(size(a,2), c_int64_t), &
-            int(size(b,2), c_int64_t))
+            int(size(b,2), c_int64_t), &
+            int(MF_FMA_RENORM_INTERVAL, c_int64_t))
     end function
 
     ! mf matmul: 2D × 1D → 1D (delegates to C kernel dd_matmul_mv)
@@ -4433,7 +4435,8 @@ $:mf_minmax_body(func, n)
         type(float64x2), intent(in), target, contiguous :: a(:,:), b(:)
         type(float64x2), target :: res(size(a,1))
         call c_dd_matmul_mv(c_loc(a), c_loc(b), c_loc(res), &
-            int(size(a,1), c_int64_t), int(size(a,2), c_int64_t))
+            int(size(a,1), c_int64_t), int(size(a,2), c_int64_t), &
+            int(MF_FMA_RENORM_INTERVAL, c_int64_t))
     end function
 
     ! mf matmul: 1D × 2D → 1D (delegates to C kernel dd_matmul_vm)
@@ -4441,7 +4444,8 @@ $:mf_minmax_body(func, n)
         type(float64x2), intent(in), target, contiguous :: a(:), b(:,:)
         type(float64x2), target :: res(size(b,2))
         call c_dd_matmul_vm(c_loc(a), c_loc(b), c_loc(res), &
-            int(size(a), c_int64_t), int(size(b,2), c_int64_t))
+            int(size(a), c_int64_t), int(size(b,2), c_int64_t), &
+            int(MF_FMA_RENORM_INTERVAL, c_int64_t))
     end function
 
     ! cx matmul: 2D × 2D → 2D

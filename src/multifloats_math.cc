@@ -1217,43 +1217,95 @@ static inline dd_t dd_finalize_inl(double s_hi, double s_lo) {
   return {t, s_lo - bp};
 }
 
-// AXPY-style matvec / matmul with compile-time-fixed output dim M.
-// Fixed M lets the compiler register-promote the m independent DD
-// accumulators and fully unroll the inner loop.
-template <int M>
-static inline void dd_gaxpy_mv_fixed(const dd_t *__restrict__ a,
+// AXPY-style panel µkernel. Processes a row-panel of A of compile-time
+// height MR against a contiguous x / b-column, writing MR finalized DD
+// outputs. `lda` is the leading dim of A (so the panel can sit in a
+// larger matrix); `renorm_interval > 0` triggers a fast_two_sum of each
+// accumulator pair every `renorm_interval` reductions (keeps s_lo
+// bounded and precision ~DD for large k, matching dot_product).
+template <int MR>
+static inline void dd_gaxpy_mv_panel(const dd_t *__restrict__ a,
                                      const dd_t *__restrict__ x,
-                                     dd_t *__restrict__ y, int64_t k) {
-  double s_hi[M] = {}, s_lo[M] = {};
-  for (int64_t p = 0; p < k; ++p) {
-    const double xh = x[p].hi;
-    const double xl = x[p].lo;
-    const dd_t *__restrict__ acol = a + p * M;
-    for (int i = 0; i < M; ++i) {
-      dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
-    }
-  }
-  for (int i = 0; i < M; ++i) y[i] = dd_finalize_inl(s_hi[i], s_lo[i]);
-}
-
-template <int M>
-static inline void dd_gaxpy_mm_fixed(const dd_t *__restrict__ a,
-                                     const dd_t *__restrict__ b,
-                                     dd_t *__restrict__ c,
-                                     int64_t k, int64_t n) {
-  for (int64_t j = 0; j < n; ++j) {
-    double s_hi[M] = {}, s_lo[M] = {};
+                                     dd_t *__restrict__ y, int64_t lda,
+                                     int64_t k, int64_t renorm_interval) {
+  double s_hi[MR] = {}, s_lo[MR] = {};
+  // Fast path: if no intermediate renorm is needed, drop the chunking
+  // scaffolding entirely — the p-loop is a single tight sweep.
+  if (renorm_interval <= 0 || k <= renorm_interval) {
     for (int64_t p = 0; p < k; ++p) {
-      const double bh = b[p + j * k].hi;
-      const double bl = b[p + j * k].lo;
-      const dd_t *__restrict__ acol = a + p * M;
-      for (int i = 0; i < M; ++i) {
-        dd_mac_inl(acol[i].hi, acol[i].lo, bh, bl, s_hi[i], s_lo[i]);
+      const double xh = x[p].hi;
+      const double xl = x[p].lo;
+      const dd_t *__restrict__ acol = a + p * lda;
+      for (int i = 0; i < MR; ++i) {
+        dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
       }
     }
-    dd_t *__restrict__ ccol = c + j * M;
-    for (int i = 0; i < M; ++i) ccol[i] = dd_finalize_inl(s_hi[i], s_lo[i]);
+    for (int i = 0; i < MR; ++i) y[i] = dd_finalize_inl(s_hi[i], s_lo[i]);
+    return;
   }
+  // Chunked path: for large k, do `renorm_interval` reductions then
+  // fast_two_sum each accumulator pair to keep s_lo bounded.
+  const int64_t chunk = renorm_interval;
+  int64_t p0 = 0;
+  while (p0 < k) {
+    int64_t pend = p0 + chunk;
+    if (pend > k) pend = k;
+    for (int64_t p = p0; p < pend; ++p) {
+      const double xh = x[p].hi;
+      const double xl = x[p].lo;
+      const dd_t *__restrict__ acol = a + p * lda;
+      for (int i = 0; i < MR; ++i) {
+        dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
+      }
+    }
+    p0 = pend;
+    if (p0 < k) {
+      for (int i = 0; i < MR; ++i) {
+        double t = s_hi[i] + s_lo[i];
+        double bp = t - s_hi[i];
+        s_hi[i] = t;
+        s_lo[i] = s_lo[i] - bp;
+      }
+    }
+  }
+  for (int i = 0; i < MR; ++i) y[i] = dd_finalize_inl(s_hi[i], s_lo[i]);
+}
+
+// Cold tail handler: 1..7 leftover rows. Kept out-of-line so the hot
+// dispatcher stays small enough for the compiler to inline panel<8>
+// into dd_matmul_mv — otherwise the 7 extra template instantiations
+// would bloat the caller and push the accumulators out of registers.
+__attribute__((noinline))
+static void dd_gaxpy_mv_tail(const dd_t *__restrict__ a,
+                             const dd_t *__restrict__ x,
+                             dd_t *__restrict__ y, int tail,
+                             int64_t lda, int64_t k,
+                             int64_t renorm_interval) {
+  switch (tail) {
+    case 1: dd_gaxpy_mv_panel<1>(a, x, y, lda, k, renorm_interval); break;
+    case 2: dd_gaxpy_mv_panel<2>(a, x, y, lda, k, renorm_interval); break;
+    case 3: dd_gaxpy_mv_panel<3>(a, x, y, lda, k, renorm_interval); break;
+    case 4: dd_gaxpy_mv_panel<4>(a, x, y, lda, k, renorm_interval); break;
+    case 5: dd_gaxpy_mv_panel<5>(a, x, y, lda, k, renorm_interval); break;
+    case 6: dd_gaxpy_mv_panel<6>(a, x, y, lda, k, renorm_interval); break;
+    case 7: dd_gaxpy_mv_panel<7>(a, x, y, lda, k, renorm_interval); break;
+  }
+}
+
+// Tile any m into MR=8 row panels plus a 1..7 tail. Keep this small so
+// the hot panel<8> body inlines — accumulators need to stay in registers.
+static inline void dd_gaxpy_mv_dispatch(const dd_t *__restrict__ a,
+                                        const dd_t *__restrict__ x,
+                                        dd_t *__restrict__ y, int64_t m,
+                                        int64_t k, int64_t lda,
+                                        int64_t renorm_interval) {
+  constexpr int MR = 8;
+  int64_t i = 0;
+  for (; i + MR <= m; i += MR) {
+    dd_gaxpy_mv_panel<MR>(a + i, x, y + i, lda, k, renorm_interval);
+  }
+  int tail = static_cast<int>(m - i);
+  if (tail > 0) dd_gaxpy_mv_tail(a + i, x, y + i, tail, lda, k, renorm_interval);
 }
 } // anonymous namespace
 
@@ -1317,88 +1369,66 @@ dd_t dd_y0(dd_t a) { return to(dd_bessel_y0_full(from(a))); }
 dd_t dd_y1(dd_t a) { return to(dd_bessel_y1_full(from(a))); }
 
 // Matrix multiply (column-major).
+//
 // Inner accumulator uses Neumaier-style compensation on the DD-product stream:
 //   p, e = two_prod(ah, bh)          (exact)
 //   cross = fma(ah, bl, al*bh)       (DD-mul cross term, ignoring bl*bl)
 //   (s_hi, s_lo) += (p + cross + e)  via two_sum on s_hi
-// Final fast_two_sum renormalizes s_hi/s_lo into the DD result.
+// A final fast_two_sum renormalizes s_hi/s_lo into the DD result; if
+// `renorm_interval > 0`, intermediate fast_two_sums also fire every
+// that-many reductions to keep s_lo bounded at large k.
 //
-// For small, compile-time-known output dims (m = 1..8, 16) we dispatch to
-// the templated `dd_gaxpy_*_fixed<M>` helpers in the file-scope anonymous
-// namespace above. Fixed M lets the compiler register-promote the m
-// independent accumulators and unroll the inner loop, which gives ~2×
-// over the dynamic-m path. Larger m uses the generic in-place path below,
-// which still reads A contiguously (AXPY-style outer-p / inner-i order)
-// but keeps accumulators in the output buffer.
-
-#define DD_MATMUL_MM_CASE(M) \
-  case M: dd_gaxpy_mm_fixed<M>(a, b, c, k, n); return
-#define DD_MATMUL_MV_CASE(M) \
-  case M: dd_gaxpy_mv_fixed<M>(a, x, y, k); return
+// Loop order is AXPY / gaxpy: outer p (shared dim), inner i (output row)
+// so A is read as contiguous columns and the output accumulators are
+// m-way data-parallel. The row dimension is register-blocked to MR=8
+// via a compile-time-sized panel template; any m is handled by
+// MR panels + a 1..7 tail. mm calls the same mv dispatch per output
+// column.
 
 void dd_matmul_mm(const dd_t *__restrict__ a, const dd_t *__restrict__ b,
-                  dd_t *__restrict__ c,
-                  int64_t m, int64_t k, int64_t n) {
-  switch (m) {
-    DD_MATMUL_MM_CASE(1);  DD_MATMUL_MM_CASE(2);
-    DD_MATMUL_MM_CASE(3);  DD_MATMUL_MM_CASE(4);
-    DD_MATMUL_MM_CASE(5);  DD_MATMUL_MM_CASE(6);
-    DD_MATMUL_MM_CASE(7);  DD_MATMUL_MM_CASE(8);
-    DD_MATMUL_MM_CASE(16);
-  }
-  // Generic path: accumulate in place on c (safe under __restrict__).
+                  dd_t *__restrict__ c, int64_t m, int64_t k, int64_t n,
+                  int64_t renorm_interval) {
   for (int64_t j = 0; j < n; ++j) {
-    dd_t *__restrict__ ccol = c + j * m;
-    for (int64_t i = 0; i < m; ++i) { ccol[i].hi = 0.0; ccol[i].lo = 0.0; }
-    for (int64_t p = 0; p < k; ++p) {
-      const double bh = b[p + j * k].hi;
-      const double bl = b[p + j * k].lo;
-      const dd_t *__restrict__ acol = a + p * m;
-      for (int64_t i = 0; i < m; ++i) {
-        dd_mac_inl(acol[i].hi, acol[i].lo, bh, bl, ccol[i].hi, ccol[i].lo);
-      }
-    }
-    for (int64_t i = 0; i < m; ++i) ccol[i] = dd_finalize_inl(ccol[i].hi, ccol[i].lo);
+    dd_gaxpy_mv_dispatch(a, b + j * k, c + j * m, m, k, m, renorm_interval);
   }
 }
 
 void dd_matmul_mv(const dd_t *__restrict__ a, const dd_t *__restrict__ x,
-                  dd_t *__restrict__ y,
-                  int64_t m, int64_t k) {
-  switch (m) {
-    DD_MATMUL_MV_CASE(1);  DD_MATMUL_MV_CASE(2);
-    DD_MATMUL_MV_CASE(3);  DD_MATMUL_MV_CASE(4);
-    DD_MATMUL_MV_CASE(5);  DD_MATMUL_MV_CASE(6);
-    DD_MATMUL_MV_CASE(7);  DD_MATMUL_MV_CASE(8);
-    DD_MATMUL_MV_CASE(16);
-  }
-  // Generic path: accumulate in place on y (safe under __restrict__).
-  for (int64_t i = 0; i < m; ++i) { y[i].hi = 0.0; y[i].lo = 0.0; }
-  for (int64_t p = 0; p < k; ++p) {
-    const double xh = x[p].hi;
-    const double xl = x[p].lo;
-    const dd_t *__restrict__ acol = a + p * m;
-    for (int64_t i = 0; i < m; ++i) {
-      dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, y[i].hi, y[i].lo);
-    }
-  }
-  for (int64_t i = 0; i < m; ++i) y[i] = dd_finalize_inl(y[i].hi, y[i].lo);
+                  dd_t *__restrict__ y, int64_t m, int64_t k,
+                  int64_t renorm_interval) {
+  dd_gaxpy_mv_dispatch(a, x, y, m, k, m, renorm_interval);
 }
 
-#undef DD_MATMUL_MM_CASE
-#undef DD_MATMUL_MV_CASE
-
 // vm: y[j] = sum_p x[p] * B[p, j]. Column-major B makes B[:, j]
-// contiguous at fixed j, so the natural (j, p) order is already optimal
-// — one accumulator per output, contiguous reads.
+// contiguous at fixed j, so one scalar accumulator per output is optimal.
 void dd_matmul_vm(const dd_t *__restrict__ x, const dd_t *__restrict__ b,
-                  dd_t *__restrict__ y,
-                  int64_t k, int64_t n) {
+                  dd_t *__restrict__ y, int64_t k, int64_t n,
+                  int64_t renorm_interval) {
+  const bool simple = (renorm_interval <= 0) || (k <= renorm_interval);
   for (int64_t j = 0; j < n; ++j) {
     double s_hi = 0.0, s_lo = 0.0;
     const dd_t *__restrict__ bcol = b + j * k;
-    for (int64_t p = 0; p < k; ++p) {
-      dd_mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
+    if (simple) {
+      for (int64_t p = 0; p < k; ++p) {
+        dd_mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
+      }
+    } else {
+      const int64_t chunk = renorm_interval;
+      int64_t p0 = 0;
+      while (p0 < k) {
+        int64_t pend = p0 + chunk;
+        if (pend > k) pend = k;
+        for (int64_t p = p0; p < pend; ++p) {
+          dd_mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
+        }
+        p0 = pend;
+        if (p0 < k) {
+          double t = s_hi + s_lo;
+          double bp = t - s_hi;
+          s_hi = t;
+          s_lo = s_lo - bp;
+        }
+      }
     }
     y[j] = dd_finalize_inl(s_hi, s_lo);
   }

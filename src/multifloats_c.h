@@ -85,13 +85,20 @@ DD_API dd_t dd_y1(dd_t a);
  *   dd_matmul_mm: C(m,n) = A(m,k) * B(k,n)
  *   dd_matmul_mv: y(m)   = A(m,k) * x(k)
  *   dd_matmul_vm: y(n)   = x(k)   * B(k,n)
- * Leading dimensions equal the first extent (no strides). */
+ * Leading dimensions equal the first extent (no strides).
+ *
+ * renorm_interval: if > 0, renormalize accumulators every N reductions
+ * (matches MF_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo
+ * bounded for large k). Pass 0 to renormalize only at the end. */
 DD_API void dd_matmul_mm(const dd_t *a, const dd_t *b, dd_t *c,
-                         int64_t m, int64_t k, int64_t n);
+                         int64_t m, int64_t k, int64_t n,
+                         int64_t renorm_interval);
 DD_API void dd_matmul_mv(const dd_t *a, const dd_t *x, dd_t *y,
-                         int64_t m, int64_t k);
+                         int64_t m, int64_t k,
+                         int64_t renorm_interval);
 DD_API void dd_matmul_vm(const dd_t *x, const dd_t *b, dd_t *y,
-                         int64_t k, int64_t n);
+                         int64_t k, int64_t n,
+                         int64_t renorm_interval);
 
 /* Comparison (return int: 1 = true, 0 = false) */
 DD_API int dd_eq(dd_t a, dd_t b);
