@@ -91,9 +91,16 @@ already; these are the ones that needed explicit review.
       +28%, `tan` +40% throughput on the 1024-input sweep.
       Single-eval `sin`/`cos` paths unchanged.
 
-- [ ] **S4. `dd_reduce_pi_half` re-runs full-DD subtraction three times.**
-      `src/multifloats_math.cc:204-220`. Restructure as three inline
-      `two_sum` steps; save ~12 FLOPs per sin/cos/tan call.
+- [x] **S4. `dd_reduce_pi_half` re-runs full-DD subtraction three times.**
+      Fixed: inlined as three (two_sum + low-limb merge + fast_two_sum)
+      steps instead of three full-DD `operator-` calls; folds the
+      low-limb error into one `fast_two_sum` per step (~11 FLOPs vs
+      ~20). Dropped the isfinite and zero-zero guards: the x-argument
+      has already been checked for non-finite in the callers, and the
+      accumulator cannot hit the zero-zero branch. Measured +5% on
+      `dd_sin`/`dd_cos` and +3% on `dd_tan`; Bessel asymptotic gains
+      a further ~1-2% on top of S3. Full fuzz suite (C++ + Fortran)
+      passes without tolerance adjustment.
 
 ## Maintainability
 
