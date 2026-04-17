@@ -4,3 +4,4 @@ compile_commands.json
 *.o
 *.a
 *.mod
+__pycache__/

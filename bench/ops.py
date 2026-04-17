@@ -1,0 +1,243 @@
+"""Op metadata driving BENCHMARK.md rendering.
+
+Each op describes:
+  - ``bench_key``   : the label printed by ``fortran_bench`` / ``cpp_bench``
+                     (used to look up the speedup in the per-system JSON).
+  - ``display``     : the markdown-escaped label shown in the BENCHMARK.md row.
+  - ``approach``    : prose description of the algorithm (one cell).
+  - ``prec``        : short precision label (e.g. ``"full DD"``, ``"exact"``).
+                     Only the Fortran tables include a ``prec`` column.
+  - ``fuzz``        : how to assemble the err cell from the fuzz stats.
+                       * ``None``     — no fuzz data (shows "—")
+                       * ``"exact"``  — always shows "exact"
+                       * ``"<key>"``  — pulls one ``max_rel`` value
+                       * list of ``("re"|"im", "<key>")`` — shows as
+                         ``"<v_re> (re) / <v_im> (im)"``
+
+Sections are the H3 headings inside each H2 ("Fortran" / "C++").
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Optional, Sequence, Tuple, Union
+
+
+FuzzSpec = Union[None, str, Sequence[Tuple[str, str]]]
+
+
+@dataclass
+class Op:
+    bench_key: str
+    display: str
+    approach: str
+    prec: str = ""
+    fuzz: FuzzSpec = None
+
+
+@dataclass
+class Section:
+    title: str
+    ops: list[Op] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Fortran: float64x2 vs real(kind=16)
+# ---------------------------------------------------------------------------
+
+FORTRAN_SECTIONS: list[Section] = [
+    Section("Arithmetic", [
+        Op("add",         "add",         "Julia: two\\_sum EFT",                                   "full DD", "add"),
+        Op("sub",         "sub",         "Julia: two\\_sum EFT (negate + add)",                    "full DD", "sub"),
+        Op("mul",         "mul",         "Julia: two\\_prod EFT via FMA",                          "full DD", "mul"),
+        Op("div",         "div",         "original: Newton refinement (1/y seed, one step)",       "full DD", "div"),
+        Op("sqrt",        "sqrt",        "Julia: Karp\u2013Markstein (reciprocal sqrt seed + Newton)", "full DD", "sqrt"),
+        Op("add (mf+dp)", "add (mf+dp)", "Julia: two\\_sum EFT",                                   "exact",   "exact"),
+        Op("mul (dp*mf)", "mul (dp\\*mf)", "Julia: two\\_prod EFT via FMA",                        "full DD", "mul_df"),
+    ]),
+    Section("Unary", [
+        Op("abs",          "abs",          "original: sign-check + negate limbs",               "exact", "abs"),
+        Op("neg",          "neg",          "original: negate both limbs",                       "exact", "neg"),
+        Op("aint",         "aint",         "original: truncate hi, check DD fractional part",   "exact", "aint"),
+        Op("anint",        "anint",        "original: truncate hi, DD fractional part vs \u00b10.5", "exact", "anint"),
+        Op("fraction",     "fraction",     "original: scale both limbs by \u2212exponent",      "exact", "fraction"),
+        Op("scale",        "scale",        "original: ldexp on both limbs",                     "exact", "exact"),
+        Op("set_exponent", "set\\_exponent", "original: scale + set\\_exponent on hi",           "exact", "exact"),
+    ]),
+    Section("Binary", [
+        Op("min",    "min",    "original: DD comparison + select",                         "full DD", "min"),
+        Op("max",    "max",    "original: DD comparison + select",                         "full DD", "max"),
+        Op("min3",   "min3",   "original: chained min",                                    "full DD", "min3"),
+        Op("max3",   "max3",   "original: chained max",                                    "full DD", "max3"),
+        Op("sign",   "sign",   "original: sign-check + negate",                            "exact",   "sign"),
+        Op("dim",    "dim",    "original: DD comparison, then subtract or zero",           "full DD", "dim"),
+        Op("hypot",  "hypot",  "original: scaled sqrt(x\u00b2+y\u00b2)",                   "full DD", "hypot"),
+        Op("mod",    "mod",    "sample: floor-multiple reduction loop; fallback to div chain", "full DD", "mod"),
+        Op("modulo", "modulo", "original: mod + sign adjustment",                          "full DD", "modulo"),
+    ]),
+    Section("Exponential / logarithmic", [
+        Op("exp",     "exp",     "Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction",  "full DD", "exp"),
+        Op("log",     "log",     "Julia: log2 table lookup (32 centers) + polynomial (7-term Horner)", "full DD", "log"),
+        Op("log10",   "log10",   "Julia: log2 kernel \u00d7 DD log10(2)",                           "full DD", "log10"),
+        Op("pow",     "pow",     "Julia: exp(y \u00d7 log(x))",                                     "full DD", "pow"),
+        Op("pow_int", "pow\\_int", "original: repeated squaring via DD mul",                        "full DD", "pow_int"),
+    ]),
+    Section("Trigonometric", [
+        Op("sin",   "sin",   "original: 13-term Taylor Horner + 3-part Cody\u2013Waite \u03c0/2 + \u03c0/8 split", "full DD", "sin"),
+        Op("cos",   "cos",   "original: 13-term Taylor Horner + 3-part Cody\u2013Waite \u03c0/2 + \u03c0/8 split", "full DD", "cos"),
+        Op("sinpi", "sinpi", "Julia: sinpi Horner polynomial, direct",                                              "full DD", "sinpi"),
+        Op("cospi", "cospi", "Julia: cospi Horner polynomial, direct",                                              "full DD", "cospi"),
+        Op("tan",   "tan",   "original: sin/cos Taylor kernels + DD divide",                                        "full DD", "tan"),
+        Op("asin",  "asin",  "original: piecewise rational P/Q (3 regions, from libquadmath asinq.c)",              "full DD", "asin"),
+        Op("acos",  "acos",  "original: asin polynomial + half-angle identity",                                     "full DD", "acos"),
+        Op("atan",  "atan",  "original: 84-entry table lookup + rational P(t\u00b2)/Q(t\u00b2) (from libquadmath atanq.c)", "full DD", "atan"),
+        Op("atan2", "atan2", "original: table-based atan + quadrant correction",                                    "full DD", "atan2"),
+    ]),
+    Section("Hyperbolic", [
+        Op("sinh",  "sinh",  "original: Taylor series (\\|x\\|<0.1) or (exp\u2212exp\u207b\u00b9)/2", "full DD", "sinh"),
+        Op("cosh",  "cosh",  "original: (exp+exp\u207b\u00b9)/2",                                    "full DD", "cosh"),
+        Op("tanh",  "tanh",  "original: sinh/cosh (\\|x\\|<0.5) or (1\u2212e\u207b\u00b2\u02e3)/(1+e\u207b\u00b2\u02e3)", "full DD", "tanh"),
+        Op("asinh", "asinh", "original: Taylor series (\\|x\\|<0.01) or log(x+\u221a(x\u00b2+1)) with Newton", "full DD", "asinh"),
+        Op("acosh", "acosh", "original: log(x+\u221a(x\u00b2\u22121)) with Newton correction",       "full DD", "acosh"),
+        Op("atanh", "atanh", "original: Taylor series (\\|x\\|<0.01) or \u00bd\u00b7log((1+x)/(1\u2212x))", "full DD", "atanh"),
+    ]),
+    Section("Error / special functions", [
+        Op("erf",           "erf",           "piecewise rational approx (libquadmath erfq.c)",                "full DD", "erf"),
+        Op("erfc",          "erfc",          "piecewise rational approx + split exp(-x^2)",                   "full DD", "erfc"),
+        Op("erfc_scaled",   "erfc\\_scaled", "exp(x^2)\u00b7erfc(x) with asymptotic cancellation",            "full DD", "erfc_scaled"),
+        Op("gamma",         "gamma",         "piecewise rational approx + Stirling + reflection",             "full DD", "gamma"),
+        Op("log_gamma",     "log\\_gamma",   "piecewise rational approx + Stirling asymptotic",               "full DD", "lgamma"),
+        Op("bessel_j0",     "bessel\\_j0",   "piecewise rational + Hankel asymptotic (j0q.c) via C++",        "full DD", "bj0"),
+        Op("bessel_j1",     "bessel\\_j1",   "piecewise rational + Hankel asymptotic (j1q.c) via C++",        "full DD", "bj1"),
+        Op("bessel_jn(3,.)","bessel\\_jn(3,.)", "forward/backward recurrence from j0/j1",                     "full DD", "bjn"),
+        Op("bessel_y0",     "bessel\\_y0",   "piecewise rational + Hankel asymptotic (j0q.c) via C++",        "full DD", "by0"),
+        Op("bessel_y1",     "bessel\\_y1",   "piecewise rational + Hankel asymptotic (j1q.c) via C++",        "full DD", "by1"),
+        Op("bessel_yn(3,.)","bessel\\_yn(3,.)", "forward recurrence from y0/y1",                              "full DD", "byn"),
+    ]),
+    Section("Complex arithmetic", [
+        Op("cx_add",   "cx\\_add",   "original: component-wise DD add",      "full DD",
+            fuzz=[("re", "cx_add_re"), ("im", "cx_add_im")]),
+        Op("cx_sub",   "cx\\_sub",   "original: component-wise DD sub",      "full DD",
+            fuzz=[("re", "cx_sub_re"), ("im", "cx_sub_im")]),
+        Op("cx_mul",   "cx\\_mul",   "original: (ac\u2212bd, ad+bc) via DD ops", "full DD",
+            fuzz=[("re", "cx_mul_re"), ("im", "cx_mul_im")]),
+        Op("cx_div",   "cx\\_div",   "original: (ac+bd, bc\u2212ad)/(c\u00b2+d\u00b2)", "full DD / deriv",
+            fuzz=[("re", "cx_div_re"), ("im", "cx_div_im")]),
+        Op("cx_conjg", "cx\\_conjg", "original: negate im limbs",            "exact", "exact"),
+        Op("cx_abs",   "cx\\_abs",   "original: hypot(re, im)",              "full DD", "cx_abs"),
+    ]),
+    Section("Complex transcendentals", [
+        Op("cx_sqrt",  "cx\\_sqrt",  "original: Kahan-style (\\|z\\|+\\|a\\|)/2 with scaling", "full DD",
+            fuzz=[("re", "cx_sqrt_re"), ("im", "cx_sqrt_im")]),
+        Op("cx_exp",   "cx\\_exp",   "original: exp(re)\u00b7(cos(im), sin(im))", "full DD",
+            fuzz=[("re", "cx_exp_re"), ("im", "cx_exp_im")]),
+        Op("cx_log",   "cx\\_log",   "original: (log(\\|z\\|), atan2(im,re))", "full DD",
+            fuzz=[("re", "cx_log_re"), ("im", "cx_log_im")]),
+        Op("cx_sin",   "cx\\_sin",   "original: sin(re)cosh(im), cos(re)sinh(im)", "full DD",
+            fuzz=[("re", "cx_sin_re"), ("im", "cx_sin_im")]),
+        Op("cx_cos",   "cx\\_cos",   "original: cos(re)cosh(im), \u2212sin(re)sinh(im)", "full DD",
+            fuzz=[("re", "cx_cos_re"), ("im", "cx_cos_im")]),
+        Op("cx_tan",   "cx\\_tan",   "original: complex sin/cos ratio", "full DD",
+            fuzz=[("re", "cx_tan_re"), ("im", "cx_tan_im")]),
+        Op("cx_sinh",  "cx\\_sinh",  "original: sinh(re)cos(im), cosh(re)sin(im)", "full DD",
+            fuzz=[("re", "cx_sinh_re"), ("im", "cx_sinh_im")]),
+        Op("cx_cosh",  "cx\\_cosh",  "original: cosh(re)cos(im), sinh(re)sin(im)", "full DD",
+            fuzz=[("re", "cx_cosh_re"), ("im", "cx_cosh_im")]),
+        Op("cx_tanh",  "cx\\_tanh",  "original: complex tanh via sinh/cosh", "full DD",
+            fuzz=[("re", "cx_tanh_re"), ("im", "cx_tanh_im")]),
+        Op("cx_asin",  "cx\\_asin",  "original: \u2212i\u00b7log(iz+\u221a(1\u2212z\u00b2))", "deriv / full DD",
+            fuzz=[("re", "cx_asin_re"), ("im", "cx_asin_im")]),
+        Op("cx_acos",  "cx\\_acos",  "original: \u03c0/2 \u2212 asin(z)", "full DD",
+            fuzz=[("re", "cx_acos_re"), ("im", "cx_acos_im")]),
+        Op("cx_atan",  "cx\\_atan",  "original: (i/2)\u00b7log((i+z)/(i\u2212z))", "full DD",
+            fuzz=[("re", "cx_atan_re"), ("im", "cx_atan_im")]),
+        Op("cx_asinh", "cx\\_asinh", "original: log(z+\u221a(z\u00b2+1))", "deriv / full DD",
+            fuzz=[("re", "cx_asinh_re"), ("im", "cx_asinh_im")]),
+        Op("cx_acosh", "cx\\_acosh", "original: log(z+\u221a(z\u00b2\u22121))", "full DD",
+            fuzz=[("re", "cx_acosh_re"), ("im", "cx_acosh_im")]),
+        Op("cx_atanh", "cx\\_atanh", "original: \u00bd\u00b7log((1+z)/(1\u2212z))", "deriv / full DD",
+            fuzz=[("re", "cx_atanh_re"), ("im", "cx_atanh_im")]),
+    ]),
+    Section("Array reductions", [
+        Op("arr_sum (n=8)",       "arr\\_sum (n=8)",       "original: chained DD add",                                                                       "full DD", "arr_sum"),
+        Op("arr_product (n=8)",   "arr\\_product (n=8)",   "original: chained DD mul",                                                                       "full DD", "arr_prod"),
+        Op("arr_maxval (n=8)",    "arr\\_maxval (n=8)",    "original: chained DD compare",                                                                   "full DD", "arr_max"),
+        Op("arr_minval (n=8)",    "arr\\_minval (n=8)",    "original: chained DD compare",                                                                   "full DD", "arr_min"),
+        Op("arr_dot (n=8)",       "arr\\_dot (n=8)",       "original: fused multiply-accumulate with periodic renormalization",                              "full DD", "arr_dot"),
+        Op("arr_norm2 (n=8)",     "arr\\_norm2 (n=8)",     "original: sqrt(dot(x,x))",                                                                       "full DD", "arr_norm2"),
+        Op("arr_matmul (8x8*8)",  "arr\\_matmul (8\u00d78\u00b78)", "original: AXPY-order C kernel, MR=8 register-blocked panels + 1..7 tail, periodic renorm", "full DD", "arr_matmul"),
+    ]),
+]
+
+
+# ---------------------------------------------------------------------------
+# C++: MultiFloat<double, 2> vs __float128
+# ---------------------------------------------------------------------------
+
+CPP_SECTIONS: list[Section] = [
+    Section("Arithmetic", [
+        Op("add",   "add",   "Julia: two\\_sum EFT",                                        fuzz="add"),
+        Op("sub",   "sub",   "Julia: two\\_sum EFT (negate + add)",                         fuzz="sub"),
+        Op("mul",   "mul",   "Julia: two\\_prod EFT via FMA",                               fuzz="mul"),
+        Op("div",   "div",   "original: Newton refinement (1/y seed, one step)",            fuzz="div"),
+        Op("sqrt",  "sqrt",  "Julia: Karp\u2013Markstein (reciprocal sqrt seed + Newton)",  fuzz="sqrt"),
+        Op("cbrt",  "cbrt",  "original: Newton correction on cbrt(hi) seed",                fuzz=None),
+        Op("fma",   "fma",   "original: x\\*y + z via DD ops",                              fuzz=None),
+        Op("abs",   "abs",   "original: sign-check + negate limbs",                         fuzz="abs"),
+        Op("neg",   "neg",   "original: negate both limbs",                                 fuzz="neg"),
+    ]),
+    Section("Rounding", [
+        Op("floor",     "floor",     "original: floor hi, adjust lo",                       fuzz="exact"),
+        Op("ceil",      "ceil",      "original: ceil hi, adjust lo",                        fuzz="exact"),
+        Op("trunc",     "trunc",     "original: signbit ? \u2212floor(\u2212x) : floor(x)", fuzz="exact"),
+        Op("round",     "round",     "original: trunc(x + \u00bd\u00b7sign(x))",            fuzz="exact"),
+        Op("rint",      "rint",      "original: nearbyint on hi, adjust lo",                fuzz="exact"),
+        Op("nearbyint", "nearbyint", "original: nearbyint on hi, adjust lo",                fuzz="exact"),
+    ]),
+    Section("Binary", [
+        Op("fmin",        "fmin",        "original: DD comparison + select",                           fuzz="fmin"),
+        Op("fmax",        "fmax",        "original: DD comparison + select",                           fuzz="fmax"),
+        Op("fdim",        "fdim",        "original: DD comparison, then subtract or zero",             fuzz="fdim"),
+        Op("copysign",    "copysign",    "original: sign-bit copy to hi, propagate to lo",             fuzz="copysign"),
+        Op("fmod",        "fmod",        "sample: floor-multiple reduction loop; fallback to div chain", fuzz="fmod"),
+        Op("hypot",       "hypot",       "original: scaled sqrt(x\u00b2+y\u00b2)",                     fuzz="hypot"),
+        Op("ldexp(.,5)",  "ldexp(.,5)",  "original: ldexp on both limbs",                              fuzz="scalbn"),
+    ]),
+    Section("Exponential / logarithmic", [
+        Op("exp",    "exp",    "Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction",   fuzz="exp"),
+        Op("exp2",   "exp2",   "Julia: exp2 polynomial (14-term Horner)",                          fuzz=None),
+        Op("expm1",  "expm1",  "original: exp(x) \u2212 1 via DD sub",                             fuzz=None),
+        Op("log",    "log",    "Julia: log2 table lookup (32 centers) + polynomial (7-term Horner)", fuzz="log"),
+        Op("log10",  "log10",  "Julia: log2 kernel \u00d7 DD log10(2)",                            fuzz="log10"),
+        Op("log2",   "log2",   "Julia: log2 table lookup + polynomial",                            fuzz=None),
+        Op("log1p",  "log1p",  "original: log(1 + x) via DD add",                                  fuzz=None),
+        Op("pow",    "pow",    "Julia: exp(y \u00d7 log(x))",                                      fuzz="pow"),
+    ]),
+    Section("Trigonometric", [
+        Op("sin",   "sin",   "original: 13-term Taylor Horner + 3-part Cody\u2013Waite \u03c0/2 + \u03c0/8 split", fuzz="sin"),
+        Op("cos",   "cos",   "original: 13-term Taylor Horner + 3-part Cody\u2013Waite \u03c0/2 + \u03c0/8 split", fuzz="cos"),
+        Op("tan",   "tan",   "original: sin/cos Taylor kernels + DD divide",                                        fuzz="tan"),
+        Op("asin",  "asin",  "original: piecewise rational P/Q (3 regions, from libquadmath asinq.c)",              fuzz="asin"),
+        Op("acos",  "acos",  "original: asin polynomial + half-angle identity",                                     fuzz="acos"),
+        Op("atan",  "atan",  "original: 84-entry table lookup + rational P(t\u00b2)/Q(t\u00b2) (from libquadmath atanq.c)", fuzz="atan"),
+        Op("atan2", "atan2", "original: table-based atan + quadrant correction",                                    fuzz="atan2"),
+    ]),
+    Section("Hyperbolic", [
+        Op("sinh",  "sinh",  "original: Taylor series (\\|x\\|<0.1) or (exp\u2212exp\u207b\u00b9)/2",  fuzz="sinh"),
+        Op("cosh",  "cosh",  "original: (exp+exp\u207b\u00b9)/2",                                     fuzz="cosh"),
+        Op("tanh",  "tanh",  "original: sinh/cosh (\\|x\\|<0.5) or (1\u2212e\u207b\u00b2\u02e3)/(1+e\u207b\u00b2\u02e3)", fuzz="tanh"),
+        Op("asinh", "asinh", "original: Taylor series (\\|x\\|<0.01) or log(x+\u221a(x\u00b2+1)) with Newton", fuzz="asinh"),
+        Op("acosh", "acosh", "original: log(x+\u221a(x\u00b2\u22121)) with Newton correction",        fuzz="acosh"),
+        Op("atanh", "atanh", "original: Taylor series (\\|x\\|<0.01) or \u00bd\u00b7log((1+x)/(1\u2212x))", fuzz="atanh"),
+    ]),
+    Section("Error / special functions", [
+        Op("erf",     "erf",     "piecewise rational approx (ported from libquadmath erfq.c)",        fuzz="erf"),
+        Op("erfc",    "erfc",    "piecewise rational approx + split exp(-x^2)",                       fuzz="erfc"),
+        Op("tgamma",  "tgamma",  "piecewise rational approx + Stirling + reflection, exp(lgamma)",    fuzz="tgamma"),
+        Op("lgamma",  "lgamma",  "piecewise rational approx + Stirling asymptotic",                   fuzz="lgamma"),
+    ]),
+]
+
+
+def all_ops_by_section(lang: str) -> list[Section]:
+    return FORTRAN_SECTIONS if lang == "fortran" else CPP_SECTIONS

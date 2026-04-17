@@ -1,0 +1,126 @@
+{#- Jinja2 template for BENCHMARK.md. Rendered by bench/build_benchmark_md.py.
+    Exposed variables:
+      systems            : list of per-system result dicts (see run_benchmarks.py)
+      fortran_sections   : list of ops.Section (Fortran, float64x2 vs real(16))
+      cpp_sections       : list of ops.Section (C++, MultiFloat<double,2> vs __float128)
+
+    Custom filters (registered in build_benchmark_md.py):
+      err(op, system, lang)   : formats the err cell for one op × one system
+      speedup(op, system, lang) : formats the speedup cell (with bolding)
+-#}
+# Benchmark Results
+
+Comparison of multifloats double-double (DD) arithmetic against quad
+precision (`real(16)` / `__float128` via libquadmath). The multifloats
+implementations use explicit two-limb error-free transformations (EFTs)
+on pairs of `double` values, achieving ~106 bits of significand — close
+to quad precision's 113 bits — at a fraction of the cost.
+
+## Systems
+
+Short names are used as column labels throughout.
+
+| Short name | CPU | OS | Compiler | Build |
+|---|---|---|---|---|
+{%- for s in systems %}
+| **{{ s.short_name }}** | {{ s.cpu }} | {{ s.os }} | {{ s.compiler }} | {{ s.build }} |
+{%- endfor %}
+
+## Precision key
+
+Precision is measured as the maximum relative error vs the quad-precision
+(`real(16)`) reference over ~1M random inputs (fixed seed 42):
+
+| Label | max\_rel | Meaning |
+|---|---|---|
+| **full DD** | ~1e-32 | Full double-double EFT kernel (~106 bits) |
+| **exact** | 0.0 | Bit-exact (no rounding involved) |
+| **deriv-corrected** | ~1e-25 to 1e-18 | `f(hi) + f'(hi)*lo` correction gives near-DD |
+| **single-double** | ~1e-16 to 1e-14 | Leading-limb libm call, no lo correction |
+
+## Origin key
+
+| Tag | Meaning |
+|---|---|
+| **Julia** | Ported from `external/MultiFloats.jl/src/` |
+| **original** | Developed for this project |
+| **sample** | Adapted from `external/float64x2-sample.cpp` |
+
+## Fortran: `float64x2` vs `real(16)`
+
+Each operation is timed over 1024 elements × 400 repetitions (fast ops)
+or fewer reps (transcendentals), with a NOINLINE drain after each rep to
+prevent dead-code elimination. **×** = speedup (`qp_time / mf_time`,
+values > 1× mean multifloats is faster); **err** = max\_rel from the
+1M-input fuzz run; **prec** = precision label.
+{% for section in fortran_sections %}
+### {{ section.title }}
+
+| op | approach | prec |{% for s in systems %} {{ s.short_name }} err |{% endfor %}{% for s in systems %} {{ s.short_name }} × |{% endfor %}
+|---|---|---|{% for s in systems %}---|{% endfor %}{% for s in systems %}---|{% endfor %}
+{%- for op in section.ops %}
+| {{ op.display }} | {{ op.approach }} | {{ op.prec }} |{% for s in systems %} {{ op|err(s, "fortran") }} |{% endfor %}{% for s in systems %} {{ op|speedup(s, "fortran") }} |{% endfor %}
+{%- endfor %}
+{% endfor %}
+## C++: `MultiFloat<double,2>` vs `__float128`
+
+Header-only — all kernels inline into the call site. No LTO needed.
+See the Fortran tables for `prec` labels.
+
+**Methodology.** Precision and timing are measured separately, mirroring
+the Fortran split (`fortran_fuzz` / `fortran_bench`):
+
+- **err** columns come from `cpp_fuzz` at 1M iterations, fixed seed 42.
+- **×** columns come from `cpp_bench` at 1024 elements × reps.
+{% for section in cpp_sections %}
+### {{ section.title }}
+
+| op | approach |{% for s in systems %} {{ s.short_name }} err |{% endfor %}{% for s in systems %} {{ s.short_name }} × |{% endfor %}
+|---|---|{% for s in systems %}---|{% endfor %}{% for s in systems %}---|{% endfor %}
+{%- for op in section.ops %}
+| {{ op.display }} | {{ op.approach }} |{% for s in systems %} {{ op|err(s, "cpp") }} |{% endfor %}{% for s in systems %} {{ op|speedup(s, "cpp") }} |{% endfor %}
+{%- endfor %}
+{% endfor %}
+## Notes
+
+- **`mod` / `fmod`** is the only operation where quad precision is
+  consistently faster. The DD `mod` uses a floor-multiple reduction loop
+  (adapted from `external/float64x2-sample.cpp`) for small quotients, or a
+  full DD divide chain for large quotients; libquadmath's `fmodq` uses a
+  specialized bit-level remainder algorithm.
+
+- **Trig range reduction** uses a 3-part π/2 constant (~161 bits) via
+  Cody–Waite subtraction with DD arithmetic (FMA-captured product errors).
+  Combined with the π/8 argument split, this gives full DD precision
+  (~4e-32) for sin/cos/tan with the current 13-term Taylor kernels.
+  For |x| > ~1e15, a Payne–Hanek reduction with a multi-word 2/π table
+  would be needed.
+
+- **tgamma / lgamma** (both C++ and Fortran) use a native double-double
+  Stirling kernel shifting the argument up to x ≥ 25 via a product
+  accumulator so a single `dd_log(prod)` absorbs the recurrence. Small
+  arguments (x < 0.5) use the reflection identity.
+
+- **Inverse trigonometric** functions (asin, acos, atan, atan2) use
+  piecewise rational polynomial approximations ported from libquadmath's
+  `asinq.c` / `atanq.c`.
+
+- **erf / erfc** use piecewise rational approximation coefficients from
+  libquadmath's `erfq.c`, evaluated in full DD arithmetic via Estrin's
+  scheme (`dd_neval` / `dd_deval`).
+
+- The **Fortran** multifloats module uses `elemental` functions on a
+  `sequence` derived type. gfortran's ABI passes/returns these via hidden
+  pointers (not in FP registers), adding ~1.5× overhead vs the C++ header-
+  only version even with LTO inlining. See the performance note at the top
+  of `fsrc/multifloats.fypp` for details and the `bind(c)` escape hatch.
+
+- **Array reductions** (`dot_product`, `matmul`) use a fused multiply-
+  accumulate kernel that computes the product's error-free representation
+  and accumulates corrections into a scalar `s_lo`. `matmul` routes to a
+  C kernel (`src/multifloats_math.cc`) in AXPY / gaxpy loop order; the
+  kernel register-blocks any `m` via a strided panel template at `MR=8`
+  plus a 1..7-row tail handler.
+
+<!-- Auto-generated by bench/build_benchmark_md.py from per-system JSON
+     results in bench/results/. Do not edit by hand. -->
