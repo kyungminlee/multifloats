@@ -40,33 +40,37 @@ add_subdirectory(fsrc)  # project(multifloatsf) → libmultifloatsf-<compiler>.a
 
 # C++ tests — use __float128 / libquadmath as reference (GCC only).
 add_executable(cpp_test ./test/test.cc)
-target_compile_options(cpp_test PRIVATE -fext-numeric-literals)
+target_compile_options(cpp_test PRIVATE -O3 -fext-numeric-literals)
 target_link_libraries(cpp_test PRIVATE multifloats quadmath)
 add_test(NAME cpp_test COMMAND cpp_test)
 
 add_executable(cpp_fuzz ./test/fuzz.cc)
-target_compile_options(cpp_fuzz PRIVATE -fext-numeric-literals)
+target_compile_options(cpp_fuzz PRIVATE -O3 -fext-numeric-literals)
 target_link_libraries(cpp_fuzz PRIVATE multifloats quadmath)
 add_test(NAME cpp_fuzz COMMAND cpp_fuzz)
 
 add_executable(cpp_bench ./test/bench.cc)
-target_compile_options(cpp_bench PRIVATE -fext-numeric-literals)
+target_compile_options(cpp_bench PRIVATE -O3 -fext-numeric-literals)
 target_link_libraries(cpp_bench PRIVATE multifloats quadmath)
 
 # Fortran tests
 add_executable(fortran_precision ./test/precision.f90)
+target_compile_options(fortran_precision PRIVATE -O3)
 target_link_libraries(fortran_precision PRIVATE multifloatsf)
 add_test(NAME fortran_precision COMMAND fortran_precision)
 
 add_executable(fortran_test ./test/test.f90)
+target_compile_options(fortran_test PRIVATE -O3)
 target_link_libraries(fortran_test PRIVATE multifloatsf)
 add_test(NAME fortran_test COMMAND fortran_test)
 
 add_executable(fortran_fuzz ./test/fuzz.f90)
+target_compile_options(fortran_fuzz PRIVATE -O3)
 target_link_libraries(fortran_fuzz PRIVATE multifloatsf)
 add_test(NAME fortran_fuzz COMMAND fortran_fuzz)
 
 add_executable(fortran_bench ./test/bench.f90)
+target_compile_options(fortran_bench PRIVATE -O3)
 target_link_libraries(fortran_bench PRIVATE multifloatsf)
 
 # BLAS extensions (not installed)
@@ -79,6 +83,7 @@ target_link_libraries(blas-multifloat PRIVATE multifloatsf)
 target_link_libraries(multifloatsf PUBLIC multifloats)
 
 add_executable(fortran_bench_c ./test/bench_c.f90)
+target_compile_options(fortran_bench_c PRIVATE -O3)
 target_link_libraries(fortran_bench_c PRIVATE multifloatsf)
 
 add_library(dd-bindc OBJECT ./test/dd_bindc.f90)
@@ -88,4 +93,5 @@ set_target_properties(dd-bindc PROPERTIES
 target_include_directories(dd-bindc PUBLIC ${CMAKE_BINARY_DIR}/fmod/test)
 
 add_executable(fortran_bench_abi ./test/bench_abi.f90)
+target_compile_options(fortran_bench_abi PRIVATE -O3)
 target_link_libraries(fortran_bench_abi PRIVATE multifloatsf dd-bindc)

@@ -44,12 +44,14 @@ target_include_directories(multifloatsf PRIVATE
 # Fat LTO for GCC; plain -flto for LLVM.
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
     if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(multifloatsf PRIVATE -flto -ffat-lto-objects)
+        target_compile_options(multifloatsf PRIVATE -O3 -flto -ffat-lto-objects)
         target_link_options(multifloatsf PUBLIC -flto)
     elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang")
-        target_compile_options(multifloatsf PRIVATE -flto)
+        target_compile_options(multifloatsf PRIVATE -O3 -flto)
         target_link_options(multifloatsf PUBLIC -flto)
     endif()
+else()
+    target_compile_options(multifloatsf PRIVATE -O2)
 endif()
 
 # Install: compiler-tagged library + .mod files + Config.cmake
