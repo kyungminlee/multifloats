@@ -3520,29 +3520,165 @@ $:mf_minmax_body(func, n)
     ! Bessel functions with integer order (elemental + transformational)
     ! ================================================================
 
-#:for func in BESSEL_N
-    elemental function mf_${func}$_elem(n, x) result(res)
+    ! Full DD bessel_jn via forward/backward recurrence from j0/j1
+    elemental function mf_bessel_jn_elem(n, x) result(res)
         integer, intent(in) :: n
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res
-        ! Leading-limb only — no closed-form derivative for general bessel
-        ! orders without dragging in more special-function machinery.
-        res%limbs = [${func}$(n, x%limbs(1)), 0.0_dp]
+        type(float64x2) :: res, ax, a, b, temp, t, di
+        integer :: nn, i, k, m
+        real(dp) :: xx
+        type(float64x2) :: w, h, q0, q1, z, v, tmp2
+        nn = n
+        ax = x
+        ! J(-n,x) = (-1)^n * J(n,x)
+        if (nn < 0) then
+            nn = -nn
+            ax%limbs = -ax%limbs
+        end if
+        if (nn == 0) then; res = dd_bessel_j0_full(ax); return; end if
+        if (nn == 1) then; res = dd_bessel_j1_full(ax); return; end if
+        ! Handle sign: J(n,-x) = (-1)^n * J(n,x)
+        if (ax%limbs(1) < 0.0_dp) then
+            ax%limbs = -ax%limbs
+            if (iand(nn, 1) /= 0) then
+                ! odd n: result gets negated
+            end if
+        end if
+        xx = ax%limbs(1)
+        if (xx == 0.0_dp) then; res%limbs = [0.0_dp, 0.0_dp]; return; end if
+        if (.not. ieee_is_finite(xx)) then; res%limbs = [0.0_dp, 0.0_dp]; return; end if
+
+        if (real(nn, dp) <= xx) then
+            ! Forward recurrence: stable when x >= n
+            a = dd_bessel_j0_full(ax)
+            b = dd_bessel_j1_full(ax)
+            do i = 1, nn - 1
+                temp = b
+                di%limbs = [real(i + i, dp), 0.0_dp]
+                b = di / ax * b - a
+                a = temp
+            end do
+            res = b
+        else
+            ! Backward recurrence via continued fraction
+            ! Determine k: number of extra terms needed
+            w%limbs = [real(nn + nn, dp) / xx, 0.0_dp]
+            h%limbs = [2.0_dp / xx, 0.0_dp]
+            q0 = w
+            z = w + h
+            q1 = w * z - MF_ONE
+            k = 1
+            do while (q1%limbs(1) < 1.0e17_dp)
+                k = k + 1
+                z = z + h
+                tmp2 = z * q1 - q0
+                q0 = q1
+                q1 = tmp2
+            end do
+            m = nn + nn
+            t%limbs = [0.0_dp, 0.0_dp]
+            do i = 2 * (nn + k), m, -2
+                di%limbs = [real(i, dp), 0.0_dp]
+                t = MF_ONE / (di / ax - t)
+            end do
+            a = t
+            b = MF_ONE
+            ! Backward recurrence
+            v%limbs = [2.0_dp / xx, 0.0_dp]
+            tmp2%limbs = [real(nn, dp), 0.0_dp]
+            tmp2 = tmp2 * dd_log_full(mf_abs(v * tmp2))
+            if (tmp2%limbs(1) < 1.1356e4_dp) then
+                do i = nn - 1, 1, -1
+                    temp = b
+                    di%limbs = [real(i + i, dp), 0.0_dp]
+                    b = di * b / ax - a
+                    a = temp
+                end do
+            else
+                do i = nn - 1, 1, -1
+                    temp = b
+                    di%limbs = [real(i + i, dp), 0.0_dp]
+                    b = di * b / ax - a
+                    a = temp
+                    if (b%limbs(1) > 1e100_dp) then
+                        a = a / b
+                        t = t / b
+                        b = MF_ONE
+                    end if
+                end do
+            end if
+            ! Normalize: pick j0 or j1 whichever is larger
+            z = dd_bessel_j0_full(ax)
+            w = dd_bessel_j1_full(ax)
+            if (abs(z%limbs(1)) >= abs(w%limbs(1))) then
+                res = t * z / b
+            else
+                res = t * w / a
+            end if
+        end if
+        ! Apply sign for negative x with odd n
+        if (x%limbs(1) < 0.0_dp .and. iand(nn, 1) /= 0) res%limbs = -res%limbs
     end function
 
-    pure function mf_${func}$_range(n1, n2, x) result(res)
+    ! Full DD bessel_yn via forward recurrence from y0/y1
+    elemental function mf_bessel_yn_elem(n, x) result(res)
+        integer, intent(in) :: n
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res, a, b, temp, di
+        integer :: nn, i, sgn
+        real(dp) :: xx
+        nn = n
+        sgn = 1
+        if (nn < 0) then
+            nn = -nn
+            sgn = 1 - iand(nn, 1) * 2  ! (-1)^n
+        end if
+        xx = x%limbs(1)
+        if (xx <= 0.0_dp) then
+            if (xx == 0.0_dp) then
+                res%limbs = [-huge(0.0_dp), 0.0_dp]
+            else
+                res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
+            end if
+            return
+        end if
+        if (nn == 0) then; res = dd_bessel_y0_full(x); if (sgn < 0) res%limbs = -res%limbs; return; end if
+        if (nn == 1) then; res = dd_bessel_y1_full(x); if (sgn < 0) res%limbs = -res%limbs; return; end if
+        if (.not. ieee_is_finite(xx)) then; res%limbs = [0.0_dp, 0.0_dp]; return; end if
+        ! Forward recurrence (always stable for Yn)
+        a = dd_bessel_y0_full(x)
+        b = dd_bessel_y1_full(x)
+        do i = 1, nn - 1
+            temp = b
+            di%limbs = [real(i + i, dp), 0.0_dp]
+            b = di / x * b - a
+            a = temp
+            if (.not. ieee_is_finite(b%limbs(1))) exit
+        end do
+        if (sgn < 0) b%limbs = -b%limbs
+        res = b
+    end function
+
+    pure function mf_bessel_jn_range(n1, n2, x) result(res)
         integer, intent(in) :: n1, n2
         type(float64x2), intent(in) :: x
         type(float64x2) :: res(max(n2 - n1 + 1, 0))
-        real(dp) :: tmp(max(n2 - n1 + 1, 0))
         integer :: i
-        tmp = ${func}$(n1, n2, x%limbs(1))
-        do i = 1, size(tmp)
-            res(i)%limbs = [tmp(i), 0.0_dp]
+        do i = 1, size(res)
+            res(i) = mf_bessel_jn_elem(n1 + i - 1, x)
         end do
     end function
 
-#:endfor
+    pure function mf_bessel_yn_range(n1, n2, x) result(res)
+        integer, intent(in) :: n1, n2
+        type(float64x2), intent(in) :: x
+        type(float64x2) :: res(max(n2 - n1 + 1, 0))
+        integer :: i
+        do i = 1, size(res)
+            res(i) = mf_bessel_yn_elem(n1 + i - 1, x)
+        end do
+    end function
+
     ! ================================================================
     ! Functions: (mf, integer) → mf (elemental)
     ! ================================================================
