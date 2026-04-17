@@ -17,6 +17,8 @@ MFD2 dd_sin_full(MFD2 const &x);
 MFD2 dd_cos_full(MFD2 const &x);
 MFD2 dd_sin_eval(MFD2 const &r);
 MFD2 dd_cos_eval(MFD2 const &r);
+void dd_sincos_eval(MFD2 const &r, MFD2 &s, MFD2 &c);
+void dd_sincos_full(MFD2 const &x, MFD2 &s, MFD2 &c);
 MFD2 dd_sinpi_full(MFD2 const &x);
 MFD2 dd_erfc_full(MFD2 const &x);
 MFD2 dd_lgamma_positive(MFD2 const &x);
@@ -226,6 +228,55 @@ MFD2 dd_cos_eval(MFD2 const &r) {
   return pos ? (ck - sk) * inv_sqrt2 : (ck + sk) * inv_sqrt2;
 }
 
+// Fused sin/cos of |r| ≤ π/4 — shares the π/4 shift path and its two
+// Taylor kernels between both outputs. Callers that need both s=sin(r)
+// and c=cos(r) save one 13-term Horner (~40% of the eval cost).
+void dd_sincos_eval(MFD2 const &r, MFD2 &s, MFD2 &c) {
+  constexpr double pi8 = 0.392699081698724;
+  if (std::fabs(r._limbs[0]) <= pi8) {
+    s = dd_sin_kernel(r);
+    c = dd_cos_kernel(r);
+    return;
+  }
+  MFD2 pi4_dd = dd_pair(0.7853981633974483, 3.061616997868383e-17);
+  MFD2 inv_sqrt2 = dd_pair(0.7071067811865476, -4.833646656726457e-17);
+  bool pos = r._limbs[0] > 0.0;
+  MFD2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
+  MFD2 sk = dd_sin_kernel(rp);
+  MFD2 ck = dd_cos_kernel(rp);
+  if (pos) {
+    s = (sk + ck) * inv_sqrt2;
+    c = (ck - sk) * inv_sqrt2;
+  } else {
+    s = (sk - ck) * inv_sqrt2;
+    c = (ck + sk) * inv_sqrt2;
+  }
+}
+
+// Fused sin/cos of the full-range argument — one call to dd_reduce_pi_half
+// plus one dd_sincos_eval, with the per-quadrant sign/swap applied last.
+void dd_sincos_full(MFD2 const &x, MFD2 &s, MFD2 &c) {
+  if (!std::isfinite(x._limbs[0])) {
+    MFD2 nan;
+    nan._limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    nan._limbs[1] = 0.0;
+    s = nan;
+    c = nan;
+    return;
+  }
+  MFD2 r;
+  int q;
+  dd_reduce_pi_half(x, r, q);
+  MFD2 ss, cc;
+  dd_sincos_eval(r, ss, cc);
+  switch (q) {
+    case 0: s = ss;  c = cc;  break;
+    case 1: s = cc;  c = -ss; break;
+    case 2: s = -ss; c = -cc; break;
+    default: s = -cc; c = ss; break;
+  }
+}
+
 MFD2 dd_sin_full(MFD2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     MFD2 r;
@@ -272,11 +323,12 @@ MFD2 dd_tan_full(MFD2 const &x) {
   MFD2 r;
   int q;
   dd_reduce_pi_half(x, r, q);
+  MFD2 s, c;
+  dd_sincos_eval(r, s, c);
   switch (q) {
-  case 0: return dd_sin_eval(r) / dd_cos_eval(r);
-  case 1: return -dd_cos_eval(r) / dd_sin_eval(r);
-  case 2: return dd_sin_eval(r) / dd_cos_eval(r);
-  default: return -dd_cos_eval(r) / dd_sin_eval(r);
+    case 0:
+    case 2:  return s / c;
+    default: return -c / s;  // q == 1 or 3
   }
 }
 
@@ -1032,8 +1084,8 @@ MFD2 dd_bessel_j0_full(MFD2 const &x) {
   }
 
   MFD2 angle = ax - dd_pair(pi_quarter_hi, pi_quarter_lo);
-  MFD2 s = dd_sin_full(angle);
-  MFD2 c = dd_cos_full(angle);
+  MFD2 s, c;
+  dd_sincos_full(angle, s, c);
   MFD2 xinv = MFD2(1.0) / ax;
   MFD2 z = xinv * xinv;
   MFD2 p, q;
@@ -1060,8 +1112,8 @@ MFD2 dd_bessel_j1_full(MFD2 const &x) {
                                      dd_deval(z, j1_J1_2D_hi, j1_J1_2D_lo, 6);
   } else {
     MFD2 angle = ax - dd_pair(three_pi_quarter_hi, three_pi_quarter_lo);
-    MFD2 s = dd_sin_full(angle);
-    MFD2 c = dd_cos_full(angle);
+    MFD2 s, c;
+    dd_sincos_full(angle, s, c);
     MFD2 xinv = MFD2(1.0) / ax;
     MFD2 z = xinv * xinv;
     MFD2 p, q;
@@ -1099,8 +1151,8 @@ MFD2 dd_bessel_y0_full(MFD2 const &x) {
   }
 
   MFD2 angle = x - dd_pair(pi_quarter_hi, pi_quarter_lo);
-  MFD2 s = dd_sin_full(angle);
-  MFD2 c = dd_cos_full(angle);
+  MFD2 s, c;
+  dd_sincos_full(angle, s, c);
   MFD2 xinv = MFD2(1.0) / x;
   MFD2 z = xinv * xinv;
   MFD2 p, q;
@@ -1135,8 +1187,8 @@ MFD2 dd_bessel_y1_full(MFD2 const &x) {
   }
 
   MFD2 angle = x - dd_pair(three_pi_quarter_hi, three_pi_quarter_lo);
-  MFD2 s = dd_sin_full(angle);
-  MFD2 c = dd_cos_full(angle);
+  MFD2 s, c;
+  dd_sincos_full(angle, s, c);
   MFD2 xinv = MFD2(1.0) / x;
   MFD2 z = xinv * xinv;
   MFD2 p, q;

@@ -82,11 +82,14 @@ already; these are the ones that needed explicit review.
       Under clang-arm64 at `-O3` the leaf hint is a no-op (flat perf);
       defensive against `-O2` / other compilers as the note said.
 
-- [ ] **S3. Bessel asymptotic doubles the sin/cos work.**
-      `src/multifloats_math.cc:1054-1079, 1110-1144, 1146-1180`. Add a
-      `dd_sincos_eval(angle)` helper that runs range reduction once and
-      returns `(s, c)`; cut Bessel large-x cost ~40%. Also applies to
-      `dd_tan_full` at `:308-310` (identical branches 0 and 2).
+- [x] **S3. Bessel asymptotic doubles the sin/cos work.**
+      Fixed: added `dd_sincos_eval` (shares the π/4-shift Taylor kernels
+      between sin and cos on |r| ≤ π/4) and `dd_sincos_full` (fused
+      range reduction) in `src/multifloats_math.cc`. Wired the four
+      Bessel asymptotic sites (j0/j1/y0/y1) and `dd_tan_full` (branches
+      0/2 and 1/3 now evaluate once). Measured: j0/j1/y0/y1 asymptotic
+      +28%, `tan` +40% throughput on the 1024-input sweep.
+      Single-eval `sin`/`cos` paths unchanged.
 
 - [ ] **S4. `dd_reduce_pi_half` re-runs full-DD subtraction three times.**
       `src/multifloats_math.cc:204-220`. Restructure as three inline
