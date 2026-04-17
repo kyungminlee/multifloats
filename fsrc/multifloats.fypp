@@ -2568,49 +2568,26 @@ contains
         end if
     end subroutine
 
-    ! Numerically stable sin(x-pi/4) and cos(x-pi/4) for order 0
+    ! sin(x-pi/4) and cos(x-pi/4) via direct DD trig of shifted angle
     elemental subroutine dd_bessel_sincos0(x_arg, ss, cc)
         type(float64x2), intent(in) :: x_arg
         type(float64x2), intent(out) :: ss, cc
-        type(float64x2) :: s, c, isqrt2, z_trig, x2
-        s = dd_sin_full(x_arg)
-        c = dd_cos_full(x_arg)
-        isqrt2%limbs = [inv_sqrt2_hi, inv_sqrt2_lo]
-        ss = (s - c) * isqrt2
-        cc = (s + c) * isqrt2
-        x2%limbs = [x_arg%limbs(1) + x_arg%limbs(1), x_arg%limbs(2) + x_arg%limbs(2)]
-        z_trig = -dd_cos_full(x2)
-        if (s%limbs(1) * c%limbs(1) < 0.0_dp) then
-            cc = z_trig / (s - c) * isqrt2
-        else
-            ss = z_trig / (s + c) * isqrt2
-        end if
+        type(float64x2) :: angle, c
+        c%limbs = [pi_quarter_hi, pi_quarter_lo]
+        angle = x_arg - c
+        ss = dd_sin_full(angle)
+        cc = dd_cos_full(angle)
     end subroutine
 
-    ! Numerically stable sin(x-3pi/4) and cos(x-3pi/4) for order 1
+    ! sin(x-3pi/4) and cos(x-3pi/4) via direct DD trig of shifted angle
     elemental subroutine dd_bessel_sincos1(x_arg, ss, cc)
         type(float64x2), intent(in) :: x_arg
         type(float64x2), intent(out) :: ss, cc
-        type(float64x2) :: s, c, isqrt2, z_trig, x2
-        s = dd_sin_full(x_arg)
-        c = dd_cos_full(x_arg)
-        isqrt2%limbs = [inv_sqrt2_hi, inv_sqrt2_lo]
-        ! sin(x-3pi/4) = -(sin+cos)/sqrt(2)
-        ! cos(x-3pi/4) = (sin-cos)/sqrt(2)
-        ss = -(s + c) * isqrt2
-        cc = (s - c) * isqrt2
-        ! Correction via cos(2x) = -(sin-cos)(sin+cos)
-        ! When sin*cos > 0: |sin-cos| small → correct cc
-        ! When sin*cos < 0: |sin+cos| small → correct ss
-        x2%limbs = [x_arg%limbs(1) + x_arg%limbs(1), x_arg%limbs(2) + x_arg%limbs(2)]
-        z_trig = dd_cos_full(x2)
-        if (s%limbs(1) * c%limbs(1) > 0.0_dp) then
-            ! cc = (sin-cos)/√2, sin-cos = -cos(2x)/(sin+cos)
-            cc = -z_trig / (s + c) * isqrt2
-        else
-            ! ss = -(sin+cos)/√2, sin+cos = -cos(2x)/(sin-cos)
-            ss = z_trig / (s - c) * isqrt2
-        end if
+        type(float64x2) :: angle, c
+        c%limbs = [three_pi_quarter_hi, three_pi_quarter_lo]
+        angle = x_arg - c
+        ss = dd_sin_full(angle)
+        cc = dd_cos_full(angle)
     end subroutine
 
     elemental function dd_bessel_j0_full(x) result(res)
