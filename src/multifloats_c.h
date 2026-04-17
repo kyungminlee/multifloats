@@ -53,6 +53,12 @@ dd_t dd_acosh(dd_t a);
 dd_t dd_atanh(dd_t a);
 dd_t dd_erf(dd_t a);
 dd_t dd_erfc(dd_t a);
+dd_t dd_tgamma(dd_t a);
+dd_t dd_lgamma(dd_t a);
+dd_t dd_bessel_j0(dd_t a);
+dd_t dd_bessel_j1(dd_t a);
+dd_t dd_bessel_y0(dd_t a);
+dd_t dd_bessel_y1(dd_t a);
 
 /* Comparison (return int: 1 = true, 0 = false) */
 int dd_eq(dd_t a, dd_t b);

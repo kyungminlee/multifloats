@@ -135,12 +135,12 @@ All M1 Max values are post-fix (13-term Taylor + `atan(x) = π/2·sign(x) − at
 | erfc\_scaled | exp(x^2)·erfc(x) with asymptotic cancellation | full DD | 7.7e-30 | — | — | **182×** | **148×** | **198×** |
 | gamma | piecewise rational approx + Stirling + reflection | full DD | 3.3e-27 | — | — | **1.8×** | **42×** | **58×** |
 | log\_gamma | piecewise rational approx + Stirling asymptotic | full DD | 1.5e-28 | — | — | **3.1×** | **40×** | **50×** |
-| bessel\_j0 | piecewise rational + Hankel asymptotic (j0q.c) | full DD | 1.0e-31 | — | — | 0.42× | **68×** | **92×** |
-| bessel\_j1 | piecewise rational + Hankel asymptotic (j1q.c) | full DD | 1.6e-30 | — | — | 0.41× | **69×** | **91×** |
-| bessel\_jn(3,.) | forward/backward recurrence from j0/j1 | full DD | 7.5e-31 | — | — | 0.43× | **67×** | **83×** |
-| bessel\_y0 | piecewise rational + Hankel asymptotic (j0q.c) | full DD | 2.5e-31 | — | — | 0.45× | **75×** | **94×** |
-| bessel\_y1 | piecewise rational + Hankel asymptotic (j1q.c) | full DD | 8.7e-32 | — | — | 0.46× | **71×** | **95×** |
-| bessel\_yn(3,.) | forward recurrence from y0/y1 | full DD | 5.6e-30 | — | — | 0.44× | **75×** | **108×** |
+| bessel\_j0 | piecewise rational + Hankel asymptotic (j0q.c) via C++ | full DD | 1.0e-31 | — | — | **4.1×** | **68×** | **92×** |
+| bessel\_j1 | piecewise rational + Hankel asymptotic (j1q.c) via C++ | full DD | 1.6e-30 | — | — | **4.2×** | **69×** | **91×** |
+| bessel\_jn(3,.) | forward/backward recurrence from j0/j1 | full DD | 7.5e-31 | — | — | **1.2×** | **67×** | **83×** |
+| bessel\_y0 | piecewise rational + Hankel asymptotic (j0q.c) via C++ | full DD | 2.5e-31 | — | — | **4.2×** | **75×** | **94×** |
+| bessel\_y1 | piecewise rational + Hankel asymptotic (j1q.c) via C++ | full DD | 8.7e-32 | — | — | **4.3×** | **71×** | **95×** |
+| bessel\_yn(3,.) | forward recurrence from y0/y1 | full DD | 5.6e-30 | — | — | **3.5×** | **75×** | **108×** |
 
 ### Complex arithmetic
 

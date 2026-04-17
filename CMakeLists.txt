@@ -81,6 +81,9 @@ target_include_directories(multifloats-c PRIVATE src)
 target_compile_options(multifloats-c PRIVATE -O3)
 target_link_libraries(multifloats-c PRIVATE multifloats)
 
+# Fortran library uses C++ kernels for Bessel/gamma via bind(C)
+target_link_libraries(multifloatsf PUBLIC multifloats-c)
+
 add_executable(fortran_bench_c ./test/bench_c.f90)
 target_link_libraries(fortran_bench_c PRIVATE multifloatsf multifloats-c)
 

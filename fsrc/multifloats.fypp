@@ -609,6 +609,35 @@ module multifloats
     ! ================================================================
     include 'dd_constants.f90.inc'
 
+    ! ================================================================
+    ! C-ABI interfaces for C++ DD special-function kernels
+    ! (from src/multifloats_c.cc; faster than Fortran due to Estrin + inlining)
+    ! ================================================================
+    type, bind(c) :: dd_t
+        real(dp) :: hi, lo
+    end type dd_t
+
+    interface
+        pure type(dd_t) function c_dd_tgamma(a) bind(c, name='dd_tgamma')
+            import :: dd_t; type(dd_t), value, intent(in) :: a
+        end function
+        pure type(dd_t) function c_dd_lgamma(a) bind(c, name='dd_lgamma')
+            import :: dd_t; type(dd_t), value, intent(in) :: a
+        end function
+        pure type(dd_t) function c_dd_bessel_j0(a) bind(c, name='dd_bessel_j0')
+            import :: dd_t; type(dd_t), value, intent(in) :: a
+        end function
+        pure type(dd_t) function c_dd_bessel_j1(a) bind(c, name='dd_bessel_j1')
+            import :: dd_t; type(dd_t), value, intent(in) :: a
+        end function
+        pure type(dd_t) function c_dd_bessel_y0(a) bind(c, name='dd_bessel_y0')
+            import :: dd_t; type(dd_t), value, intent(in) :: a
+        end function
+        pure type(dd_t) function c_dd_bessel_y1(a) bind(c, name='dd_bessel_y1')
+            import :: dd_t; type(dd_t), value, intent(in) :: a
+        end function
+    end interface
+
 contains
 
     ! ================================================================
@@ -2590,132 +2619,38 @@ contains
         cc = dd_cos_full(angle)
     end subroutine
 
+    ! Bessel j0/j1/y0/y1: thin wrappers around C++ implementations
+    ! (C++ is ~4x faster due to Estrin polynomial evaluation + inlining)
     elemental function dd_bessel_j0_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, ax, z, p, q, ss, cc, tpi, xinv_dd
-        real(dp) :: xx, xinv_d
-        ax = x
-        if (ax%limbs(1) < 0.0_dp) ax%limbs = -ax%limbs
-        xx = ax%limbs(1)
-        if (xx == 0.0_dp) then; res = MF_ONE; return; end if
-        if (.not. ieee_is_finite(xx)) then; res%limbs = [0.0_dp, 0.0_dp]; return; end if
-        if (xx <= 2.0_dp) then
-            z = ax * ax
-            res = z * z * dd_neval(z, j0_J0_2N_hi, j0_J0_2N_lo) / &
-                          dd_deval(z, j0_J0_2D_hi, j0_J0_2D_lo)
-            res = res - z * 0.25_dp + MF_ONE
-            return
-        end if
-        call dd_bessel_sincos0(ax, ss, cc)
-        xinv_d = 1.0_dp / xx
-        xinv_dd = MF_ONE / ax
-        z = xinv_dd * xinv_dd
-        call dd_bessel_pq0(xinv_d, z, p, q)
-        p = MF_ONE + z * p
-        q = (z * q - 0.125_dp) * xinv_dd
-        tpi%limbs = [two_over_pi_hi, two_over_pi_lo]
-        res = mf_sqrt(tpi / ax) * (p * cc - q * ss)
+        type(float64x2) :: res
+        type(dd_t) :: r
+        r = c_dd_bessel_j0(dd_t(x%limbs(1), x%limbs(2)))
+        res%limbs = [r%hi, r%lo]
     end function
 
     elemental function dd_bessel_j1_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, ax, z, p, q, ss, cc, tpi, xinv_dd
-        real(dp) :: xx, xinv_d
-        logical :: neg
-        neg = x%limbs(1) < 0.0_dp
-        ax = x
-        if (neg) ax%limbs = -ax%limbs
-        xx = ax%limbs(1)
-        if (xx == 0.0_dp) then; res%limbs = [0.0_dp, 0.0_dp]; return; end if
-        if (.not. ieee_is_finite(xx)) then; res%limbs = [0.0_dp, 0.0_dp]; return; end if
-        if (xx <= 2.0_dp) then
-            z = ax * ax
-            res = ax * 0.5_dp + ax * z * dd_neval(z, j1_J1_2N_hi, j1_J1_2N_lo) / &
-                                         dd_deval(z, j1_J1_2D_hi, j1_J1_2D_lo)
-        else
-            call dd_bessel_sincos1(ax, ss, cc)
-            xinv_d = 1.0_dp / xx
-            xinv_dd = MF_ONE / ax
-            z = xinv_dd * xinv_dd
-            call dd_bessel_pq1(xinv_d, z, p, q)
-            p = MF_ONE + z * p
-            q = (z * q + 0.375_dp) * xinv_dd
-            tpi%limbs = [two_over_pi_hi, two_over_pi_lo]
-            res = mf_sqrt(tpi / ax) * (p * cc - q * ss)
-        end if
-        if (neg) res%limbs = -res%limbs
+        type(float64x2) :: res
+        type(dd_t) :: r
+        r = c_dd_bessel_j1(dd_t(x%limbs(1), x%limbs(2)))
+        res%limbs = [r%hi, r%lo]
     end function
 
     elemental function dd_bessel_y0_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, z, p, q, ss, cc, tpi, xinv_dd
-        real(dp) :: xx, xinv_d
-        xx = x%limbs(1)
-        if (xx <= 0.0_dp .or. .not. ieee_is_finite(xx)) then
-            if (xx == 0.0_dp) then
-                res%limbs = [-huge(0.0_dp), 0.0_dp]
-            else
-                res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
-            end if
-            return
-        end if
-        tpi%limbs = [two_over_pi_hi, two_over_pi_lo]
-        if (xx <= 1e-17_dp) then
-            res%limbs = [bessel_u0_hi, bessel_u0_lo]
-            res = res + tpi * dd_log_full(x)
-            return
-        end if
-        if (xx <= 2.0_dp) then
-            z = x * x
-            p = dd_neval(z, j0_Y0_2N_hi, j0_Y0_2N_lo) / &
-                dd_deval(z, j0_Y0_2D_hi, j0_Y0_2D_lo)
-            res = tpi * dd_log_full(x) * dd_bessel_j0_full(x) + p
-            return
-        end if
-        call dd_bessel_sincos0(x, ss, cc)
-        xinv_d = 1.0_dp / xx
-        xinv_dd = MF_ONE / x
-        z = xinv_dd * xinv_dd
-        call dd_bessel_pq0(xinv_d, z, p, q)
-        p = MF_ONE + z * p
-        q = (z * q - 0.125_dp) * xinv_dd
-        res = mf_sqrt(tpi / x) * (p * ss + q * cc)
+        type(float64x2) :: res
+        type(dd_t) :: r
+        r = c_dd_bessel_y0(dd_t(x%limbs(1), x%limbs(2)))
+        res%limbs = [r%hi, r%lo]
     end function
 
     elemental function dd_bessel_y1_full(x) result(res)
         type(float64x2), intent(in) :: x
-        type(float64x2) :: res, z, p, q, ss, cc, tpi, xinv_dd
-        real(dp) :: xx, xinv_d
-        xx = x%limbs(1)
-        if (xx <= 0.0_dp .or. .not. ieee_is_finite(xx)) then
-            if (xx == 0.0_dp) then
-                res%limbs = [-huge(0.0_dp), 0.0_dp]
-            else
-                res%limbs = [ieee_value(0.0_dp, ieee_quiet_nan), 0.0_dp]
-            end if
-            return
-        end if
-        tpi%limbs = [two_over_pi_hi, two_over_pi_lo]
-        if (xx <= 1e-30_dp) then
-            res%limbs = [0.0_dp, 0.0_dp]
-            res = res - tpi / x
-            return
-        end if
-        if (xx <= 2.0_dp) then
-            z = x * x
-            p = x * dd_neval(z, j1_Y1_2N_hi, j1_Y1_2N_lo) / &
-                    dd_deval(z, j1_Y1_2D_hi, j1_Y1_2D_lo)
-            res = tpi * (dd_log_full(x) * dd_bessel_j1_full(x) - MF_ONE / x) + p
-            return
-        end if
-        call dd_bessel_sincos1(x, ss, cc)
-        xinv_d = 1.0_dp / xx
-        xinv_dd = MF_ONE / x
-        z = xinv_dd * xinv_dd
-        call dd_bessel_pq1(xinv_d, z, p, q)
-        p = MF_ONE + z * p
-        q = (z * q + 0.375_dp) * xinv_dd
-        res = mf_sqrt(tpi / x) * (p * ss + q * cc)
+        type(float64x2) :: res
+        type(dd_t) :: r
+        r = c_dd_bessel_y1(dd_t(x%limbs(1), x%limbs(2)))
+        res%limbs = [r%hi, r%lo]
     end function
 
     ! ================================================================

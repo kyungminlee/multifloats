@@ -59,6 +59,12 @@ dd_t dd_acosh(dd_t a) { return to(mf::acosh(from(a))); }
 dd_t dd_atanh(dd_t a) { return to(mf::atanh(from(a))); }
 dd_t dd_erf(dd_t a)   { return to(mf::erf(from(a))); }
 dd_t dd_erfc(dd_t a)  { return to(mf::erfc(from(a))); }
+dd_t dd_tgamma(dd_t a) { return to(mf::tgamma(from(a))); }
+dd_t dd_lgamma(dd_t a) { return to(mf::lgamma(from(a))); }
+dd_t dd_bessel_j0(dd_t a) { return to(mf::bessel_j0(from(a))); }
+dd_t dd_bessel_j1(dd_t a) { return to(mf::bessel_j1(from(a))); }
+dd_t dd_bessel_y0(dd_t a) { return to(mf::bessel_y0(from(a))); }
+dd_t dd_bessel_y1(dd_t a) { return to(mf::bessel_y1(from(a))); }
 
 int dd_eq(dd_t a, dd_t b) { return from(a) == from(b) ? 1 : 0; }
 int dd_ne(dd_t a, dd_t b) { return from(a) != from(b) ? 1 : 0; }
