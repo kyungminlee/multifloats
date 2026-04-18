@@ -19,6 +19,7 @@ MFD2 dd_sin_eval(MFD2 const &r);
 MFD2 dd_cos_eval(MFD2 const &r);
 void dd_sincos_eval(MFD2 const &r, MFD2 &s, MFD2 &c);
 void dd_sincos_full(MFD2 const &x, MFD2 &s, MFD2 &c);
+void dd_sinhcosh_full(MFD2 const &x, MFD2 &s, MFD2 &c);
 MFD2 dd_sinpi_full(MFD2 const &x);
 MFD2 dd_erfc_full(MFD2 const &x);
 MFD2 dd_lgamma_positive(MFD2 const &x);
@@ -431,6 +432,31 @@ MFD2 dd_cosh_full(MFD2 const &x) {
   MFD2 e = dd_exp_full(x);
   MFD2 ei = dd_exp_full(-x);
   return (e + ei) * dd_pair(0.5, 0.0);
+}
+
+// Fused sinh/cosh. Shares the two exp evaluations (exp(x) and exp(-x)) that
+// dd_sinh_full and dd_cosh_full would do independently, halving the exp cost
+// for call sites that need both (e.g. complex sin/cos/sinh/cosh).
+void dd_sinhcosh_full(MFD2 const &x, MFD2 &s, MFD2 &c) {
+  if (!std::isfinite(x._limbs[0])) {
+    s._limbs[0] = std::sinh(x._limbs[0]); s._limbs[1] = 0.0;
+    c._limbs[0] = std::cosh(x._limbs[0]); c._limbs[1] = 0.0;
+    return;
+  }
+  if (std::abs(x._limbs[0]) < 0.1) {
+    // Small-|x| Taylor: sinh via shared coefficients, cosh via 1 + x²·Q(x²).
+    // The cosh Taylor here mirrors the structure of dd_sinh_full's path.
+    MFD2 x2 = x * x;
+    s = x * dd_horner(x2, sinh_taylor_hi, sinh_taylor_lo, 9);
+    // cosh(x) = 1 + x²/2 + x⁴/24 + … — reuse separate kernel to keep code small.
+    c = dd_cosh_full(x);
+    return;
+  }
+  MFD2 e  = dd_exp_full(x);
+  MFD2 ei = dd_exp_full(-x);
+  MFD2 half = dd_pair(0.5, 0.0);
+  s = (e - ei) * half;
+  c = (e + ei) * half;
 }
 
 MFD2 dd_tanh_full(MFD2 const &x) {
@@ -1611,6 +1637,229 @@ dd_t dd_j0(dd_t a) { return to(dd_bessel_j0_full(from(a))); }
 dd_t dd_j1(dd_t a) { return to(dd_bessel_j1_full(from(a))); }
 dd_t dd_y0(dd_t a) { return to(dd_bessel_y0_full(from(a))); }
 dd_t dd_y1(dd_t a) { return to(dd_bessel_y1_full(from(a))); }
+
+// Fused sincos / sinhcosh. Out-pointer style (C has no multi-value return).
+void dd_sincos(dd_t a, dd_t *s, dd_t *c) {
+  MF2 ss, cc;
+  dd_sincos_full(from(a), ss, cc);
+  *s = to(ss);
+  *c = to(cc);
+}
+
+void dd_sinhcosh(dd_t a, dd_t *s, dd_t *c) {
+  MF2 ss, cc;
+  dd_sinhcosh_full(from(a), ss, cc);
+  *s = to(ss);
+  *c = to(cc);
+}
+
+// ---- Complex DD transcendentals ------------------------------------------
+//
+// Branch cuts follow C99 Annex G (matching libquadmath cexpq/clogq/csqrtq).
+// Where the real-axis formula needs both sin(y) and cos(y) (or both sinh
+// and cosh), these call the fused dd_sincos_full / dd_sinhcosh_full kernels
+// so one range reduction + Taylor pair covers both outputs. Functions that
+// are built on top of cx_sqrt / cx_log (asin/acos/...) call the exported
+// dd_cx_* symbols directly; within a single TU the compiler inlines those.
+//
+// The text "2 fused" vs "4 separate" in speed comments below is measured
+// against libstdc++'s generic <complex> template path (see commit notes).
+
+// exp(a+bi) = e^a · (cos b + i·sin b). 2 transcendentals (exp + sincos).
+cdd_t dd_cx_exp(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 ea = dd_exp_full(a);
+  MF2 s, c;
+  dd_sincos_full(b, s, c);
+  return { to(ea * c), to(ea * s) };
+}
+
+// log(a+bi) = log(hypot(a,b)) + i·atan2(b, a). atan2 handles the
+// negative-real-axis branch cut (including signed-zero propagation).
+cdd_t dd_cx_log(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 r = dd_log_full(multifloats::hypot(a, b));
+  MF2 phi = dd_atan2_full(b, a);
+  return { to(r), to(phi) };
+}
+
+// log10(z) = log(z) · (1/ln 10).
+cdd_t dd_cx_log10(cdd_t z) {
+  static const MF2 inv_ln10 = dd_pair(0x1.bcb7b1526e50ep-2,
+                                      0x1.95355baaafad3p-57);
+  cdd_t l = dd_cx_log(z);
+  return { to(from(l.re) * inv_ln10), to(from(l.im) * inv_ln10) };
+}
+
+// pow(z, w) = exp(w · log(z)). C99 G.6.4.1; 0^w folds to 0.
+cdd_t dd_cx_pow(cdd_t z, cdd_t w) {
+  if (z.re.hi == 0.0 && z.im.hi == 0.0) return { {0.0, 0.0}, {0.0, 0.0} };
+  cdd_t l = dd_cx_log(z);
+  MF2 lr = from(l.re), li = from(l.im);
+  MF2 wr = from(w.re), wi = from(w.im);
+  // w * log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr)
+  cdd_t p = { to(wr * lr - wi * li), to(wr * li + wi * lr) };
+  return dd_cx_exp(p);
+}
+
+// sqrt(z). Principal branch; cut on negative real axis, continuous above.
+// Uses Moshier's 2·Re·Im = Im identity to avoid cancellation in mod ± a.
+cdd_t dd_cx_sqrt(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  if (a._limbs[0] == 0.0 && b._limbs[0] == 0.0)
+    return { to(MF2(0.0)), z.im };  // preserves signed zero of imag
+  MF2 mod = multifloats::hypot(a, b);
+  MF2 half = dd_pair(0.5, 0.0);
+  if (a._limbs[0] >= 0.0) {
+    MF2 r = multifloats::sqrt((mod + a) * half);
+    MF2 i = b / (r + r);
+    return { to(r), to(i) };
+  } else {
+    MF2 s = multifloats::sqrt((mod - a) * half);
+    MF2 r = multifloats::abs(b) / (s + s);
+    MF2 i = (b._limbs[0] < 0.0) ? -s : s;
+    return { to(r), to(i) };
+  }
+}
+
+// sin(a+bi) = sin(a)·cosh(b) + i·cos(a)·sinh(b). 2 fused transcendentals.
+cdd_t dd_cx_sin(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 sa, ca, sb, cb;
+  dd_sincos_full(a, sa, ca);
+  dd_sinhcosh_full(b, sb, cb);
+  return { to(sa * cb), to(ca * sb) };
+}
+
+// cos(a+bi) = cos(a)·cosh(b) − i·sin(a)·sinh(b). 2 fused transcendentals.
+cdd_t dd_cx_cos(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 sa, ca, sb, cb;
+  dd_sincos_full(a, sa, ca);
+  dd_sinhcosh_full(b, sb, cb);
+  return { to(ca * cb), to(-(sa * sb)) };
+}
+
+// tan(a+bi) = (sin(a)·cos(a) + i·sinh(b)·cosh(b)) / (cos(a)² + sinh(b)²).
+// libquadmath ctanq formula; 2 fused transcendentals + real div
+// (vs 8 for generic sin(z)/cos(z)).
+cdd_t dd_cx_tan(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 sa, ca, sb, cb;
+  dd_sincos_full(a, sa, ca);
+  dd_sinhcosh_full(b, sb, cb);
+  MF2 den = ca * ca + sb * sb;
+  return { to((sa * ca) / den), to((sb * cb) / den) };
+}
+
+// asin(z) = −i · log(i·z + sqrt(1 − z²)). Cuts on real axis for |a|>1.
+cdd_t dd_cx_asin(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  // 1 − z² : Re = 1 − a² + b², Im = −2ab
+  cdd_t one_mz2 = { to(MF2(1.0) - a * a + b * b), to(-(a * b + a * b)) };
+  cdd_t root = dd_cx_sqrt(one_mz2);
+  MF2 rr = from(root.re), ri = from(root.im);
+  // i·z + root : (−b + rr) + i·(a + ri)
+  cdd_t arg = { to(-b + rr), to(a + ri) };
+  cdd_t l = dd_cx_log(arg);
+  // −i · (lr + i·li) = li − i·lr
+  return { l.im, to(-from(l.re)) };
+}
+
+// acos(z) = π/2 − asin(z). Uses DD-precision π/2; the generic <complex>
+// template truncates `(_Tp)1.5707963…L` to double on arm64-macOS, losing
+// the DD low limb — specializing here fixes that correctness bug.
+cdd_t dd_cx_acos(cdd_t z) {
+  static const MF2 half_pi = dd_pair(0x1.921fb54442d18p+0,
+                                     0x1.1a62633145c07p-54);
+  cdd_t s = dd_cx_asin(z);
+  return { to(half_pi - from(s.re)), to(-from(s.im)) };
+}
+
+// atan(z). libstdc++ generic form:
+//   Re = 0.5 · atan2(2a, 1 − a² − b²)
+//   Im = 0.25 · log((a² + (b+1)²) / (a² + (b−1)²))
+// Single log-ratio rather than the naive (i/2)(log(1−iz) − log(1+iz)).
+cdd_t dd_cx_atan(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 a2 = a * a;
+  MF2 x = MF2(1.0) - a2 - b * b;
+  MF2 bp1 = b + MF2(1.0), bm1 = b - MF2(1.0);
+  MF2 num = a2 + bp1 * bp1;
+  MF2 den = a2 + bm1 * bm1;
+  MF2 half = dd_pair(0.5, 0.0), quarter = dd_pair(0.25, 0.0);
+  return { to(half * dd_atan2_full(a + a, x)),
+           to(quarter * dd_log_full(num / den)) };
+}
+
+// sinh(a+bi) = sinh(a)·cos(b) + i·cosh(a)·sin(b). 2 fused transcendentals.
+cdd_t dd_cx_sinh(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 sa, ca, sb, cb;
+  dd_sinhcosh_full(a, sa, ca);
+  dd_sincos_full(b, sb, cb);
+  return { to(sa * cb), to(ca * sb) };
+}
+
+// cosh(a+bi) = cosh(a)·cos(b) + i·sinh(a)·sin(b). 2 fused transcendentals.
+cdd_t dd_cx_cosh(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 sa, ca, sb, cb;
+  dd_sinhcosh_full(a, sa, ca);
+  dd_sincos_full(b, sb, cb);
+  return { to(ca * cb), to(sa * sb) };
+}
+
+// tanh(a+bi) = (sinh(a)·cosh(a) + i·sin(b)·cos(b)) / (sinh(a)² + cos(b)²).
+// libquadmath ctanhq formula.
+cdd_t dd_cx_tanh(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 sa, ca, sb, cb;
+  dd_sinhcosh_full(a, sa, ca);
+  dd_sincos_full(b, sb, cb);
+  MF2 den = sa * sa + cb * cb;
+  return { to((sa * ca) / den), to((sb * cb) / den) };
+}
+
+// asinh(z) = log(z + sqrt(z² + 1)). Textbook; matches libstdc++ generic.
+cdd_t dd_cx_asinh(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  // 1 + z² : Re = 1 + a² − b², Im = 2ab
+  cdd_t one_pz2 = { to(MF2(1.0) + a * a - b * b), to(a * b + a * b) };
+  cdd_t root = dd_cx_sqrt(one_pz2);
+  cdd_t arg = { to(a + from(root.re)), to(b + from(root.im)) };
+  return dd_cx_log(arg);
+}
+
+// acosh(z). Kahan's formula: 2·log(sqrt((z+1)/2) + sqrt((z−1)/2)).
+// More stable near z≈1 than the naive log(z + sqrt(z²−1)) which suffers
+// cancellation in z²−1.
+cdd_t dd_cx_acosh(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 half = dd_pair(0.5, 0.0);
+  cdd_t zp = { to((a + MF2(1.0)) * half), to(b * half) };
+  cdd_t zm = { to((a - MF2(1.0)) * half), to(b * half) };
+  cdd_t s1 = dd_cx_sqrt(zp);
+  cdd_t s2 = dd_cx_sqrt(zm);
+  cdd_t sum = { to(from(s1.re) + from(s2.re)), to(from(s1.im) + from(s2.im)) };
+  cdd_t l = dd_cx_log(sum);
+  return { to(from(l.re) + from(l.re)), to(from(l.im) + from(l.im)) };
+}
+
+// atanh(z). libstdc++ generic form (atan with a, b swapped):
+//   Re = 0.25 · log((1+a)² + b²)/((1−a)² + b²))
+//   Im = 0.5 · atan2(2b, 1 − a² − b²)
+cdd_t dd_cx_atanh(cdd_t z) {
+  MF2 a = from(z.re), b = from(z.im);
+  MF2 b2 = b * b;
+  MF2 x = MF2(1.0) - b2 - a * a;
+  MF2 ap1 = a + MF2(1.0), am1 = a - MF2(1.0);
+  MF2 num = b2 + ap1 * ap1;
+  MF2 den = b2 + am1 * am1;
+  MF2 half = dd_pair(0.5, 0.0), quarter = dd_pair(0.25, 0.0);
+  return { to(quarter * dd_log_full(num / den)),
+           to(half * dd_atan2_full(b + b, x)) };
+}
 
 // Matrix multiply (column-major).
 //

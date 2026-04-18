@@ -1384,3 +1384,50 @@ constexpr bool isunordered(MultiFloat<T, N> const &x,
 using float64x2 = MultiFloat<double, 2>;
 
 } // namespace multifloats
+
+// ---- std::complex<MultiFloat<double,2>> specializations -------------------
+//
+// For `exp, sin, cos, tan, sinh, cosh, tanh, atanh, acos` the generic
+// <complex> template path is either slow (each call pair sin/cos or
+// sinh/cosh goes through two separate extern-C kernels; the compiler
+// can't fuse across the ABI boundary), or in the case of `acos`
+// incorrect at DD precision on platforms where `long double == double`
+// (libstdc++'s `(_Tp)1.5707963…L` truncates the π/2 low limb).
+//
+// These specializations delegate to the `dd_cx_*` symbols in
+// multifloats_math.cc, which use the fused dd_sincos_full /
+// dd_sinhcosh_full kernels and hard-code the DD π/2 constant.
+//
+// The remaining eight functions (log, log10, pow, sqrt, asin, atan,
+// asinh, acosh) are also exported via dd_cx_* for Fortran / C callers,
+// but we leave `std::log(complex<MF>)` etc. on the generic template:
+// those paths offer no speedup and no correctness advantage here.
+#include <complex>
+
+namespace std {
+
+#define MULTIFLOATS_CX_SPECIALIZE(fn)                                        \
+  template <>                                                                \
+  inline complex<multifloats::MultiFloat<double, 2>>                         \
+  fn(complex<multifloats::MultiFloat<double, 2>> const &z) {                 \
+    ::cdd_t in = {multifloats::detail::to_dd(z.real()),                      \
+                  multifloats::detail::to_dd(z.imag())};                     \
+    ::cdd_t out = ::dd_cx_##fn(in);                                          \
+    return complex<multifloats::MultiFloat<double, 2>>(                      \
+        multifloats::detail::from_dd(out.re),                                \
+        multifloats::detail::from_dd(out.im));                               \
+  }
+
+MULTIFLOATS_CX_SPECIALIZE(exp)
+MULTIFLOATS_CX_SPECIALIZE(sin)
+MULTIFLOATS_CX_SPECIALIZE(cos)
+MULTIFLOATS_CX_SPECIALIZE(tan)
+MULTIFLOATS_CX_SPECIALIZE(sinh)
+MULTIFLOATS_CX_SPECIALIZE(cosh)
+MULTIFLOATS_CX_SPECIALIZE(tanh)
+MULTIFLOATS_CX_SPECIALIZE(atanh)
+MULTIFLOATS_CX_SPECIALIZE(acos)
+
+#undef MULTIFLOATS_CX_SPECIALIZE
+
+}  // namespace std

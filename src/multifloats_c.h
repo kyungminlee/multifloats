@@ -32,15 +32,24 @@ extern "C" {
 
 typedef struct { double hi, lo; } dd_t;
 
+/* Complex double-double: two back-to-back dd_t (four doubles, no padding).
+ * Matches Fortran's `type(complex128x2) sequence` layout and is used by
+ * the dd_cx_* transcendentals below. */
+typedef struct { dd_t re, im; } cdd_t;
+
 /* Guard against surprise padding — the entire C ABI and the Fortran
- * iso_c_binding layer assume dd_t is exactly two back-to-back doubles.
- * C11 / C++11 are required for this assertion. */
+ * iso_c_binding layer assume dd_t is exactly two back-to-back doubles
+ * (and cdd_t exactly four). C11 / C++11 are required for this assertion. */
 #ifdef __cplusplus
 static_assert(sizeof(dd_t) == 2 * sizeof(double),
               "dd_t must be two back-to-back doubles with no padding");
+static_assert(sizeof(cdd_t) == 4 * sizeof(double),
+              "cdd_t must be four back-to-back doubles with no padding");
 #else
 _Static_assert(sizeof(dd_t) == 2 * sizeof(double),
                "dd_t must be two back-to-back doubles with no padding");
+_Static_assert(sizeof(cdd_t) == 4 * sizeof(double),
+               "cdd_t must be four back-to-back doubles with no padding");
 #endif
 
 /* Arithmetic */
@@ -115,6 +124,37 @@ MULTIFLOATS_API dd_t dd_j0(dd_t a);
 MULTIFLOATS_API dd_t dd_j1(dd_t a);
 MULTIFLOATS_API dd_t dd_y0(dd_t a);
 MULTIFLOATS_API dd_t dd_y1(dd_t a);
+
+/* Fused sincos / sinhcosh. One range-reduction + Taylor pair produces
+ * both outputs, roughly halving the transcendental cost for call sites
+ * that need both. Out-pointer style since C has no multi-value return. */
+MULTIFLOATS_API void dd_sincos(dd_t a, dd_t *s, dd_t *c);
+MULTIFLOATS_API void dd_sinhcosh(dd_t a, dd_t *s, dd_t *c);
+
+/* Complex DD transcendentals. Branch cuts match C99 Annex G (matching
+ * libquadmath cexpq/clogq/csqrtq/...). Where the classic formula needs
+ * both sin(y) and cos(y) or both sinh(y) and cosh(y), these use the fused
+ * kernels internally so one range-reduction + Taylor pair covers both.
+ * Precision and speed have been measured; the std::complex<MultiFloat<...>>
+ * specializations in multifloats.hh delegate here where specialization
+ * wins (exp, sin, cos, tan, sinh, cosh, tanh, atanh, acos). */
+MULTIFLOATS_API cdd_t dd_cx_exp(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_log(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_log10(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_pow(cdd_t z, cdd_t w);
+MULTIFLOATS_API cdd_t dd_cx_sqrt(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_sin(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_cos(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_tan(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_asin(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_acos(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_atan(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_sinh(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_cosh(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_tanh(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_asinh(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_acosh(cdd_t z);
+MULTIFLOATS_API cdd_t dd_cx_atanh(cdd_t z);
 
 /* Matrix multiply (column-major, Fortran layout).
  *   dd_matmul_mm: C(m,n) = A(m,k) * B(k,n)
