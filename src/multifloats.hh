@@ -53,6 +53,17 @@ template <typename T, std::size_t N> struct MultiFloat {
 
   constexpr MultiFloat(T const &arg) { _limbs[0] = arg; }
 
+  // Initialize every limb from a brace-init list: caller supplies exactly
+  // N values, in order (hi, mid, ..., lo). No renormalization — the caller
+  // is responsible for passing a canonical pair (|lo| <= ulp(hi)/2 for
+  // N=2). Intended as a cheap factory for pre-split DD constants; use
+  // arithmetic operators (or build from a scalar) if renormalization is
+  // required.
+  template <typename... Us,
+            typename = std::enable_if_t<sizeof...(Us) == N &&
+                                        (std::is_convertible_v<Us, T> && ...)>>
+  constexpr MultiFloat(Us... args) : _limbs{T(args)...} {}
+
   constexpr explicit operator T() const { return _limbs[0]; }
 
   constexpr bool operator==(MultiFloat const &rhs) const {
@@ -256,6 +267,8 @@ template <typename T, std::size_t N> struct MultiFloat {
     return *this = *this / rhs;
   }
 };
+
+using float64x2 = MultiFloat<double, 2>;
 
 // =============================================================================
 // <cmath>-style free functions (ADL on MultiFloat)
@@ -668,25 +681,16 @@ MultiFloat<T, N> sqrt(MultiFloat<T, N> const &x);
 
 namespace detail {
 
-using MFD2 = MultiFloat<double, 2>;
-
 // Polynomial and conversion constants needed by inline helpers below are
 // provided through dd_constants.hh which is included only in the .cc file.
 // The erf/erfc rational-approximation constants also live in the .cc file.
-// ---- helper: build a DD pair from two doubles ------------------------------
-inline MFD2 dd_pair(double hi, double lo) {
-  MFD2 r;
-  r._limbs[0] = hi;
-  r._limbs[1] = lo;
-  return r;
-}
 
 // ---- Horner polynomial evaluation in DD ------------------------------------
-inline MFD2 dd_horner(MFD2 const &y, double const *hi, double const *lo,
+inline float64x2 horner(float64x2 const &y, double const *hi, double const *lo,
                        int n) {
-  MFD2 p = dd_pair(hi[n - 1], lo[n - 1]);
+  float64x2 p(hi[n - 1], lo[n - 1]);
   for (int i = n - 2; i >= 0; --i) {
-    p = p * y + dd_pair(hi[i], lo[i]);
+    p = p * y + float64x2(hi[i], lo[i]);
   }
   return p;
 }
@@ -694,66 +698,66 @@ inline MFD2 dd_horner(MFD2 const &y, double const *hi, double const *lo,
 // ---- Estrin polynomial evaluation (neval/deval from libquadmath) ------------
 // neval: evaluates P[n]*x^n + P[n-1]*x^(n-1) + ... + P[0]
 // Uses Estrin's scheme for ILP when degree is known, Horner fallback otherwise.
-inline MFD2 dd_neval(MFD2 const &x, double const *hi, double const *lo,
+inline float64x2 neval(float64x2 const &x, double const *hi, double const *lo,
                       int n) {
-  auto c = [&](int i) { return dd_pair(hi[i], lo[i]); };
-  MFD2 x2 = x * x;
-  MFD2 x4 = x2 * x2;
-  MFD2 x8 = x4 * x4;
+  auto c = [&](int i) { return float64x2(hi[i], lo[i]); };
+  float64x2 x2 = x * x;
+  float64x2 x4 = x2 * x2;
+  float64x2 x8 = x4 * x4;
   switch (n) {
   case 7: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
     return p03 + p47 * x4;
   }
   case 8: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
     return p03 + p47 * x4 + c(8) * x8;
   }
   case 9: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p89 = c(8) + c(9) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
     return p03 + p47 * x4 + p89 * x8;
   }
   case 10: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p89 = c(8) + c(9) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
-    MFD2 p810 = p89 + c(10) * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p810 = p89 + c(10) * x2;
     return p03 + p47 * x4 + p810 * x8;
   }
   case 11: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p89 = c(8) + c(9) * x;
-    MFD2 p1011 = c(10) + c(11) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
-    MFD2 p811 = p89 + p1011 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p1011 = c(10) + c(11) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p811 = p89 + p1011 * x2;
     return p03 + p47 * x4 + p811 * x8;
   }
   default: {
-    MFD2 y = c(n);
+    float64x2 y = c(n);
     for (int i = n - 1; i >= 0; --i)
       y = y * x + c(i);
     return y;
@@ -762,69 +766,69 @@ inline MFD2 dd_neval(MFD2 const &x, double const *hi, double const *lo,
 }
 
 // deval: evaluates x^(n+1) + P[n]*x^n + ... + P[0] (monic leading term)
-inline MFD2 dd_deval(MFD2 const &x, double const *hi, double const *lo,
+inline float64x2 deval(float64x2 const &x, double const *hi, double const *lo,
                       int n) {
-  auto c = [&](int i) { return dd_pair(hi[i], lo[i]); };
-  MFD2 x2 = x * x;
-  MFD2 x4 = x2 * x2;
-  MFD2 x8 = x4 * x4;
+  auto c = [&](int i) { return float64x2(hi[i], lo[i]); };
+  float64x2 x2 = x * x;
+  float64x2 x4 = x2 * x2;
+  float64x2 x8 = x4 * x4;
   switch (n) {
   case 7: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
     return p03 + p47 * x4 + x8;
   }
   case 8: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p89 = c(8) + x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
     return p03 + p47 * x4 + p89 * x8;
   }
   case 9: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p89 = c(8) + c(9) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
-    MFD2 p810 = p89 + x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p810 = p89 + x2;
     return p03 + p47 * x4 + p810 * x8;
   }
   case 10: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p89 = c(8) + c(9) * x;
-    MFD2 p1011 = c(10) + x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
-    MFD2 p811 = p89 + p1011 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p1011 = c(10) + x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p811 = p89 + p1011 * x2;
     return p03 + p47 * x4 + p811 * x8;
   }
   case 11: {
-    MFD2 p01 = c(0) + c(1) * x;
-    MFD2 p23 = c(2) + c(3) * x;
-    MFD2 p45 = c(4) + c(5) * x;
-    MFD2 p67 = c(6) + c(7) * x;
-    MFD2 p89 = c(8) + c(9) * x;
-    MFD2 p1011 = c(10) + c(11) * x;
-    MFD2 p03 = p01 + p23 * x2;
-    MFD2 p47 = p45 + p67 * x2;
-    MFD2 p811 = p89 + p1011 * x2;
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p1011 = c(10) + c(11) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p811 = p89 + p1011 * x2;
     return p03 + p47 * x4 + (p811 + x4) * x8;
   }
   default: {
-    MFD2 y = x + c(n);
+    float64x2 y = x + c(n);
     for (int i = n - 1; i >= 0; --i)
       y = y * x + c(i);
     return y;
@@ -846,15 +850,16 @@ inline MFD2 dd_deval(MFD2 const &x, double const *hi, double const *lo,
 namespace multifloats {
 
 namespace detail {
-inline float64x2_t to_f64x2(MFD2 const &x) { return {x._limbs[0], x._limbs[1]}; }
-inline MFD2 from_f64x2(float64x2_t x) { MFD2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
+inline float64x2_t to_f64x2(float64x2 const &x) { return {x._limbs[0], x._limbs[1]}; }
+inline float64x2 from_f64x2(float64x2_t x) { float64x2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
 } // namespace detail
 
 // =============================================================================
 // Power, exponential and logarithm
 //
-// For T == double && N == 2 these call the extern "C" dd_* functions which
-// use Estrin polynomial evaluation and are compiled with full optimization.
+// For T == double && N == 2 these call the extern "C" `*dd` functions
+// which use Estrin polynomial evaluation and are compiled with full
+// optimization.
 // =============================================================================
 
 template <typename T, std::size_t N>
@@ -1411,8 +1416,6 @@ constexpr bool isunordered(MultiFloat<T, N> const &x,
   return isnan(x) || isnan(y);
 }
 
-using float64x2 = MultiFloat<double, 2>;
-
 } // namespace multifloats
 
 // ---- std::complex<MultiFloat<double,2>> specializations -------------------
@@ -1425,8 +1428,8 @@ using float64x2 = MultiFloat<double, 2>;
 // (libstdc++'s `(_Tp)1.5707963…L` truncates the π/2 low limb).
 //
 // These specializations delegate to the `c*dd` symbols in
-// multifloats_math.cc, which use the fused dd_sincos_full /
-// dd_sinhcosh_full kernels and hard-code the DD π/2 constant.
+// multifloats_math.cc, which use the fused sincos_full /
+// sinhcosh_full kernels and hard-code the DD π/2 constant.
 //
 // The remaining eight functions (log, log10, pow, sqrt, asin, atan,
 // asinh, acosh) are also exported via c*dd for Fortran / C callers,

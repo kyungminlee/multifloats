@@ -5,45 +5,45 @@
 #include <vector>
 
 // All DD math kernels have internal linkage (anonymous namespace).
-// Only the extern "C" dd_* wrappers at the bottom are exported.
+// Only the extern "C" `*dd` wrappers at the bottom are exported.
 namespace {
 
-using namespace multifloats::detail;  // dd_pair, dd_neval, dd_deval, dd_horner
-using MFD2 = multifloats::MultiFloat<double, 2>;
+using namespace multifloats::detail;  // neval, deval, horner
+using multifloats::float64x2;
 
 // Forward declarations for internal cross-references
-MFD2 dd_exp_full(MFD2 const &x);
-MFD2 dd_exp2_full(MFD2 const &x);
-MFD2 dd_log_full(MFD2 const &x);
-MFD2 dd_sin_full(MFD2 const &x);
-MFD2 dd_cos_full(MFD2 const &x);
-MFD2 dd_sin_eval(MFD2 const &r);
-MFD2 dd_cos_eval(MFD2 const &r);
-void dd_sincos_eval(MFD2 const &r, MFD2 &s, MFD2 &c);
-void dd_sincos_full(MFD2 const &x, MFD2 &s, MFD2 &c);
-void dd_sinhcosh_full(MFD2 const &x, MFD2 &s, MFD2 &c);
-MFD2 dd_sinpi_full(MFD2 const &x);
-MFD2 dd_erfc_full(MFD2 const &x);
-MFD2 dd_lgamma_positive(MFD2 const &x);
-MFD2 dd_bessel_j0_full(MFD2 const &x);
-MFD2 dd_bessel_j1_full(MFD2 const &x);
+float64x2 exp_full(float64x2 const &x);
+float64x2 exp2_full(float64x2 const &x);
+float64x2 log_full(float64x2 const &x);
+float64x2 sin_full(float64x2 const &x);
+float64x2 cos_full(float64x2 const &x);
+float64x2 sin_eval(float64x2 const &r);
+float64x2 cos_eval(float64x2 const &r);
+void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c);
+void sincos_full(float64x2 const &x, float64x2 &s, float64x2 &c);
+void sinhcosh_full(float64x2 const &x, float64x2 &s, float64x2 &c);
+float64x2 sinpi_full(float64x2 const &x);
+float64x2 erfc_full(float64x2 const &x);
+float64x2 lgamma_positive(float64x2 const &x);
+float64x2 bessel_j0_full(float64x2 const &x);
+float64x2 bessel_j1_full(float64x2 const &x);
 
 // ---- exp2 / exp / log2 / log / log10 ---------------------------------------
-MFD2 dd_exp2_kernel(MFD2 const &x) {
+float64x2 exp2_kernel(float64x2 const &x) {
   // n = nearest integer to x.hi, y = (x - n)/8
   double n_float = std::nearbyint(x._limbs[0]);
-  MFD2 y = x + dd_pair(-n_float, 0.0);
+  float64x2 y = x + float64x2(-n_float, 0.0);
   y._limbs[0] = std::ldexp(y._limbs[0], -3);
   y._limbs[1] = std::ldexp(y._limbs[1], -3);
   // poly(y) then cube via three squarings (to undo the /8)
-  MFD2 p = dd_horner(y, exp2_coefs_hi, exp2_coefs_lo, 14);
+  float64x2 p = horner(y, exp2_coefs_hi, exp2_coefs_lo, 14);
   p = p * p;
   p = p * p;
   p = p * p;
   // multiply by 2^n via two ldexps (split to keep intermediates in range)
   int n = static_cast<int>(n_float);
   int half_n = n / 2;
-  MFD2 r;
+  float64x2 r;
   r._limbs[0] = std::ldexp(p._limbs[0], half_n);
   r._limbs[1] = std::ldexp(p._limbs[1], half_n);
   r._limbs[0] = std::ldexp(r._limbs[0], n - half_n);
@@ -51,8 +51,8 @@ MFD2 dd_exp2_kernel(MFD2 const &x) {
   return r;
 }
 
-MFD2 dd_exp2_full(MFD2 const &x) {
-  MFD2 r;
+float64x2 exp2_full(float64x2 const &x) {
+  float64x2 r;
   if (!std::isfinite(x._limbs[0])) {
     if (x._limbs[0] > 0.0) r._limbs[0] = x._limbs[0]; // +inf
     else if (x._limbs[0] < 0.0) r._limbs[0] = 0.0;    // -inf → 0
@@ -60,50 +60,50 @@ MFD2 dd_exp2_full(MFD2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
-  if (x._limbs[0] < exp2_min) return MFD2();
+  if (x._limbs[0] < exp2_min) return float64x2();
   if (x._limbs[0] > exp2_max) {
     r._limbs[0] = std::numeric_limits<double>::infinity();
     r._limbs[1] = 0.0;
     return r;
   }
-  return dd_exp2_kernel(x);
+  return exp2_kernel(x);
 }
 
-MFD2 dd_exp_full(MFD2 const &x) {
-  return dd_exp2_full(x * dd_pair(log2_e_hi, log2_e_lo));
+float64x2 exp_full(float64x2 const &x) {
+  return exp2_full(x * float64x2(log2_e_hi, log2_e_lo));
 }
 
-MFD2 dd_log2_kernel(MFD2 const &x) {
+float64x2 log2_kernel(float64x2 const &x) {
   double hi = x._limbs[0];
   if (hi > 15.0 / 16.0 && hi < 17.0 / 16.0) {
     // direct path: t = (x - 1) / (x + 1)
-    MFD2 num = x - MFD2(1.0);
-    MFD2 den = x + MFD2(1.0);
-    MFD2 t = num / den;
-    MFD2 t_sq = t * t;
-    MFD2 p = dd_horner(t_sq, log2_wide_hi, log2_wide_lo, 9);
+    float64x2 num = x - float64x2(1.0);
+    float64x2 den = x + float64x2(1.0);
+    float64x2 t = num / den;
+    float64x2 t_sq = t * t;
+    float64x2 p = horner(t_sq, log2_wide_hi, log2_wide_lo, 9);
     return t * p;
   }
   // table path
   int e = std::ilogb(hi); // matches Julia/IEEE convention (mantissa in [1,2))
-  MFD2 m;
+  float64x2 m;
   m._limbs[0] = std::ldexp(x._limbs[0], -e);
   m._limbs[1] = std::ldexp(x._limbs[1], -e);
   int idx = static_cast<int>((m._limbs[0] - 1.0) * 32.0);
   if (idx < 0) idx = 0;
   if (idx > 31) idx = 31;
-  MFD2 c = dd_pair(log2_centers[idx], 0.0);
-  MFD2 v = dd_pair(log2_values_hi[idx], log2_values_lo[idx]);
-  MFD2 num = m - c;
-  MFD2 den = m + c;
-  MFD2 t = num / den;
-  MFD2 t_sq = t * t;
-  MFD2 p = dd_horner(t_sq, log2_narrow_hi, log2_narrow_lo, 7);
-  return dd_pair(static_cast<double>(e), 0.0) + v + t * p;
+  float64x2 c = float64x2(log2_centers[idx], 0.0);
+  float64x2 v = float64x2(log2_values_hi[idx], log2_values_lo[idx]);
+  float64x2 num = m - c;
+  float64x2 den = m + c;
+  float64x2 t = num / den;
+  float64x2 t_sq = t * t;
+  float64x2 p = horner(t_sq, log2_narrow_hi, log2_narrow_lo, 7);
+  return float64x2(static_cast<double>(e), 0.0) + v + t * p;
 }
 
-MFD2 dd_log2_full(MFD2 const &x) {
-  MFD2 r;
+float64x2 log2_full(float64x2 const &x) {
+  float64x2 r;
   if (std::isnan(x._limbs[0]) || x._limbs[0] < 0.0) {
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
@@ -119,106 +119,106 @@ MFD2 dd_log2_full(MFD2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
-  return dd_log2_kernel(x);
+  return log2_kernel(x);
 }
 
-MFD2 dd_log_full(MFD2 const &x) {
+float64x2 log_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::log(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   // log2(0) = -inf. DD multiply (-inf, 0) * (ln_2_hi, ln_2_lo) would refine
   // into (-inf, NaN) because the two_prod FMA hits -inf + inf; short-circuit.
-  MFD2 l2 = dd_log2_full(x);
+  float64x2 l2 = log2_full(x);
   if (!std::isfinite(l2._limbs[0])) return l2;
-  return l2 * dd_pair(ln_2_hi, ln_2_lo);
+  return l2 * float64x2(ln_2_hi, ln_2_lo);
 }
 
-MFD2 dd_log10_full(MFD2 const &x) {
+float64x2 log10_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::log10(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
-  MFD2 l2 = dd_log2_full(x);
+  float64x2 l2 = log2_full(x);
   if (!std::isfinite(l2._limbs[0])) return l2;
-  return l2 * dd_pair(log10_2_hi, log10_2_lo);
+  return l2 * float64x2(log10_2_hi, log10_2_lo);
 }
 
 // ---- sinpi / cospi / tanpi / sin / cos / tan -------------------------------
 // Family of π-scaled trig: *pi(x) = fn(π·x). Range-reduce 2·|x| to the
 // nearest integer n, leaving |rx| ≤ 0.25, so |π·rx| ≤ π/4 matches the
 // sin/cos eval range. Dispatch by n mod 4 for the quadrant.
-MFD2 dd_sinpi_full(MFD2 const &x) {
+float64x2 sinpi_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
   bool sign = x._limbs[0] < 0.0;
-  MFD2 ax = sign ? -x : x;
+  float64x2 ax = sign ? -x : x;
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
-  MFD2 rx = ax + dd_pair(-0.5 * n_float, 0.0);
-  MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
-  MFD2 pr = pi_dd * rx;
+  float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
+  float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
+  float64x2 pr = pi_dd * rx;
   long long n_mod = static_cast<long long>(n_float) & 3LL;
-  MFD2 res;
+  float64x2 res;
   switch (n_mod) {
-  case 0: res = dd_sin_eval(pr); break;
-  case 1: res = dd_cos_eval(pr); break;
-  case 2: res = -dd_sin_eval(pr); break;
-  default: res = -dd_cos_eval(pr); break;
+  case 0: res = sin_eval(pr); break;
+  case 1: res = cos_eval(pr); break;
+  case 2: res = -sin_eval(pr); break;
+  default: res = -cos_eval(pr); break;
   }
   return sign ? -res : res;
 }
 
 // cospi is even; no sign flip on the result.
-MFD2 dd_cospi_full(MFD2 const &x) {
+float64x2 cospi_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
-  MFD2 ax = (x._limbs[0] < 0.0) ? -x : x;
+  float64x2 ax = (x._limbs[0] < 0.0) ? -x : x;
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
-  MFD2 rx = ax + dd_pair(-0.5 * n_float, 0.0);
-  MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
-  MFD2 pr = pi_dd * rx;
+  float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
+  float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
+  float64x2 pr = pi_dd * rx;
   long long n_mod = static_cast<long long>(n_float) & 3LL;
   switch (n_mod) {
-  case 0: return dd_cos_eval(pr);
-  case 1: return -dd_sin_eval(pr);
-  case 2: return -dd_cos_eval(pr);
-  default: return dd_sin_eval(pr);
+  case 0: return cos_eval(pr);
+  case 1: return -sin_eval(pr);
+  case 2: return -cos_eval(pr);
+  default: return sin_eval(pr);
   }
 }
 
 // tanpi: fuses sin/cos eval so both come from one Taylor pair. Poles at
 // half-integers fall out naturally (sin(0)=+0 ⇒ ±c/0 = ±inf).
-MFD2 dd_tanpi_full(MFD2 const &x) {
+float64x2 tanpi_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
   bool sign = x._limbs[0] < 0.0;
-  MFD2 ax = sign ? -x : x;
+  float64x2 ax = sign ? -x : x;
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
-  MFD2 rx = ax + dd_pair(-0.5 * n_float, 0.0);
-  MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
-  MFD2 pr = pi_dd * rx;
-  MFD2 s, c;
-  dd_sincos_eval(pr, s, c);
+  float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
+  float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
+  float64x2 pr = pi_dd * rx;
+  float64x2 s, c;
+  sincos_eval(pr, s, c);
   long long n_mod = static_cast<long long>(n_float) & 3LL;
   // n_mod 0, 2: tan(n·π/2 + π·rx) = tan(π·rx) = s/c
   // n_mod 1, 3: tan(n·π/2 + π·rx) = -cot(π·rx) = -c/s
-  MFD2 res = (n_mod & 1LL) ? -c / s : s / c;
+  float64x2 res = (n_mod & 1LL) ? -c / s : s / c;
   return sign ? -res : res;
 }
 
@@ -235,7 +235,7 @@ MFD2 dd_tanpi_full(MFD2 const &x) {
 // non-finite/zero inputs. Here we know the accumulator stays finite and
 // never reaches the zero-zero branch, so we can fold the low-limb into
 // one fast_two_sum per step (~11 FLOPs instead of ~20).
-void dd_reduce_pi_half(MFD2 const &x, MFD2 &r, int &n_mod4) {
+void reduce_pi_half(float64x2 const &x, float64x2 &r, int &n_mod4) {
   using multifloats::detail::two_sum;
   using multifloats::detail::fast_two_sum;
   double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);
@@ -268,58 +268,58 @@ void dd_reduce_pi_half(MFD2 const &x, MFD2 &r, int &n_mod4) {
 
 // Taylor kernels for |x| ≤ π/8. sin evaluates as x·poly(x²) so the low
 // limb of x is preserved losslessly.
-MFD2 dd_sin_kernel(MFD2 const &x) {
-  MFD2 x2 = x * x;
-  return dd_horner(x2, sin_taylor_hi, sin_taylor_lo, 13) * x;
+float64x2 sin_kernel(float64x2 const &x) {
+  float64x2 x2 = x * x;
+  return horner(x2, sin_taylor_hi, sin_taylor_lo, 13) * x;
 }
-MFD2 dd_cos_kernel(MFD2 const &x) {
-  MFD2 x2 = x * x;
-  return dd_horner(x2, cos_taylor_hi, cos_taylor_lo, 13);
+float64x2 cos_kernel(float64x2 const &x) {
+  float64x2 x2 = x * x;
+  return horner(x2, cos_taylor_hi, cos_taylor_lo, 13);
 }
 
 // Evaluate sin(r)/cos(r) for |r| ≤ π/4. For |r| > π/8 shift by π/4 and use
 // the angle-addition identity — this halves the polynomial argument range
 // (x² ≤ 0.154 vs 0.616) so the 13-term Taylor hits full DD at the boundary.
-MFD2 dd_sin_eval(MFD2 const &r) {
+float64x2 sin_eval(float64x2 const &r) {
   constexpr double pi8 = 0.392699081698724;
-  if (std::fabs(r._limbs[0]) <= pi8) return dd_sin_kernel(r);
-  MFD2 pi4_dd = dd_pair(0.7853981633974483, 3.061616997868383e-17);
-  MFD2 inv_sqrt2 = dd_pair(0.7071067811865476, -4.833646656726457e-17);
+  if (std::fabs(r._limbs[0]) <= pi8) return sin_kernel(r);
+  float64x2 pi4_dd = float64x2(0.7853981633974483, 3.061616997868383e-17);
+  float64x2 inv_sqrt2 = float64x2(0.7071067811865476, -4.833646656726457e-17);
   bool pos = r._limbs[0] > 0.0;
-  MFD2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
-  MFD2 sk = dd_sin_kernel(rp);
-  MFD2 ck = dd_cos_kernel(rp);
+  float64x2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
+  float64x2 sk = sin_kernel(rp);
+  float64x2 ck = cos_kernel(rp);
   return pos ? (sk + ck) * inv_sqrt2 : (sk - ck) * inv_sqrt2;
 }
 
-MFD2 dd_cos_eval(MFD2 const &r) {
+float64x2 cos_eval(float64x2 const &r) {
   constexpr double pi8 = 0.392699081698724;
-  if (std::fabs(r._limbs[0]) <= pi8) return dd_cos_kernel(r);
-  MFD2 pi4_dd = dd_pair(0.7853981633974483, 3.061616997868383e-17);
-  MFD2 inv_sqrt2 = dd_pair(0.7071067811865476, -4.833646656726457e-17);
+  if (std::fabs(r._limbs[0]) <= pi8) return cos_kernel(r);
+  float64x2 pi4_dd = float64x2(0.7853981633974483, 3.061616997868383e-17);
+  float64x2 inv_sqrt2 = float64x2(0.7071067811865476, -4.833646656726457e-17);
   bool pos = r._limbs[0] > 0.0;
-  MFD2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
-  MFD2 sk = dd_sin_kernel(rp);
-  MFD2 ck = dd_cos_kernel(rp);
+  float64x2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
+  float64x2 sk = sin_kernel(rp);
+  float64x2 ck = cos_kernel(rp);
   return pos ? (ck - sk) * inv_sqrt2 : (ck + sk) * inv_sqrt2;
 }
 
 // Fused sin/cos of |r| ≤ π/4 — shares the π/4 shift path and its two
 // Taylor kernels between both outputs. Callers that need both s=sin(r)
 // and c=cos(r) save one 13-term Horner (~40% of the eval cost).
-void dd_sincos_eval(MFD2 const &r, MFD2 &s, MFD2 &c) {
+void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c) {
   constexpr double pi8 = 0.392699081698724;
   if (std::fabs(r._limbs[0]) <= pi8) {
-    s = dd_sin_kernel(r);
-    c = dd_cos_kernel(r);
+    s = sin_kernel(r);
+    c = cos_kernel(r);
     return;
   }
-  MFD2 pi4_dd = dd_pair(0.7853981633974483, 3.061616997868383e-17);
-  MFD2 inv_sqrt2 = dd_pair(0.7071067811865476, -4.833646656726457e-17);
+  float64x2 pi4_dd = float64x2(0.7853981633974483, 3.061616997868383e-17);
+  float64x2 inv_sqrt2 = float64x2(0.7071067811865476, -4.833646656726457e-17);
   bool pos = r._limbs[0] > 0.0;
-  MFD2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
-  MFD2 sk = dd_sin_kernel(rp);
-  MFD2 ck = dd_cos_kernel(rp);
+  float64x2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
+  float64x2 sk = sin_kernel(rp);
+  float64x2 ck = cos_kernel(rp);
   if (pos) {
     s = (sk + ck) * inv_sqrt2;
     c = (ck - sk) * inv_sqrt2;
@@ -329,22 +329,22 @@ void dd_sincos_eval(MFD2 const &r, MFD2 &s, MFD2 &c) {
   }
 }
 
-// Fused sin/cos of the full-range argument — one call to dd_reduce_pi_half
-// plus one dd_sincos_eval, with the per-quadrant sign/swap applied last.
-void dd_sincos_full(MFD2 const &x, MFD2 &s, MFD2 &c) {
+// Fused sin/cos of the full-range argument — one call to reduce_pi_half
+// plus one sincos_eval, with the per-quadrant sign/swap applied last.
+void sincos_full(float64x2 const &x, float64x2 &s, float64x2 &c) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 nan;
+    float64x2 nan;
     nan._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     nan._limbs[1] = 0.0;
     s = nan;
     c = nan;
     return;
   }
-  MFD2 r;
+  float64x2 r;
   int q;
-  dd_reduce_pi_half(x, r, q);
-  MFD2 ss, cc;
-  dd_sincos_eval(r, ss, cc);
+  reduce_pi_half(x, r, q);
+  float64x2 ss, cc;
+  sincos_eval(r, ss, cc);
   switch (q) {
     case 0: s = ss;  c = cc;  break;
     case 1: s = cc;  c = -ss; break;
@@ -353,54 +353,54 @@ void dd_sincos_full(MFD2 const &x, MFD2 &s, MFD2 &c) {
   }
 }
 
-MFD2 dd_sin_full(MFD2 const &x) {
+float64x2 sin_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
-  MFD2 r;
+  float64x2 r;
   int q;
-  dd_reduce_pi_half(x, r, q);
+  reduce_pi_half(x, r, q);
   switch (q) {
-  case 0: return dd_sin_eval(r);
-  case 1: return dd_cos_eval(r);
-  case 2: return -dd_sin_eval(r);
-  default: return -dd_cos_eval(r);
+  case 0: return sin_eval(r);
+  case 1: return cos_eval(r);
+  case 2: return -sin_eval(r);
+  default: return -cos_eval(r);
   }
 }
 
-MFD2 dd_cos_full(MFD2 const &x) {
+float64x2 cos_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
-  MFD2 r;
+  float64x2 r;
   int q;
-  dd_reduce_pi_half(x, r, q);
+  reduce_pi_half(x, r, q);
   switch (q) {
-  case 0: return dd_cos_eval(r);
-  case 1: return -dd_sin_eval(r);
-  case 2: return -dd_cos_eval(r);
-  default: return dd_sin_eval(r);
+  case 0: return cos_eval(r);
+  case 1: return -sin_eval(r);
+  case 2: return -cos_eval(r);
+  default: return sin_eval(r);
   }
 }
 
-MFD2 dd_tan_full(MFD2 const &x) {
+float64x2 tan_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
-  MFD2 r;
+  float64x2 r;
   int q;
-  dd_reduce_pi_half(x, r, q);
-  MFD2 s, c;
-  dd_sincos_eval(r, s, c);
+  reduce_pi_half(x, r, q);
+  float64x2 s, c;
+  sincos_eval(r, s, c);
   switch (q) {
     case 0:
     case 2:  return s / c;
@@ -409,38 +409,38 @@ MFD2 dd_tan_full(MFD2 const &x) {
 }
 
 // ---- sinh / cosh / tanh ----------------------------------------------------
-MFD2 dd_sinh_full(MFD2 const &x) {
+float64x2 sinh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::sinh(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   if (std::abs(x._limbs[0]) < 0.1) {
     // 9-term Taylor: x * (1 + x²/6 + x⁴/120 + ...)
-    return x * dd_horner(x * x, sinh_taylor_hi, sinh_taylor_lo, 9);
+    return x * horner(x * x, sinh_taylor_hi, sinh_taylor_lo, 9);
   }
-  MFD2 e = dd_exp_full(x);
-  MFD2 ei = dd_exp_full(-x);
-  return (e - ei) * dd_pair(0.5, 0.0);
+  float64x2 e = exp_full(x);
+  float64x2 ei = exp_full(-x);
+  return (e - ei) * float64x2(0.5, 0.0);
 }
 
-MFD2 dd_cosh_full(MFD2 const &x) {
+float64x2 cosh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::cosh(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
-  MFD2 e = dd_exp_full(x);
-  MFD2 ei = dd_exp_full(-x);
-  return (e + ei) * dd_pair(0.5, 0.0);
+  float64x2 e = exp_full(x);
+  float64x2 ei = exp_full(-x);
+  return (e + ei) * float64x2(0.5, 0.0);
 }
 
 // Fused sinh/cosh. Shares the two exp evaluations (exp(x) and exp(-x)) that
-// dd_sinh_full and dd_cosh_full would do independently, halving the exp cost
+// sinh_full and cosh_full would do independently, halving the exp cost
 // for call sites that need both (e.g. complex sin/cos/sinh/cosh).
-void dd_sinhcosh_full(MFD2 const &x, MFD2 &s, MFD2 &c) {
+void sinhcosh_full(float64x2 const &x, float64x2 &s, float64x2 &c) {
   if (!std::isfinite(x._limbs[0])) {
     s._limbs[0] = std::sinh(x._limbs[0]); s._limbs[1] = 0.0;
     c._limbs[0] = std::cosh(x._limbs[0]); c._limbs[1] = 0.0;
@@ -448,57 +448,57 @@ void dd_sinhcosh_full(MFD2 const &x, MFD2 &s, MFD2 &c) {
   }
   if (std::abs(x._limbs[0]) < 0.1) {
     // Small-|x| Taylor: sinh via shared coefficients, cosh via 1 + x²·Q(x²).
-    // The cosh Taylor here mirrors the structure of dd_sinh_full's path.
-    MFD2 x2 = x * x;
-    s = x * dd_horner(x2, sinh_taylor_hi, sinh_taylor_lo, 9);
+    // The cosh Taylor here mirrors the structure of sinh_full's path.
+    float64x2 x2 = x * x;
+    s = x * horner(x2, sinh_taylor_hi, sinh_taylor_lo, 9);
     // cosh(x) = 1 + x²/2 + x⁴/24 + … — reuse separate kernel to keep code small.
-    c = dd_cosh_full(x);
+    c = cosh_full(x);
     return;
   }
-  MFD2 e  = dd_exp_full(x);
-  MFD2 ei = dd_exp_full(-x);
-  MFD2 half = dd_pair(0.5, 0.0);
+  float64x2 e  = exp_full(x);
+  float64x2 ei = exp_full(-x);
+  float64x2 half = float64x2(0.5, 0.0);
   s = (e - ei) * half;
   c = (e + ei) * half;
 }
 
-MFD2 dd_tanh_full(MFD2 const &x) {
+float64x2 tanh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::tanh(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   // For |x| > 37, exp(-2|x|) < 2^-106, so tanh(x) = ±1 to full DD.
-  if (x._limbs[0] > 37.0) return MFD2(1.0);
-  if (x._limbs[0] < -37.0) return MFD2(-1.0);
+  if (x._limbs[0] > 37.0) return float64x2(1.0);
+  if (x._limbs[0] < -37.0) return float64x2(-1.0);
   if (std::abs(x._limbs[0]) < 0.5) {
-    return dd_sinh_full(x) / dd_cosh_full(x);
+    return sinh_full(x) / cosh_full(x);
   }
   // tanh(|x|) = (1 - em2) / (1 + em2) where em2 = exp(-2|x|) is small
   // for |x| > 0.5 — avoids the 1 − small cancellation of 1 − 2/(e^(2|x|)+1).
   bool sign = x._limbs[0] < 0.0;
-  MFD2 neg_two_ax;
+  float64x2 neg_two_ax;
   neg_two_ax._limbs[0] = sign ? (2.0 * x._limbs[0]) : (-2.0 * x._limbs[0]);
   neg_two_ax._limbs[1] = sign ? (2.0 * x._limbs[1]) : (-2.0 * x._limbs[1]);
-  MFD2 em2 = dd_exp_full(neg_two_ax);
-  MFD2 res = (MFD2(1.0) - em2) / (MFD2(1.0) + em2);
+  float64x2 em2 = exp_full(neg_two_ax);
+  float64x2 res = (float64x2(1.0) - em2) / (float64x2(1.0) + em2);
   return sign ? -res : res;
 }
 
 // ---- pow -------------------------------------------------------------------
-MFD2 dd_pow_full(MFD2 const &x, MFD2 const &y) {
-  if (x._limbs[0] == 0.0 && y._limbs[0] == 0.0) return MFD2(1.0);
-  return dd_exp_full(y * dd_log_full(x));
+float64x2 pow_full(float64x2 const &x, float64x2 const &y) {
+  if (x._limbs[0] == 0.0 && y._limbs[0] == 0.0) return float64x2(1.0);
+  return exp_full(y * log_full(x));
 }
 
 // ---- atan (table lookup + rational polynomial, from libquadmath atanq.c) ---
 // arctan(t) = t + t^3 * P(t^2) / Q(t^2),  |t| <= 0.09375
 // Argument reduced via 84-entry table: arctan(x) = atantbl[k] + arctan(t)
 // where t = (x - k/8) / (1 + x*k/8).
-MFD2 dd_atan_full(MFD2 const &x) {
+float64x2 atan_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::atan(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
@@ -509,25 +509,25 @@ MFD2 dd_atan_full(MFD2 const &x) {
   if (ax_d < 1.85e-16) return x;
 
   bool neg = x._limbs[0] < 0.0;
-  MFD2 ax = neg ? -x : x;
+  float64x2 ax = neg ? -x : x;
 
   int k;
-  MFD2 t;
+  float64x2 t;
   if (ax_d >= 10.25) {
     k = 83;
-    t = MFD2(-1.0) / ax;
+    t = float64x2(-1.0) / ax;
   } else {
     k = static_cast<int>(8.0 * ax_d + 0.25);
     double u_d = 0.125 * k;
-    MFD2 u = dd_pair(u_d, 0.0);  // exact in double
-    t = (ax - u) / (MFD2(1.0) + ax * u);
+    float64x2 u = float64x2(u_d, 0.0);  // exact in double
+    t = (ax - u) / (float64x2(1.0) + ax * u);
   }
 
   // arctan(t) = t + t^3 * P(t^2) / Q(t^2)
-  MFD2 t2 = t * t;
-  MFD2 p = dd_neval(t2, atan_P_hi, atan_P_lo, 4);
-  MFD2 q = dd_deval(t2, atan_Q_hi, atan_Q_lo, 4);
-  MFD2 res = dd_pair(atan_table_hi[k], atan_table_lo[k])
+  float64x2 t2 = t * t;
+  float64x2 p = neval(t2, atan_P_hi, atan_P_lo, 4);
+  float64x2 q = deval(t2, atan_Q_hi, atan_Q_lo, 4);
+  float64x2 res = float64x2(atan_table_hi[k], atan_table_lo[k])
            + t + t * t2 * p / q;
 
   return neg ? -res : res;
@@ -537,16 +537,16 @@ MFD2 dd_atan_full(MFD2 const &x) {
 // Region 1: |x| < 0.5      — asin(x) = x + x*x^2*P(x^2)/Q(x^2)
 // Region 2: 0.5 <= |x| < 0.625 — centered at 0.5625
 // Region 3: 0.625 <= |x| < 1   — half-angle: asin(x) = pi/2 - 2*asin(sqrt((1-x)/2))
-MFD2 dd_asin_full(MFD2 const &x) {
+float64x2 asin_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::asin(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   double ax_d = std::abs(x._limbs[0]);
   if (ax_d > 1.0) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
@@ -556,98 +556,98 @@ MFD2 dd_asin_full(MFD2 const &x) {
   if (ax_d < 1.85e-16) return x;
 
   bool neg = x._limbs[0] < 0.0;
-  MFD2 ax = neg ? -x : x;
-  MFD2 res;
+  float64x2 ax = neg ? -x : x;
+  float64x2 res;
 
   if (ax_d < 0.5) {
     // Region 1: asin(x) = x + x*x^2*P(x^2)/Q(x^2)
-    MFD2 t = ax * ax;
-    MFD2 p = dd_neval(t, asin_pS_hi, asin_pS_lo, 9);
-    MFD2 q = dd_deval(t, asin_qS_hi, asin_qS_lo, 8);
+    float64x2 t = ax * ax;
+    float64x2 p = neval(t, asin_pS_hi, asin_pS_lo, 9);
+    float64x2 q = deval(t, asin_qS_hi, asin_qS_lo, 8);
     res = ax + ax * t * p / q;
   } else if (ax_d < 0.625) {
     // Region 2: centered at 0.5625
-    MFD2 t = ax - MFD2(0.5625);
-    MFD2 p = t * dd_neval(t, asin_rS_hi, asin_rS_lo, 10);
-    MFD2 q = dd_deval(t, asin_sS_hi, asin_sS_lo, 9);
-    res = dd_pair(asinr5625_hi, asinr5625_lo) + p / q;
+    float64x2 t = ax - float64x2(0.5625);
+    float64x2 p = t * neval(t, asin_rS_hi, asin_rS_lo, 10);
+    float64x2 q = deval(t, asin_sS_hi, asin_sS_lo, 9);
+    res = float64x2(asinr5625_hi, asinr5625_lo) + p / q;
   } else {
     // Region 3: half-angle identity
-    MFD2 w = MFD2(1.0) - ax;
-    MFD2 t = w * MFD2(0.5);
-    MFD2 s = sqrt(t);
-    MFD2 p = dd_neval(t, asin_pS_hi, asin_pS_lo, 9);
-    MFD2 q = dd_deval(t, asin_qS_hi, asin_qS_lo, 8);
-    MFD2 w2 = t * p / q;
-    res = dd_pair(pi_half_cw1, pi_half_cw2) - MFD2(2.0) * (s + s * w2);
+    float64x2 w = float64x2(1.0) - ax;
+    float64x2 t = w * float64x2(0.5);
+    float64x2 s = sqrt(t);
+    float64x2 p = neval(t, asin_pS_hi, asin_pS_lo, 9);
+    float64x2 q = deval(t, asin_qS_hi, asin_qS_lo, 8);
+    float64x2 w2 = t * p / q;
+    res = float64x2(pi_half_cw1, pi_half_cw2) - float64x2(2.0) * (s + s * w2);
   }
 
   return neg ? -res : res;
 }
 
 // ---- acos (derived from asin polynomial) ------------------------------------
-MFD2 dd_acos_full(MFD2 const &x) {
+float64x2 acos_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::acos(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   double ax_d = std::abs(x._limbs[0]);
   if (ax_d > 1.0) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
 
-  MFD2 pi_half = dd_pair(pi_half_cw1, pi_half_cw2);
+  float64x2 pi_half = float64x2(pi_half_cw1, pi_half_cw2);
 
   if (ax_d <= 0.5) {
     // acos(x) = pi/2 - asin(x) — no cancellation since result ∈ [π/3, 2π/3]
-    return pi_half - dd_asin_full(x);
+    return pi_half - asin_full(x);
   } else if (x._limbs[0] > 0.0) {
     // x > 0.5: acos(x) = 2*asin(sqrt((1-x)/2))
-    MFD2 t = (MFD2(1.0) - x) * MFD2(0.5);
-    MFD2 s = sqrt(t);
-    MFD2 p = dd_neval(t, asin_pS_hi, asin_pS_lo, 9);
-    MFD2 q = dd_deval(t, asin_qS_hi, asin_qS_lo, 8);
-    return MFD2(2.0) * (s + s * t * p / q);
+    float64x2 t = (float64x2(1.0) - x) * float64x2(0.5);
+    float64x2 s = sqrt(t);
+    float64x2 p = neval(t, asin_pS_hi, asin_pS_lo, 9);
+    float64x2 q = deval(t, asin_qS_hi, asin_qS_lo, 8);
+    return float64x2(2.0) * (s + s * t * p / q);
   } else {
     // x < -0.5: acos(x) = pi - 2*asin(sqrt((1+x)/2))
-    MFD2 t = (MFD2(1.0) + x) * MFD2(0.5);
-    MFD2 s = sqrt(t);
-    MFD2 p = dd_neval(t, asin_pS_hi, asin_pS_lo, 9);
-    MFD2 q = dd_deval(t, asin_qS_hi, asin_qS_lo, 8);
-    return dd_pair(pi_dd_hi, pi_dd_lo) - MFD2(2.0) * (s + s * t * p / q);
+    float64x2 t = (float64x2(1.0) + x) * float64x2(0.5);
+    float64x2 s = sqrt(t);
+    float64x2 p = neval(t, asin_pS_hi, asin_pS_lo, 9);
+    float64x2 q = deval(t, asin_qS_hi, asin_qS_lo, 8);
+    return float64x2(pi_dd_hi, pi_dd_lo) - float64x2(2.0) * (s + s * t * p / q);
   }
 }
 
 // ---- atan2 ------------------------------------------------------------------
-MFD2 dd_atan2_full(MFD2 const &y, MFD2 const &x) {
+float64x2 atan2_full(float64x2 const &y, float64x2 const &x) {
   if (!std::isfinite(x._limbs[0]) || !std::isfinite(y._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::atan2(y._limbs[0], x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   if (x._limbs[0] == 0.0 && y._limbs[0] == 0.0) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::atan2(y._limbs[0], x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
-  MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
-  MFD2 pi_half_dd = dd_pair(pi_half_cw1, pi_half_cw2);
-  MFD2 res;
+  float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
+  float64x2 pi_half_dd = float64x2(pi_half_cw1, pi_half_cw2);
+  float64x2 res;
   if (std::abs(x._limbs[0]) >= std::abs(y._limbs[0])) {
-    res = dd_atan_full(y / x);
+    res = atan_full(y / x);
     if (x._limbs[0] < 0.0) {
       if (y._limbs[0] >= 0.0) res = res + pi_dd;
       else res = res - pi_dd;
     }
   } else {
-    res = dd_atan_full(x / y);
+    res = atan_full(x / y);
     if (y._limbs[0] > 0.0) res = pi_half_dd - res;
     else res = -pi_half_dd - res;
   }
@@ -657,18 +657,18 @@ MFD2 dd_atan2_full(MFD2 const &y, MFD2 const &x) {
 // ---- inverse π-scaled trig -------------------------------------------------
 // fn_pi(x) = fn(x) / π via the natural path. The DD multiply by inv_pi
 // costs one DD mul (~3 FLOPs) after the main eval.
-MFD2 dd_asinpi_full(MFD2 const &x) {
-  return dd_asin_full(x) * dd_pair(inv_pi_hi, inv_pi_lo);
+float64x2 asinpi_full(float64x2 const &x) {
+  return asin_full(x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
-MFD2 dd_acospi_full(MFD2 const &x) {
-  return dd_acos_full(x) * dd_pair(inv_pi_hi, inv_pi_lo);
+float64x2 acospi_full(float64x2 const &x) {
+  return acos_full(x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
-// atanpi: at ±inf, dd_atan_full bounces through std::atan and returns π/2 to
+// atanpi: at ±inf, atan_full bounces through std::atan and returns π/2 to
 // only dp precision — then inv_pi multiplication can't recover the missing
 // low limb. Short-circuit so atanpi(±inf) = ±0.5 exactly.
-MFD2 dd_atanpi_full(MFD2 const &x) {
+float64x2 atanpi_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     if (std::isnan(x._limbs[0])) {
       r._limbs[0] = x._limbs[0];
     } else {
@@ -677,163 +677,163 @@ MFD2 dd_atanpi_full(MFD2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
-  return dd_atan_full(x) * dd_pair(inv_pi_hi, inv_pi_lo);
+  return atan_full(x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
-MFD2 dd_atan2pi_full(MFD2 const &y, MFD2 const &x) {
-  return dd_atan2_full(y, x) * dd_pair(inv_pi_hi, inv_pi_lo);
+float64x2 atan2pi_full(float64x2 const &y, float64x2 const &x) {
+  return atan2_full(y, x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
 
 // ---- asinh / acosh / atanh -------------------------------------------------
-MFD2 dd_asinh_full(MFD2 const &x) {
+float64x2 asinh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::asinh(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   if (std::abs(x._limbs[0]) < 0.01) {
-    return x * dd_horner(x * x, asinh_taylor_hi, asinh_taylor_lo, 15);
+    return x * horner(x * x, asinh_taylor_hi, asinh_taylor_lo, 15);
   }
   bool sign = x._limbs[0] < 0.0;
-  MFD2 ax = sign ? -x : x;
+  float64x2 ax = sign ? -x : x;
   if (ax._limbs[0] > 1e150) {
     // log(2|x|) asymptotic to avoid x² overflow
-    MFD2 r = dd_log_full(ax) + dd_pair(ln_2_hi, ln_2_lo);
+    float64x2 r = log_full(ax) + float64x2(ln_2_hi, ln_2_lo);
     return sign ? -r : r;
   }
-  MFD2 root = sqrt(ax * ax + MFD2(1.0));
-  MFD2 res = dd_log_full(ax + root);
+  float64x2 root = sqrt(ax * ax + float64x2(1.0));
+  float64x2 res = log_full(ax + root);
   return sign ? -res : res;
 }
 
-MFD2 dd_acosh_full(MFD2 const &x) {
+float64x2 acosh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::acosh(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   if (x._limbs[0] < 1.0) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
   if (x._limbs[0] > 1e150) {
-    return dd_log_full(x) + dd_pair(ln_2_hi, ln_2_lo);
+    return log_full(x) + float64x2(ln_2_hi, ln_2_lo);
   }
-  MFD2 root = sqrt(x * x - MFD2(1.0));
-  return dd_log_full(x + root);
+  float64x2 root = sqrt(x * x - float64x2(1.0));
+  return log_full(x + root);
 }
 
-MFD2 dd_atanh_full(MFD2 const &x) {
+float64x2 atanh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::atanh(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   if (std::abs(x._limbs[0]) > 1.0) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
   if (std::abs(x._limbs[0]) < 0.01) {
-    return x * dd_horner(x * x, atanh_taylor_hi, atanh_taylor_lo, 15);
+    return x * horner(x * x, atanh_taylor_hi, atanh_taylor_lo, 15);
   }
-  MFD2 num = MFD2(1.0) + x;
-  MFD2 den = MFD2(1.0) - x;
-  return dd_pair(0.5, 0.0) * dd_log_full(num / den);
+  float64x2 num = float64x2(1.0) + x;
+  float64x2 den = float64x2(1.0) - x;
+  return float64x2(0.5, 0.0) * log_full(num / den);
 }
 
 // ---- erf / erfc (piecewise rational, ported from libquadmath erfq.c) -------
-MFD2 dd_erf_full(MFD2 const &x) {
+float64x2 erf_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::erf(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   bool neg = x._limbs[0] < 0.0;
-  MFD2 ax = neg ? -x : x;
+  float64x2 ax = neg ? -x : x;
 
   if (ax._limbs[0] >= 1.0) {
-    if (ax._limbs[0] >= 16.0) return neg ? MFD2(-1.0) : MFD2(1.0);
-    MFD2 res = MFD2(1.0) - dd_erfc_full(ax);
+    if (ax._limbs[0] >= 16.0) return neg ? float64x2(-1.0) : float64x2(1.0);
+    float64x2 res = float64x2(1.0) - erfc_full(ax);
     return neg ? -res : res;
   }
 
-  MFD2 y;
+  float64x2 y;
   if (ax._limbs[0] < 0.875) {
     if (ax._limbs[0] < 1e-18)
-      return x + dd_pair(erf_efx_hi, erf_efx_lo) * x;
-    MFD2 z = ax * ax;
-    y = ax + ax * dd_neval(z, erf_TN1_hi, erf_TN1_lo, 8) /
-                  dd_deval(z, erf_TD1_hi, erf_TD1_lo, 8);
+      return x + float64x2(erf_efx_hi, erf_efx_lo) * x;
+    float64x2 z = ax * ax;
+    y = ax + ax * neval(z, erf_TN1_hi, erf_TN1_lo, 8) /
+                  deval(z, erf_TD1_hi, erf_TD1_lo, 8);
   } else {
-    MFD2 a = ax - MFD2(1.0);
-    y = dd_pair(erf_const_hi, erf_const_lo) +
-        dd_neval(a, erf_TN2_hi, erf_TN2_lo, 8) /
-        dd_deval(a, erf_TD2_hi, erf_TD2_lo, 8);
+    float64x2 a = ax - float64x2(1.0);
+    y = float64x2(erf_const_hi, erf_const_lo) +
+        neval(a, erf_TN2_hi, erf_TN2_lo, 8) /
+        deval(a, erf_TD2_hi, erf_TD2_lo, 8);
   }
   return neg ? -y : y;
 }
 
-MFD2 dd_erfc_full(MFD2 const &x) {
+float64x2 erfc_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = std::erfc(x._limbs[0]);
     r._limbs[1] = 0.0;
     return r;
   }
   bool neg = x._limbs[0] < 0.0;
-  MFD2 ax = neg ? -x : x;
+  float64x2 ax = neg ? -x : x;
 
   if (ax._limbs[0] < 0.25) {
-    return MFD2(1.0) - dd_erf_full(x);
+    return float64x2(1.0) - erf_full(x);
   }
 
   if (ax._limbs[0] > 107.0) {
-    return neg ? MFD2(2.0) : MFD2();
+    return neg ? float64x2(2.0) : float64x2();
   }
 
-  MFD2 res;
+  float64x2 res;
   if (ax._limbs[0] < 1.25) {
     // 8 sub-intervals of width 0.125 in [0.25, 1.25)
     int i = static_cast<int>(8.0 * ax._limbs[0]);
-    MFD2 z = ax - MFD2(erfc_x0[i - 2]);
-    MFD2 y;
+    float64x2 z = ax - float64x2(erfc_x0[i - 2]);
+    float64x2 y;
     switch (i) {
-    case 2: y = dd_neval(z, erfc_RN13_hi, erfc_RN13_lo, 8) / dd_deval(z, erfc_RD13_hi, erfc_RD13_lo, 7); break;
-    case 3: y = dd_neval(z, erfc_RN14_hi, erfc_RN14_lo, 8) / dd_deval(z, erfc_RD14_hi, erfc_RD14_lo, 7); break;
-    case 4: y = dd_neval(z, erfc_RN15_hi, erfc_RN15_lo, 8) / dd_deval(z, erfc_RD15_hi, erfc_RD15_lo, 7); break;
-    case 5: y = dd_neval(z, erfc_RN16_hi, erfc_RN16_lo, 8) / dd_deval(z, erfc_RD16_hi, erfc_RD16_lo, 7); break;
-    case 6: y = dd_neval(z, erfc_RN17_hi, erfc_RN17_lo, 8) / dd_deval(z, erfc_RD17_hi, erfc_RD17_lo, 7); break;
-    case 7: y = dd_neval(z, erfc_RN18_hi, erfc_RN18_lo, 8) / dd_deval(z, erfc_RD18_hi, erfc_RD18_lo, 7); break;
-    case 8: y = dd_neval(z, erfc_RN19_hi, erfc_RN19_lo, 8) / dd_deval(z, erfc_RD19_hi, erfc_RD19_lo, 7); break;
-    default: y = dd_neval(z, erfc_RN20_hi, erfc_RN20_lo, 8) / dd_deval(z, erfc_RD20_hi, erfc_RD20_lo, 7); break;
+    case 2: y = neval(z, erfc_RN13_hi, erfc_RN13_lo, 8) / deval(z, erfc_RD13_hi, erfc_RD13_lo, 7); break;
+    case 3: y = neval(z, erfc_RN14_hi, erfc_RN14_lo, 8) / deval(z, erfc_RD14_hi, erfc_RD14_lo, 7); break;
+    case 4: y = neval(z, erfc_RN15_hi, erfc_RN15_lo, 8) / deval(z, erfc_RD15_hi, erfc_RD15_lo, 7); break;
+    case 5: y = neval(z, erfc_RN16_hi, erfc_RN16_lo, 8) / deval(z, erfc_RD16_hi, erfc_RD16_lo, 7); break;
+    case 6: y = neval(z, erfc_RN17_hi, erfc_RN17_lo, 8) / deval(z, erfc_RD17_hi, erfc_RD17_lo, 7); break;
+    case 7: y = neval(z, erfc_RN18_hi, erfc_RN18_lo, 8) / deval(z, erfc_RD18_hi, erfc_RD18_lo, 7); break;
+    case 8: y = neval(z, erfc_RN19_hi, erfc_RN19_lo, 8) / deval(z, erfc_RD19_hi, erfc_RD19_lo, 7); break;
+    default: y = neval(z, erfc_RN20_hi, erfc_RN20_lo, 8) / deval(z, erfc_RD20_hi, erfc_RD20_lo, 7); break;
     }
     int ci = i - 2;
-    res = y * z + dd_pair(erfc_Cb_hi[ci], erfc_Cb_lo[ci]) +
-          dd_pair(erfc_Ca_hi[ci], erfc_Ca_lo[ci]);
+    res = y * z + float64x2(erfc_Cb_hi[ci], erfc_Cb_lo[ci]) +
+          float64x2(erfc_Ca_hi[ci], erfc_Ca_lo[ci]);
   } else {
     // Asymptotic: erfc(x) = (1/x)*exp(-x^2 - 0.5625 + R(1/x^2))
-    if (neg && ax._limbs[0] >= 9.0) return MFD2(2.0);
+    if (neg && ax._limbs[0] >= 9.0) return float64x2(2.0);
 
-    MFD2 x2 = ax * ax;
-    MFD2 z = MFD2(1.0) / x2;
+    float64x2 x2 = ax * ax;
+    float64x2 z = float64x2(1.0) / x2;
     int i = static_cast<int>(8.0 / ax._limbs[0]);
-    MFD2 p;
+    float64x2 p;
     switch (i) {
-    case 0: p = dd_neval(z, erfc_AN1_hi, erfc_AN1_lo, 9) / dd_deval(z, erfc_AD1_hi, erfc_AD1_lo, 8); break;
-    case 1: p = dd_neval(z, erfc_AN2_hi, erfc_AN2_lo, 11) / dd_deval(z, erfc_AD2_hi, erfc_AD2_lo, 10); break;
-    case 2: p = dd_neval(z, erfc_AN3_hi, erfc_AN3_lo, 11) / dd_deval(z, erfc_AD3_hi, erfc_AD3_lo, 10); break;
-    case 3: p = dd_neval(z, erfc_AN4_hi, erfc_AN4_lo, 10) / dd_deval(z, erfc_AD4_hi, erfc_AD4_lo, 10); break;
-    case 4: p = dd_neval(z, erfc_AN5_hi, erfc_AN5_lo, 10) / dd_deval(z, erfc_AD5_hi, erfc_AD5_lo, 9); break;
-    case 5: p = dd_neval(z, erfc_AN6_hi, erfc_AN6_lo, 9) / dd_deval(z, erfc_AD6_hi, erfc_AD6_lo, 9); break;
-    case 6: p = dd_neval(z, erfc_AN7_hi, erfc_AN7_lo, 9) / dd_deval(z, erfc_AD7_hi, erfc_AD7_lo, 9); break;
-    default: p = dd_neval(z, erfc_AN8_hi, erfc_AN8_lo, 9) / dd_deval(z, erfc_AD8_hi, erfc_AD8_lo, 8); break;
+    case 0: p = neval(z, erfc_AN1_hi, erfc_AN1_lo, 9) / deval(z, erfc_AD1_hi, erfc_AD1_lo, 8); break;
+    case 1: p = neval(z, erfc_AN2_hi, erfc_AN2_lo, 11) / deval(z, erfc_AD2_hi, erfc_AD2_lo, 10); break;
+    case 2: p = neval(z, erfc_AN3_hi, erfc_AN3_lo, 11) / deval(z, erfc_AD3_hi, erfc_AD3_lo, 10); break;
+    case 3: p = neval(z, erfc_AN4_hi, erfc_AN4_lo, 10) / deval(z, erfc_AD4_hi, erfc_AD4_lo, 10); break;
+    case 4: p = neval(z, erfc_AN5_hi, erfc_AN5_lo, 10) / deval(z, erfc_AD5_hi, erfc_AD5_lo, 9); break;
+    case 5: p = neval(z, erfc_AN6_hi, erfc_AN6_lo, 9) / deval(z, erfc_AD6_hi, erfc_AD6_lo, 9); break;
+    case 6: p = neval(z, erfc_AN7_hi, erfc_AN7_lo, 9) / deval(z, erfc_AD7_hi, erfc_AD7_lo, 9); break;
+    default: p = neval(z, erfc_AN8_hi, erfc_AN8_lo, 9) / deval(z, erfc_AD8_hi, erfc_AD8_lo, 8); break;
     }
 
     // Split x for accurate exp(-x^2): truncate hi limb by zeroing the
@@ -845,15 +845,15 @@ MFD2 dd_erfc_full(MFD2 const &x) {
     u &= 0xFFFFFFF800000000ULL;
     double s_hi;
     std::memcpy(&s_hi, &u, sizeof(s_hi));
-    MFD2 s = dd_pair(s_hi, 0.0);
+    float64x2 s = float64x2(s_hi, 0.0);
 
-    MFD2 e1 = dd_exp_full(-(s * s) - MFD2(0.5625));
-    MFD2 diff_sq = (s - ax) * (s + ax);
-    MFD2 e2 = dd_exp_full(diff_sq + p);
+    float64x2 e1 = exp_full(-(s * s) - float64x2(0.5625));
+    float64x2 diff_sq = (s - ax) * (s + ax);
+    float64x2 e2 = exp_full(diff_sq + p);
     res = (e1 * e2) / ax;
   }
 
-  return neg ? MFD2(2.0) - res : res;
+  return neg ? float64x2(2.0) - res : res;
 }
 
 // erfc_scaled(x) = exp(x²) · erfc(x).
@@ -865,9 +865,9 @@ MFD2 dd_erfc_full(MFD2 const &x) {
 // and exp(x²) itself can overflow; guard that.
 // For |x| < 1.25, both factors are moderate and we compute the product
 // directly.
-MFD2 dd_erfc_scaled_full(MFD2 const &x) {
+float64x2 erfc_scaled_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    MFD2 r;
+    float64x2 r;
     if (x._limbs[0] > 0.0)      r._limbs[0] = 0.0;                                            // erfc_scaled(+inf) = 0
     else if (x._limbs[0] < 0.0) r._limbs[0] = std::numeric_limits<double>::infinity();        // erfc_scaled(-inf) = +inf
     else                         r._limbs[0] = x._limbs[0];                                    // NaN
@@ -875,36 +875,36 @@ MFD2 dd_erfc_scaled_full(MFD2 const &x) {
     return r;
   }
   bool neg = x._limbs[0] < 0.0;
-  MFD2 ax = neg ? -x : x;
+  float64x2 ax = neg ? -x : x;
   if (ax._limbs[0] < 1.25) {
-    return dd_exp_full(x * x) * dd_erfc_full(x);
+    return exp_full(x * x) * erfc_full(x);
   }
   // Asymptotic branch.
-  MFD2 x2 = ax * ax;
-  MFD2 z = MFD2(1.0) / x2;
+  float64x2 x2 = ax * ax;
+  float64x2 z = float64x2(1.0) / x2;
   int i = static_cast<int>(8.0 / ax._limbs[0]);
   if (i > 7) i = 7;
-  MFD2 p;
+  float64x2 p;
   switch (i) {
-  case 0: p = dd_neval(z, erfc_AN1_hi, erfc_AN1_lo, 9)  / dd_deval(z, erfc_AD1_hi, erfc_AD1_lo, 8);  break;
-  case 1: p = dd_neval(z, erfc_AN2_hi, erfc_AN2_lo, 11) / dd_deval(z, erfc_AD2_hi, erfc_AD2_lo, 10); break;
-  case 2: p = dd_neval(z, erfc_AN3_hi, erfc_AN3_lo, 11) / dd_deval(z, erfc_AD3_hi, erfc_AD3_lo, 10); break;
-  case 3: p = dd_neval(z, erfc_AN4_hi, erfc_AN4_lo, 10) / dd_deval(z, erfc_AD4_hi, erfc_AD4_lo, 10); break;
-  case 4: p = dd_neval(z, erfc_AN5_hi, erfc_AN5_lo, 10) / dd_deval(z, erfc_AD5_hi, erfc_AD5_lo, 9);  break;
-  case 5: p = dd_neval(z, erfc_AN6_hi, erfc_AN6_lo, 9)  / dd_deval(z, erfc_AD6_hi, erfc_AD6_lo, 9);  break;
-  case 6: p = dd_neval(z, erfc_AN7_hi, erfc_AN7_lo, 9)  / dd_deval(z, erfc_AD7_hi, erfc_AD7_lo, 9);  break;
-  default:p = dd_neval(z, erfc_AN8_hi, erfc_AN8_lo, 9)  / dd_deval(z, erfc_AD8_hi, erfc_AD8_lo, 8);  break;
+  case 0: p = neval(z, erfc_AN1_hi, erfc_AN1_lo, 9)  / deval(z, erfc_AD1_hi, erfc_AD1_lo, 8);  break;
+  case 1: p = neval(z, erfc_AN2_hi, erfc_AN2_lo, 11) / deval(z, erfc_AD2_hi, erfc_AD2_lo, 10); break;
+  case 2: p = neval(z, erfc_AN3_hi, erfc_AN3_lo, 11) / deval(z, erfc_AD3_hi, erfc_AD3_lo, 10); break;
+  case 3: p = neval(z, erfc_AN4_hi, erfc_AN4_lo, 10) / deval(z, erfc_AD4_hi, erfc_AD4_lo, 10); break;
+  case 4: p = neval(z, erfc_AN5_hi, erfc_AN5_lo, 10) / deval(z, erfc_AD5_hi, erfc_AD5_lo, 9);  break;
+  case 5: p = neval(z, erfc_AN6_hi, erfc_AN6_lo, 9)  / deval(z, erfc_AD6_hi, erfc_AD6_lo, 9);  break;
+  case 6: p = neval(z, erfc_AN7_hi, erfc_AN7_lo, 9)  / deval(z, erfc_AD7_hi, erfc_AD7_lo, 9);  break;
+  default:p = neval(z, erfc_AN8_hi, erfc_AN8_lo, 9)  / deval(z, erfc_AD8_hi, erfc_AD8_lo, 8);  break;
   }
-  MFD2 res = dd_exp_full(p - MFD2(0.5625)) / ax;
+  float64x2 res = exp_full(p - float64x2(0.5625)) / ax;
   if (neg) {
-    MFD2 exp_x2 = dd_exp_full(x2);
+    float64x2 exp_x2 = exp_full(x2);
     if (!std::isfinite(exp_x2._limbs[0])) {
-      MFD2 r;
+      float64x2 r;
       r._limbs[0] = std::numeric_limits<double>::infinity();
       r._limbs[1] = 0.0;
       return r;
     }
-    res = MFD2(2.0) * exp_x2 - res;
+    res = float64x2(2.0) * exp_x2 - res;
   }
   return res;
 }
@@ -921,27 +921,27 @@ MFD2 dd_erfc_scaled_full(MFD2 const &x) {
 //
 // Small-x paths: reflection for x < 1/2, upward shift recurrence
 // otherwise, accumulating the product x·(x+1)·...·(x+N-1) in DD and
-// subtracting a single dd_log_full(prod).
+// subtracting a single log_full(prod).
 
 // Stirling/gamma constants are in dd_constants.hh (via #include above).
 
 // Evaluate the Stirling series for log Γ(x). Assumes x is well into the
 // asymptotic range (x ≥ ~20) — callers shift first.
-MFD2 dd_lgamma_stirling(MFD2 const &x) {
-  MFD2 inv_x = MFD2(1.0) / x;
-  MFD2 inv_x2 = inv_x * inv_x;
-  MFD2 poly =
-      dd_horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13);
-  MFD2 corr = poly * inv_x;
-  MFD2 logx = dd_log_full(x);
-  MFD2 xm_half = x - MFD2(0.5);
+float64x2 lgamma_stirling(float64x2 const &x) {
+  float64x2 inv_x = float64x2(1.0) / x;
+  float64x2 inv_x2 = inv_x * inv_x;
+  float64x2 poly =
+      horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13);
+  float64x2 corr = poly * inv_x;
+  float64x2 logx = log_full(x);
+  float64x2 xm_half = x - float64x2(0.5);
   return xm_half * logx - x +
-         dd_pair(half_log_2pi_hi, half_log_2pi_lo) + corr;
+         float64x2(half_log_2pi_hi, half_log_2pi_lo) + corr;
 }
 
 // Exact DD subtraction: z = x - c, where c is exact in double precision.
-static inline MFD2 dd_sub_exact(MFD2 const &x, double c) {
-  MFD2 z;
+static inline float64x2 sub_exact(float64x2 const &x, double c) {
+  float64x2 z;
   z._limbs[0] = x._limbs[0] - c;
   z._limbs[1] = x._limbs[1] + ((x._limbs[0] - z._limbs[0]) - c);
   return z;
@@ -949,150 +949,150 @@ static inline MFD2 dd_sub_exact(MFD2 const &x, double c) {
 
 // Piecewise rational approximation for lgamma(x), 0.5 <= x <= 13.5.
 // Mirrors lgammaq.c structure: P(z)/Q(z) with z = x - center.
-MFD2 dd_lgamma_rational(MFD2 const &x) {
+float64x2 lgamma_rational(float64x2 const &x) {
   int nn = (int)std::nearbyint(x._limbs[0]);
-  MFD2 z, p, q, c;
+  float64x2 z, p, q, c;
   switch (nn) {
   case 0: // x ≈ 0.5: lgamma(x+1) via near-minimum, then - log(x)
-    z = x + MFD2(1.0) - dd_pair(lgam_x0_hi, lgam_x0_lo);
-    p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
-    q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
-    return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo) - dd_log_full(x);
+    z = x + float64x2(1.0) - float64x2(lgam_x0_hi, lgam_x0_lo);
+    p = neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+    q = deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+    return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo) - log_full(x);
   case 1:
     if (x._limbs[0] < 0.875) {
       if (x._limbs[0] <= 0.625) {
-        z = x + MFD2(1.0) - dd_pair(lgam_x0_hi, lgam_x0_lo);
-        p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
-        q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
-        return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo) - dd_log_full(x);
+        z = x + float64x2(1.0) - float64x2(lgam_x0_hi, lgam_x0_lo);
+        p = neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+        q = deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+        return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo) - log_full(x);
       }
       // (0.625, 0.875): z = x - 0.75, lgamma(x+1) = lgam1r75 + z*P/Q
-      z = dd_sub_exact(x, 0.75);
-      p = dd_neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo, 8);
-      q = dd_deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo, 8);
-      return z * (p / q) + dd_pair(lgam1r75_hi, lgam1r75_lo) - dd_log_full(x);
+      z = sub_exact(x, 0.75);
+      p = neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo, 8);
+      q = deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo, 8);
+      return z * (p / q) + float64x2(lgam1r75_hi, lgam1r75_lo) - log_full(x);
     }
     if (x._limbs[0] < 1.0) {
-      z = x - MFD2(1.0);
-      p = dd_neval(z, lgam_RNr9_hi, lgam_RNr9_lo, 8);
-      q = dd_deval(z, lgam_RDr9_hi, lgam_RDr9_lo, 8);
+      z = x - float64x2(1.0);
+      p = neval(z, lgam_RNr9_hi, lgam_RNr9_lo, 8);
+      q = deval(z, lgam_RDr9_hi, lgam_RDr9_lo, 8);
       return z * (p / q);
     }
     if (x._limbs[0] <= 1.125) {
-      z = x - MFD2(1.0);
-      p = dd_neval(z, lgam_RN1_hi, lgam_RN1_lo, 8);
-      q = dd_deval(z, lgam_RD1_hi, lgam_RD1_lo, 7);
+      z = x - float64x2(1.0);
+      p = neval(z, lgam_RN1_hi, lgam_RN1_lo, 8);
+      q = deval(z, lgam_RD1_hi, lgam_RD1_lo, 7);
       return z * (p / q);
     }
     if (x._limbs[0] <= 1.375) {
-      z = dd_sub_exact(x, 1.25);
-      p = dd_neval(z, lgam_RN1r25_hi, lgam_RN1r25_lo, 9);
-      q = dd_deval(z, lgam_RD1r25_hi, lgam_RD1r25_lo, 8);
-      return z * (p / q) + dd_pair(lgam1r25_hi, lgam1r25_lo);
+      z = sub_exact(x, 1.25);
+      p = neval(z, lgam_RN1r25_hi, lgam_RN1r25_lo, 9);
+      q = deval(z, lgam_RD1r25_hi, lgam_RD1r25_lo, 8);
+      return z * (p / q) + float64x2(lgam1r25_hi, lgam1r25_lo);
     }
     // [1.375, 1.5]: near minimum x0
-    z = x - dd_pair(lgam_x0_hi, lgam_x0_lo);
-    p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
-    q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
-    return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo);
+    z = x - float64x2(lgam_x0_hi, lgam_x0_lo);
+    p = neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+    q = deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+    return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo);
   case 2:
     if (x._limbs[0] < 1.625) {
-      z = x - dd_pair(lgam_x0_hi, lgam_x0_lo);
-      p = dd_neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
-      q = dd_deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
-      return z * z * (p / q) + dd_pair(lgam_y0_hi, lgam_y0_lo);
+      z = x - float64x2(lgam_x0_hi, lgam_x0_lo);
+      p = neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
+      q = deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
+      return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo);
     }
     if (x._limbs[0] < 1.875) {
-      z = dd_sub_exact(x, 1.75);
-      p = dd_neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo, 8);
-      q = dd_deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo, 8);
-      return z * (p / q) + dd_pair(lgam1r75_hi, lgam1r75_lo);
+      z = sub_exact(x, 1.75);
+      p = neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo, 8);
+      q = deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo, 8);
+      return z * (p / q) + float64x2(lgam1r75_hi, lgam1r75_lo);
     }
     if (x._limbs[0] < 2.375) {
-      z = dd_sub_exact(x, 2.0);
-      p = dd_neval(z, lgam_RN2_hi, lgam_RN2_lo, 9);
-      q = dd_deval(z, lgam_RD2_hi, lgam_RD2_lo, 9);
+      z = sub_exact(x, 2.0);
+      p = neval(z, lgam_RN2_hi, lgam_RN2_lo, 9);
+      q = deval(z, lgam_RD2_hi, lgam_RD2_lo, 9);
       return z * (p / q);
     }
-    z = dd_sub_exact(x, 2.5);
-    p = dd_neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo, 8);
-    q = dd_deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo, 8);
-    return z * (p / q) + dd_pair(lgam2r5_hi, lgam2r5_lo);
+    z = sub_exact(x, 2.5);
+    p = neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo, 8);
+    q = deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo, 8);
+    return z * (p / q) + float64x2(lgam2r5_hi, lgam2r5_lo);
   case 3:
     if (x._limbs[0] < 2.75) {
-      z = dd_sub_exact(x, 2.5);
-      p = dd_neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo, 8);
-      q = dd_deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo, 8);
-      return z * (p / q) + dd_pair(lgam2r5_hi, lgam2r5_lo);
+      z = sub_exact(x, 2.5);
+      p = neval(z, lgam_RN2r5_hi, lgam_RN2r5_lo, 8);
+      q = deval(z, lgam_RD2r5_hi, lgam_RD2r5_lo, 8);
+      return z * (p / q) + float64x2(lgam2r5_hi, lgam2r5_lo);
     }
-    z = dd_sub_exact(x, 3.0);
-    p = dd_neval(z, lgam_RN3_hi, lgam_RN3_lo, 9);
-    q = dd_deval(z, lgam_RD3_hi, lgam_RD3_lo, 9);
-    return z * (p / q) + dd_pair(lgam3_hi, lgam3_lo);
+    z = sub_exact(x, 3.0);
+    p = neval(z, lgam_RN3_hi, lgam_RN3_lo, 9);
+    q = deval(z, lgam_RD3_hi, lgam_RD3_lo, 9);
+    return z * (p / q) + float64x2(lgam3_hi, lgam3_lo);
   case 4:
-    z = dd_sub_exact(x, 4.0);
-    p = dd_neval(z, lgam_RN4_hi, lgam_RN4_lo, 9);
-    q = dd_deval(z, lgam_RD4_hi, lgam_RD4_lo, 9);
-    return z * (p / q) + dd_pair(lgam4_hi, lgam4_lo);
+    z = sub_exact(x, 4.0);
+    p = neval(z, lgam_RN4_hi, lgam_RN4_lo, 9);
+    q = deval(z, lgam_RD4_hi, lgam_RD4_lo, 9);
+    return z * (p / q) + float64x2(lgam4_hi, lgam4_lo);
   case 5:
-    z = dd_sub_exact(x, 5.0);
-    p = dd_neval(z, lgam_RN5_hi, lgam_RN5_lo, 9);
-    q = dd_deval(z, lgam_RD5_hi, lgam_RD5_lo, 8);
-    return z * (p / q) + dd_pair(lgam5_hi, lgam5_lo);
+    z = sub_exact(x, 5.0);
+    p = neval(z, lgam_RN5_hi, lgam_RN5_lo, 9);
+    q = deval(z, lgam_RD5_hi, lgam_RD5_lo, 8);
+    return z * (p / q) + float64x2(lgam5_hi, lgam5_lo);
   case 6:
-    z = dd_sub_exact(x, 6.0);
-    p = dd_neval(z, lgam_RN6_hi, lgam_RN6_lo, 8);
-    q = dd_deval(z, lgam_RD6_hi, lgam_RD6_lo, 8);
-    return z * (p / q) + dd_pair(lgam6_hi, lgam6_lo);
+    z = sub_exact(x, 6.0);
+    p = neval(z, lgam_RN6_hi, lgam_RN6_lo, 8);
+    q = deval(z, lgam_RD6_hi, lgam_RD6_lo, 8);
+    return z * (p / q) + float64x2(lgam6_hi, lgam6_lo);
   case 7:
-    z = dd_sub_exact(x, 7.0);
-    p = dd_neval(z, lgam_RN7_hi, lgam_RN7_lo, 8);
-    q = dd_deval(z, lgam_RD7_hi, lgam_RD7_lo, 7);
-    return z * (p / q) + dd_pair(lgam7_hi, lgam7_lo);
+    z = sub_exact(x, 7.0);
+    p = neval(z, lgam_RN7_hi, lgam_RN7_lo, 8);
+    q = deval(z, lgam_RD7_hi, lgam_RD7_lo, 7);
+    return z * (p / q) + float64x2(lgam7_hi, lgam7_lo);
   case 8:
-    z = dd_sub_exact(x, 8.0);
-    p = dd_neval(z, lgam_RN8_hi, lgam_RN8_lo, 8);
-    q = dd_deval(z, lgam_RD8_hi, lgam_RD8_lo, 7);
-    return z * (p / q) + dd_pair(lgam8_hi, lgam8_lo);
+    z = sub_exact(x, 8.0);
+    p = neval(z, lgam_RN8_hi, lgam_RN8_lo, 8);
+    q = deval(z, lgam_RD8_hi, lgam_RD8_lo, 7);
+    return z * (p / q) + float64x2(lgam8_hi, lgam8_lo);
   case 9:
-    z = dd_sub_exact(x, 9.0);
-    p = dd_neval(z, lgam_RN9_hi, lgam_RN9_lo, 7);
-    q = dd_deval(z, lgam_RD9_hi, lgam_RD9_lo, 7);
-    return z * (p / q) + dd_pair(lgam9_hi, lgam9_lo);
+    z = sub_exact(x, 9.0);
+    p = neval(z, lgam_RN9_hi, lgam_RN9_lo, 7);
+    q = deval(z, lgam_RD9_hi, lgam_RD9_lo, 7);
+    return z * (p / q) + float64x2(lgam9_hi, lgam9_lo);
   case 10:
-    z = dd_sub_exact(x, 10.0);
-    p = dd_neval(z, lgam_RN10_hi, lgam_RN10_lo, 7);
-    q = dd_deval(z, lgam_RD10_hi, lgam_RD10_lo, 7);
-    return z * (p / q) + dd_pair(lgam10_hi, lgam10_lo);
+    z = sub_exact(x, 10.0);
+    p = neval(z, lgam_RN10_hi, lgam_RN10_lo, 7);
+    q = deval(z, lgam_RD10_hi, lgam_RD10_lo, 7);
+    return z * (p / q) + float64x2(lgam10_hi, lgam10_lo);
   case 11:
-    z = dd_sub_exact(x, 11.0);
-    p = dd_neval(z, lgam_RN11_hi, lgam_RN11_lo, 7);
-    q = dd_deval(z, lgam_RD11_hi, lgam_RD11_lo, 6);
-    return z * (p / q) + dd_pair(lgam11_hi, lgam11_lo);
+    z = sub_exact(x, 11.0);
+    p = neval(z, lgam_RN11_hi, lgam_RN11_lo, 7);
+    q = deval(z, lgam_RD11_hi, lgam_RD11_lo, 6);
+    return z * (p / q) + float64x2(lgam11_hi, lgam11_lo);
   case 12:
-    z = dd_sub_exact(x, 12.0);
-    p = dd_neval(z, lgam_RN12_hi, lgam_RN12_lo, 7);
-    q = dd_deval(z, lgam_RD12_hi, lgam_RD12_lo, 6);
-    return z * (p / q) + dd_pair(lgam12_hi, lgam12_lo);
+    z = sub_exact(x, 12.0);
+    p = neval(z, lgam_RN12_hi, lgam_RN12_lo, 7);
+    q = deval(z, lgam_RD12_hi, lgam_RD12_lo, 6);
+    return z * (p / q) + float64x2(lgam12_hi, lgam12_lo);
   case 13:
-    z = dd_sub_exact(x, 13.0);
-    p = dd_neval(z, lgam_RN13_hi, lgam_RN13_lo, 7);
-    q = dd_deval(z, lgam_RD13_hi, lgam_RD13_lo, 6);
-    return z * (p / q) + dd_pair(lgam13_hi, lgam13_lo);
+    z = sub_exact(x, 13.0);
+    p = neval(z, lgam_RN13_hi, lgam_RN13_lo, 7);
+    q = deval(z, lgam_RD13_hi, lgam_RD13_lo, 6);
+    return z * (p / q) + float64x2(lgam13_hi, lgam13_lo);
   default:
-    return dd_lgamma_stirling(x);
+    return lgamma_stirling(x);
   }
 }
 
 // Compute lgamma for positive x >= 0.5.
-MFD2 dd_lgamma_positive(MFD2 const &x) {
+float64x2 lgamma_positive(float64x2 const &x) {
   if (x._limbs[0] >= 13.5)
-    return dd_lgamma_stirling(x);
-  return dd_lgamma_rational(x);
+    return lgamma_stirling(x);
+  return lgamma_rational(x);
 }
 
-MFD2 dd_lgamma_full(MFD2 const &x) {
-  MFD2 r;
+float64x2 lgamma_full(float64x2 const &x) {
+  float64x2 r;
   double hi = x._limbs[0];
   if (std::isnan(hi)) {
     r._limbs[0] = hi;
@@ -1112,16 +1112,16 @@ MFD2 dd_lgamma_full(MFD2 const &x) {
   }
   if (hi < 0.5) {
     // Reflection: log|Γ(x)| = log π - log|sin(πx)| - log|Γ(1-x)|
-    MFD2 s = multifloats::abs(dd_sinpi_full(x));
-    MFD2 one_minus_x = MFD2(1.0) - x;
-    MFD2 lgam_1mx = dd_lgamma_positive(one_minus_x);
-    return dd_pair(log_pi_hi, log_pi_lo) - dd_log_full(s) - lgam_1mx;
+    float64x2 s = multifloats::abs(sinpi_full(x));
+    float64x2 one_minus_x = float64x2(1.0) - x;
+    float64x2 lgam_1mx = lgamma_positive(one_minus_x);
+    return float64x2(log_pi_hi, log_pi_lo) - log_full(s) - lgam_1mx;
   }
-  return dd_lgamma_positive(x);
+  return lgamma_positive(x);
 }
 
-MFD2 dd_tgamma_full(MFD2 const &x) {
-  MFD2 r;
+float64x2 tgamma_full(float64x2 const &x) {
+  float64x2 r;
   double hi = x._limbs[0];
   if (std::isnan(hi)) {
     r._limbs[0] = hi;
@@ -1153,27 +1153,27 @@ MFD2 dd_tgamma_full(MFD2 const &x) {
     // Reflection: Γ(x) = π / (sin(πx) · Γ(1-x))
     // For very negative x, Γ(1-x) overflows and the result underflows; let
     // the DD division produce the underflowed / signed zero.
-    MFD2 s = dd_sinpi_full(x);
-    MFD2 one_minus_x = MFD2(1.0) - x;
+    float64x2 s = sinpi_full(x);
+    float64x2 one_minus_x = float64x2(1.0) - x;
     // Use lgamma path for the (1-x) branch so we avoid a double tgamma
     // recursion and keep the large factor inside a log.
-    MFD2 lg = dd_lgamma_positive(one_minus_x);
+    float64x2 lg = lgamma_positive(one_minus_x);
     // Γ(1-x) = exp(lg). sin(πx) may be negative → track sign separately.
     bool neg = s._limbs[0] < 0.0;
     if (neg) {
       s._limbs[0] = -s._limbs[0];
       s._limbs[1] = -s._limbs[1];
     }
-    MFD2 pi_dd = dd_pair(pi_dd_hi, pi_dd_lo);
-    MFD2 g1mx = dd_exp_full(lg);
-    MFD2 out = pi_dd / (s * g1mx);
+    float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
+    float64x2 g1mx = exp_full(lg);
+    float64x2 out = pi_dd / (s * g1mx);
     if (neg) {
       out._limbs[0] = -out._limbs[0];
       out._limbs[1] = -out._limbs[1];
     }
     return out;
   }
-  return dd_exp_full(dd_lgamma_positive(x));
+  return exp_full(lgamma_positive(x));
 }
 
 
@@ -1183,141 +1183,141 @@ MFD2 dd_tgamma_full(MFD2 const &x) {
 
 // Shared asymptotic P(z),Q(z) selection for order 0 (used by both j0 and y0).
 // z = 1/x^2, xinv_d = 1/x (double).
-static void dd_bessel_pq0(double xinv_d, MFD2 const &z, MFD2 &p, MFD2 &q) {
+static void bessel_pq0(double xinv_d, float64x2 const &z, float64x2 &p, float64x2 &q) {
   if (xinv_d <= 0.25) {
     if (xinv_d <= 0.125) {
       if (xinv_d <= 0.0625) {
-        p = dd_neval(z, j0_P16_IN_hi, j0_P16_IN_lo, 9) / dd_deval(z, j0_P16_ID_hi, j0_P16_ID_lo, 9);
-        q = dd_neval(z, j0_Q16_IN_hi, j0_Q16_IN_lo, 10) / dd_deval(z, j0_Q16_ID_hi, j0_Q16_ID_lo, 9);
+        p = neval(z, j0_P16_IN_hi, j0_P16_IN_lo, 9) / deval(z, j0_P16_ID_hi, j0_P16_ID_lo, 9);
+        q = neval(z, j0_Q16_IN_hi, j0_Q16_IN_lo, 10) / deval(z, j0_Q16_ID_hi, j0_Q16_ID_lo, 9);
       } else {
-        p = dd_neval(z, j0_P8_16N_hi, j0_P8_16N_lo, 10) / dd_deval(z, j0_P8_16D_hi, j0_P8_16D_lo, 10);
-        q = dd_neval(z, j0_Q8_16N_hi, j0_Q8_16N_lo, 11) / dd_deval(z, j0_Q8_16D_hi, j0_Q8_16D_lo, 11);
+        p = neval(z, j0_P8_16N_hi, j0_P8_16N_lo, 10) / deval(z, j0_P8_16D_hi, j0_P8_16D_lo, 10);
+        q = neval(z, j0_Q8_16N_hi, j0_Q8_16N_lo, 11) / deval(z, j0_Q8_16D_hi, j0_Q8_16D_lo, 11);
       }
     } else if (xinv_d <= 0.1875) {
-      p = dd_neval(z, j0_P5_8N_hi, j0_P5_8N_lo, 10) / dd_deval(z, j0_P5_8D_hi, j0_P5_8D_lo, 9);
-      q = dd_neval(z, j0_Q5_8N_hi, j0_Q5_8N_lo, 10) / dd_deval(z, j0_Q5_8D_hi, j0_Q5_8D_lo, 10);
+      p = neval(z, j0_P5_8N_hi, j0_P5_8N_lo, 10) / deval(z, j0_P5_8D_hi, j0_P5_8D_lo, 9);
+      q = neval(z, j0_Q5_8N_hi, j0_Q5_8N_lo, 10) / deval(z, j0_Q5_8D_hi, j0_Q5_8D_lo, 10);
     } else {
-      p = dd_neval(z, j0_P4_5N_hi, j0_P4_5N_lo, 9) / dd_deval(z, j0_P4_5D_hi, j0_P4_5D_lo, 9);
-      q = dd_neval(z, j0_Q4_5N_hi, j0_Q4_5N_lo, 10) / dd_deval(z, j0_Q4_5D_hi, j0_Q4_5D_lo, 9);
+      p = neval(z, j0_P4_5N_hi, j0_P4_5N_lo, 9) / deval(z, j0_P4_5D_hi, j0_P4_5D_lo, 9);
+      q = neval(z, j0_Q4_5N_hi, j0_Q4_5N_lo, 10) / deval(z, j0_Q4_5D_hi, j0_Q4_5D_lo, 9);
     }
   } else {
     if (xinv_d <= 0.375) {
       if (xinv_d <= 0.3125) {
-        p = dd_neval(z, j0_P3r2_4N_hi, j0_P3r2_4N_lo, 9) / dd_deval(z, j0_P3r2_4D_hi, j0_P3r2_4D_lo, 9);
-        q = dd_neval(z, j0_Q3r2_4N_hi, j0_Q3r2_4N_lo, 10) / dd_deval(z, j0_Q3r2_4D_hi, j0_Q3r2_4D_lo, 9);
+        p = neval(z, j0_P3r2_4N_hi, j0_P3r2_4N_lo, 9) / deval(z, j0_P3r2_4D_hi, j0_P3r2_4D_lo, 9);
+        q = neval(z, j0_Q3r2_4N_hi, j0_Q3r2_4N_lo, 10) / deval(z, j0_Q3r2_4D_hi, j0_Q3r2_4D_lo, 9);
       } else {
-        p = dd_neval(z, j0_P2r7_3r2N_hi, j0_P2r7_3r2N_lo, 9) / dd_deval(z, j0_P2r7_3r2D_hi, j0_P2r7_3r2D_lo, 8);
-        q = dd_neval(z, j0_Q2r7_3r2N_hi, j0_Q2r7_3r2N_lo, 9) / dd_deval(z, j0_Q2r7_3r2D_hi, j0_Q2r7_3r2D_lo, 9);
+        p = neval(z, j0_P2r7_3r2N_hi, j0_P2r7_3r2N_lo, 9) / deval(z, j0_P2r7_3r2D_hi, j0_P2r7_3r2D_lo, 8);
+        q = neval(z, j0_Q2r7_3r2N_hi, j0_Q2r7_3r2N_lo, 9) / deval(z, j0_Q2r7_3r2D_hi, j0_Q2r7_3r2D_lo, 9);
       }
     } else if (xinv_d <= 0.4375) {
-      p = dd_neval(z, j0_P2r3_2r7N_hi, j0_P2r3_2r7N_lo, 9) / dd_deval(z, j0_P2r3_2r7D_hi, j0_P2r3_2r7D_lo, 8);
-      q = dd_neval(z, j0_Q2r3_2r7N_hi, j0_Q2r3_2r7N_lo, 9) / dd_deval(z, j0_Q2r3_2r7D_hi, j0_Q2r3_2r7D_lo, 8);
+      p = neval(z, j0_P2r3_2r7N_hi, j0_P2r3_2r7N_lo, 9) / deval(z, j0_P2r3_2r7D_hi, j0_P2r3_2r7D_lo, 8);
+      q = neval(z, j0_Q2r3_2r7N_hi, j0_Q2r3_2r7N_lo, 9) / deval(z, j0_Q2r3_2r7D_hi, j0_Q2r3_2r7D_lo, 8);
     } else {
-      p = dd_neval(z, j0_P2_2r3N_hi, j0_P2_2r3N_lo, 8) / dd_deval(z, j0_P2_2r3D_hi, j0_P2_2r3D_lo, 8);
-      q = dd_neval(z, j0_Q2_2r3N_hi, j0_Q2_2r3N_lo, 9) / dd_deval(z, j0_Q2_2r3D_hi, j0_Q2_2r3D_lo, 8);
+      p = neval(z, j0_P2_2r3N_hi, j0_P2_2r3N_lo, 8) / deval(z, j0_P2_2r3D_hi, j0_P2_2r3D_lo, 8);
+      q = neval(z, j0_Q2_2r3N_hi, j0_Q2_2r3N_lo, 9) / deval(z, j0_Q2_2r3D_hi, j0_Q2_2r3D_lo, 8);
     }
   }
 }
 
 // Shared asymptotic P(z),Q(z) selection for order 1 (used by both j1 and y1).
-static void dd_bessel_pq1(double xinv_d, MFD2 const &z, MFD2 &p, MFD2 &q) {
+static void bessel_pq1(double xinv_d, float64x2 const &z, float64x2 &p, float64x2 &q) {
   if (xinv_d <= 0.25) {
     if (xinv_d <= 0.125) {
       if (xinv_d <= 0.0625) {
-        p = dd_neval(z, j1_P16_IN_hi, j1_P16_IN_lo, 9) / dd_deval(z, j1_P16_ID_hi, j1_P16_ID_lo, 9);
-        q = dd_neval(z, j1_Q16_IN_hi, j1_Q16_IN_lo, 10) / dd_deval(z, j1_Q16_ID_hi, j1_Q16_ID_lo, 9);
+        p = neval(z, j1_P16_IN_hi, j1_P16_IN_lo, 9) / deval(z, j1_P16_ID_hi, j1_P16_ID_lo, 9);
+        q = neval(z, j1_Q16_IN_hi, j1_Q16_IN_lo, 10) / deval(z, j1_Q16_ID_hi, j1_Q16_ID_lo, 9);
       } else {
-        p = dd_neval(z, j1_P8_16N_hi, j1_P8_16N_lo, 11) / dd_deval(z, j1_P8_16D_hi, j1_P8_16D_lo, 10);
-        q = dd_neval(z, j1_Q8_16N_hi, j1_Q8_16N_lo, 11) / dd_deval(z, j1_Q8_16D_hi, j1_Q8_16D_lo, 11);
+        p = neval(z, j1_P8_16N_hi, j1_P8_16N_lo, 11) / deval(z, j1_P8_16D_hi, j1_P8_16D_lo, 10);
+        q = neval(z, j1_Q8_16N_hi, j1_Q8_16N_lo, 11) / deval(z, j1_Q8_16D_hi, j1_Q8_16D_lo, 11);
       }
     } else if (xinv_d <= 0.1875) {
-      p = dd_neval(z, j1_P5_8N_hi, j1_P5_8N_lo, 10) / dd_deval(z, j1_P5_8D_hi, j1_P5_8D_lo, 10);
-      q = dd_neval(z, j1_Q5_8N_hi, j1_Q5_8N_lo, 10) / dd_deval(z, j1_Q5_8D_hi, j1_Q5_8D_lo, 10);
+      p = neval(z, j1_P5_8N_hi, j1_P5_8N_lo, 10) / deval(z, j1_P5_8D_hi, j1_P5_8D_lo, 10);
+      q = neval(z, j1_Q5_8N_hi, j1_Q5_8N_lo, 10) / deval(z, j1_Q5_8D_hi, j1_Q5_8D_lo, 10);
     } else {
-      p = dd_neval(z, j1_P4_5N_hi, j1_P4_5N_lo, 10) / dd_deval(z, j1_P4_5D_hi, j1_P4_5D_lo, 9);
-      q = dd_neval(z, j1_Q4_5N_hi, j1_Q4_5N_lo, 10) / dd_deval(z, j1_Q4_5D_hi, j1_Q4_5D_lo, 9);
+      p = neval(z, j1_P4_5N_hi, j1_P4_5N_lo, 10) / deval(z, j1_P4_5D_hi, j1_P4_5D_lo, 9);
+      q = neval(z, j1_Q4_5N_hi, j1_Q4_5N_lo, 10) / deval(z, j1_Q4_5D_hi, j1_Q4_5D_lo, 9);
     }
   } else {
     if (xinv_d <= 0.375) {
       if (xinv_d <= 0.3125) {
-        p = dd_neval(z, j1_P3r2_4N_hi, j1_P3r2_4N_lo, 9) / dd_deval(z, j1_P3r2_4D_hi, j1_P3r2_4D_lo, 9);
-        q = dd_neval(z, j1_Q3r2_4N_hi, j1_Q3r2_4N_lo, 9) / dd_deval(z, j1_Q3r2_4D_hi, j1_Q3r2_4D_lo, 9);
+        p = neval(z, j1_P3r2_4N_hi, j1_P3r2_4N_lo, 9) / deval(z, j1_P3r2_4D_hi, j1_P3r2_4D_lo, 9);
+        q = neval(z, j1_Q3r2_4N_hi, j1_Q3r2_4N_lo, 9) / deval(z, j1_Q3r2_4D_hi, j1_Q3r2_4D_lo, 9);
       } else {
-        p = dd_neval(z, j1_P2r7_3r2N_hi, j1_P2r7_3r2N_lo, 9) / dd_deval(z, j1_P2r7_3r2D_hi, j1_P2r7_3r2D_lo, 8);
-        q = dd_neval(z, j1_Q2r7_3r2N_hi, j1_Q2r7_3r2N_lo, 9) / dd_deval(z, j1_Q2r7_3r2D_hi, j1_Q2r7_3r2D_lo, 9);
+        p = neval(z, j1_P2r7_3r2N_hi, j1_P2r7_3r2N_lo, 9) / deval(z, j1_P2r7_3r2D_hi, j1_P2r7_3r2D_lo, 8);
+        q = neval(z, j1_Q2r7_3r2N_hi, j1_Q2r7_3r2N_lo, 9) / deval(z, j1_Q2r7_3r2D_hi, j1_Q2r7_3r2D_lo, 9);
       }
     } else if (xinv_d <= 0.4375) {
-      p = dd_neval(z, j1_P2r3_2r7N_hi, j1_P2r3_2r7N_lo, 9) / dd_deval(z, j1_P2r3_2r7D_hi, j1_P2r3_2r7D_lo, 8);
-      q = dd_neval(z, j1_Q2r3_2r7N_hi, j1_Q2r3_2r7N_lo, 9) / dd_deval(z, j1_Q2r3_2r7D_hi, j1_Q2r3_2r7D_lo, 8);
+      p = neval(z, j1_P2r3_2r7N_hi, j1_P2r3_2r7N_lo, 9) / deval(z, j1_P2r3_2r7D_hi, j1_P2r3_2r7D_lo, 8);
+      q = neval(z, j1_Q2r3_2r7N_hi, j1_Q2r3_2r7N_lo, 9) / deval(z, j1_Q2r3_2r7D_hi, j1_Q2r3_2r7D_lo, 8);
     } else {
-      p = dd_neval(z, j1_P2_2r3N_hi, j1_P2_2r3N_lo, 8) / dd_deval(z, j1_P2_2r3D_hi, j1_P2_2r3D_lo, 8);
-      q = dd_neval(z, j1_Q2_2r3N_hi, j1_Q2_2r3N_lo, 9) / dd_deval(z, j1_Q2_2r3D_hi, j1_Q2_2r3D_lo, 8);
+      p = neval(z, j1_P2_2r3N_hi, j1_P2_2r3N_lo, 8) / deval(z, j1_P2_2r3D_hi, j1_P2_2r3D_lo, 8);
+      q = neval(z, j1_Q2_2r3N_hi, j1_Q2_2r3N_lo, 9) / deval(z, j1_Q2_2r3D_hi, j1_Q2_2r3D_lo, 8);
     }
   }
 }
 
-MFD2 dd_bessel_j0_full(MFD2 const &x) {
-  MFD2 ax = x;
+float64x2 bessel_j0_full(float64x2 const &x) {
+  float64x2 ax = x;
   if (ax._limbs[0] < 0.0) { ax._limbs[0] = -ax._limbs[0]; ax._limbs[1] = -ax._limbs[1]; }
   double xx = ax._limbs[0];
-  if (xx == 0.0) return MFD2(1.0);
-  if (!std::isfinite(xx)) return MFD2(0.0);
+  if (xx == 0.0) return float64x2(1.0);
+  if (!std::isfinite(xx)) return float64x2(0.0);
 
   if (xx <= 2.0) {
-    MFD2 z = ax * ax;
-    MFD2 r = z * z * dd_neval(z, j0_J0_2N_hi, j0_J0_2N_lo, 6) /
-                      dd_deval(z, j0_J0_2D_hi, j0_J0_2D_lo, 6);
-    return r - z * MFD2(0.25) + MFD2(1.0);
+    float64x2 z = ax * ax;
+    float64x2 r = z * z * neval(z, j0_J0_2N_hi, j0_J0_2N_lo, 6) /
+                      deval(z, j0_J0_2D_hi, j0_J0_2D_lo, 6);
+    return r - z * float64x2(0.25) + float64x2(1.0);
   }
 
-  MFD2 angle = ax - dd_pair(pi_quarter_hi, pi_quarter_lo);
-  MFD2 s, c;
-  dd_sincos_full(angle, s, c);
-  MFD2 xinv = MFD2(1.0) / ax;
-  MFD2 z = xinv * xinv;
-  MFD2 p, q;
-  dd_bessel_pq0(1.0 / xx, z, p, q);
-  p = MFD2(1.0) + z * p;
-  q = (z * q - MFD2(0.125)) * xinv;
-  MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
+  float64x2 angle = ax - float64x2(pi_quarter_hi, pi_quarter_lo);
+  float64x2 s, c;
+  sincos_full(angle, s, c);
+  float64x2 xinv = float64x2(1.0) / ax;
+  float64x2 z = xinv * xinv;
+  float64x2 p, q;
+  bessel_pq0(1.0 / xx, z, p, q);
+  p = float64x2(1.0) + z * p;
+  q = (z * q - float64x2(0.125)) * xinv;
+  float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
   return multifloats::sqrt(tpi / ax) * (p * c - q * s);
 }
 
-MFD2 dd_bessel_j1_full(MFD2 const &x) {
+float64x2 bessel_j1_full(float64x2 const &x) {
   // j1 is odd, so (+0, -eps) must be detected as negative — checking
   // only the hi limb would miss that case.
   bool neg = x._limbs[0] < 0.0 || (x._limbs[0] == 0.0 && x._limbs[1] < 0.0);
-  MFD2 ax = neg ? -x : x;
+  float64x2 ax = neg ? -x : x;
   double xx = ax._limbs[0];
-  if (xx == 0.0) return MFD2(0.0);
-  if (!std::isfinite(xx)) return MFD2(0.0);
+  if (xx == 0.0) return float64x2(0.0);
+  if (!std::isfinite(xx)) return float64x2(0.0);
 
-  MFD2 res;
+  float64x2 res;
   if (xx <= 2.0) {
-    MFD2 z = ax * ax;
-    res = ax * MFD2(0.5) + ax * z * dd_neval(z, j1_J1_2N_hi, j1_J1_2N_lo, 6) /
-                                     dd_deval(z, j1_J1_2D_hi, j1_J1_2D_lo, 6);
+    float64x2 z = ax * ax;
+    res = ax * float64x2(0.5) + ax * z * neval(z, j1_J1_2N_hi, j1_J1_2N_lo, 6) /
+                                     deval(z, j1_J1_2D_hi, j1_J1_2D_lo, 6);
   } else {
-    MFD2 angle = ax - dd_pair(three_pi_quarter_hi, three_pi_quarter_lo);
-    MFD2 s, c;
-    dd_sincos_full(angle, s, c);
-    MFD2 xinv = MFD2(1.0) / ax;
-    MFD2 z = xinv * xinv;
-    MFD2 p, q;
-    dd_bessel_pq1(1.0 / xx, z, p, q);
-    p = MFD2(1.0) + z * p;
-    q = (z * q + MFD2(0.375)) * xinv;
-    MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
+    float64x2 angle = ax - float64x2(three_pi_quarter_hi, three_pi_quarter_lo);
+    float64x2 s, c;
+    sincos_full(angle, s, c);
+    float64x2 xinv = float64x2(1.0) / ax;
+    float64x2 z = xinv * xinv;
+    float64x2 p, q;
+    bessel_pq1(1.0 / xx, z, p, q);
+    p = float64x2(1.0) + z * p;
+    q = (z * q + float64x2(0.375)) * xinv;
+    float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
     res = multifloats::sqrt(tpi / ax) * (p * c - q * s);
   }
   if (neg) { res._limbs[0] = -res._limbs[0]; res._limbs[1] = -res._limbs[1]; }
   return res;
 }
 
-MFD2 dd_bessel_y0_full(MFD2 const &x) {
+float64x2 bessel_y0_full(float64x2 const &x) {
   double xx = x._limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
                                : std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
@@ -1325,35 +1325,35 @@ MFD2 dd_bessel_y0_full(MFD2 const &x) {
   }
 
   if (xx <= 1e-17) {
-    MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
-    return dd_pair(bessel_u0_hi, bessel_u0_lo) + tpi * dd_log_full(x);
+    float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
+    return float64x2(bessel_u0_hi, bessel_u0_lo) + tpi * log_full(x);
   }
 
   if (xx <= 2.0) {
-    MFD2 z = x * x;
-    MFD2 p = dd_neval(z, j0_Y0_2N_hi, j0_Y0_2N_lo, 7) /
-             dd_deval(z, j0_Y0_2D_hi, j0_Y0_2D_lo, 7);
-    MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
-    return tpi * dd_log_full(x) * dd_bessel_j0_full(x) + p;
+    float64x2 z = x * x;
+    float64x2 p = neval(z, j0_Y0_2N_hi, j0_Y0_2N_lo, 7) /
+             deval(z, j0_Y0_2D_hi, j0_Y0_2D_lo, 7);
+    float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
+    return tpi * log_full(x) * bessel_j0_full(x) + p;
   }
 
-  MFD2 angle = x - dd_pair(pi_quarter_hi, pi_quarter_lo);
-  MFD2 s, c;
-  dd_sincos_full(angle, s, c);
-  MFD2 xinv = MFD2(1.0) / x;
-  MFD2 z = xinv * xinv;
-  MFD2 p, q;
-  dd_bessel_pq0(1.0 / xx, z, p, q);
-  p = MFD2(1.0) + z * p;
-  q = (z * q - MFD2(0.125)) * xinv;
-  MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
+  float64x2 angle = x - float64x2(pi_quarter_hi, pi_quarter_lo);
+  float64x2 s, c;
+  sincos_full(angle, s, c);
+  float64x2 xinv = float64x2(1.0) / x;
+  float64x2 z = xinv * xinv;
+  float64x2 p, q;
+  bessel_pq0(1.0 / xx, z, p, q);
+  p = float64x2(1.0) + z * p;
+  q = (z * q - float64x2(0.125)) * xinv;
+  float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
   return multifloats::sqrt(tpi / x) * (p * s + q * c);
 }
 
-MFD2 dd_bessel_y1_full(MFD2 const &x) {
+float64x2 bessel_y1_full(float64x2 const &x) {
   double xx = x._limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
                                : std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
@@ -1361,28 +1361,28 @@ MFD2 dd_bessel_y1_full(MFD2 const &x) {
   }
 
   if (xx <= 1e-30) {
-    MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
-    return MFD2(0.0) - tpi / x;
+    float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
+    return float64x2(0.0) - tpi / x;
   }
 
   if (xx <= 2.0) {
-    MFD2 z = x * x;
-    MFD2 p = x * dd_neval(z, j1_Y1_2N_hi, j1_Y1_2N_lo, 7) /
-                 dd_deval(z, j1_Y1_2D_hi, j1_Y1_2D_lo, 7);
-    MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
-    return tpi * (dd_log_full(x) * dd_bessel_j1_full(x) - MFD2(1.0) / x) + p;
+    float64x2 z = x * x;
+    float64x2 p = x * neval(z, j1_Y1_2N_hi, j1_Y1_2N_lo, 7) /
+                 deval(z, j1_Y1_2D_hi, j1_Y1_2D_lo, 7);
+    float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
+    return tpi * (log_full(x) * bessel_j1_full(x) - float64x2(1.0) / x) + p;
   }
 
-  MFD2 angle = x - dd_pair(three_pi_quarter_hi, three_pi_quarter_lo);
-  MFD2 s, c;
-  dd_sincos_full(angle, s, c);
-  MFD2 xinv = MFD2(1.0) / x;
-  MFD2 z = xinv * xinv;
-  MFD2 p, q;
-  dd_bessel_pq1(1.0 / xx, z, p, q);
-  p = MFD2(1.0) + z * p;
-  q = (z * q + MFD2(0.375)) * xinv;
-  MFD2 tpi = dd_pair(two_over_pi_hi, two_over_pi_lo);
+  float64x2 angle = x - float64x2(three_pi_quarter_hi, three_pi_quarter_lo);
+  float64x2 s, c;
+  sincos_full(angle, s, c);
+  float64x2 xinv = float64x2(1.0) / x;
+  float64x2 z = xinv * xinv;
+  float64x2 p, q;
+  bessel_pq1(1.0 / xx, z, p, q);
+  p = float64x2(1.0) + z * p;
+  q = (z * q + float64x2(0.375)) * xinv;
+  float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
   return multifloats::sqrt(tpi / x) * (p * s + q * c);
 }
 
@@ -1398,72 +1398,72 @@ MFD2 dd_bessel_y1_full(MFD2 const &x) {
 // Yn: forward recurrence is always stable (|Y_n| grows with n for fixed x),
 // so no Miller's algorithm is needed.
 
-static MFD2 dd_bessel_jn_full(int n, MFD2 x) {
+static float64x2 bessel_jn_full(int n, float64x2 x) {
   // Track sign flips from the identities
   //   J_{-n}(x) = (-1)^n J_n(x)     and     J_n(-x) = (-1)^n J_n(x).
   int parity = 0;
   if (n < 0) { n = -n; parity ^= (n & 1); }
-  if (n == 0) return dd_bessel_j0_full(x);
+  if (n == 0) return bessel_j0_full(x);
   if (n == 1) {
-    MFD2 r = dd_bessel_j1_full(x);
+    float64x2 r = bessel_j1_full(x);
     return parity ? -r : r;
   }
   if (x._limbs[0] < 0.0) { x = -x; parity ^= (n & 1); }
 
   double xx = x._limbs[0];
-  if (xx == 0.0 || !std::isfinite(xx)) return MFD2(0.0);
+  if (xx == 0.0 || !std::isfinite(xx)) return float64x2(0.0);
 
-  MFD2 result;
+  float64x2 result;
   if (static_cast<double>(n) <= xx) {
     // Forward recurrence.
-    MFD2 a = dd_bessel_j0_full(x);
-    MFD2 b = dd_bessel_j1_full(x);
+    float64x2 a = bessel_j0_full(x);
+    float64x2 b = bessel_j1_full(x);
     for (int i = 1; i < n; ++i) {
-      MFD2 temp = b;
-      b = MFD2(static_cast<double>(2 * i)) / x * b - a;
+      float64x2 temp = b;
+      b = float64x2(static_cast<double>(2 * i)) / x * b - a;
       a = temp;
     }
     result = b;
   } else {
     // Continued-fraction start: iterate until q1 crosses 1e17. The index k at
     // which that happens is the safe extra depth for Miller's backward sweep.
-    MFD2 w = MFD2(static_cast<double>(2 * n) / xx);
-    MFD2 h = MFD2(2.0 / xx);
-    MFD2 q0 = w;
-    MFD2 z = w + h;
-    MFD2 q1 = w * z - MFD2(1.0);
+    float64x2 w = float64x2(static_cast<double>(2 * n) / xx);
+    float64x2 h = float64x2(2.0 / xx);
+    float64x2 q0 = w;
+    float64x2 z = w + h;
+    float64x2 q1 = w * z - float64x2(1.0);
     int k = 1;
     while (q1._limbs[0] < 1e17) {
       ++k;
       z = z + h;
-      MFD2 tmp = z * q1 - q0;
+      float64x2 tmp = z * q1 - q0;
       q0 = q1;
       q1 = tmp;
     }
     // Downward Lentz from index 2(n+k) to 2n.
-    MFD2 t(0.0);
+    float64x2 t(0.0);
     for (int i = 2 * (n + k); i >= 2 * n; i -= 2) {
-      t = MFD2(1.0) / (MFD2(static_cast<double>(i)) / x - t);
+      t = float64x2(1.0) / (float64x2(static_cast<double>(i)) / x - t);
     }
-    MFD2 a = t;
-    MFD2 b(1.0);
+    float64x2 a = t;
+    float64x2 b(1.0);
     // Decide whether this problem size can overflow during descent.
-    MFD2 v = MFD2(2.0 / xx);
-    MFD2 log_arg = MFD2(static_cast<double>(n)) *
-                   dd_log_full(multifloats::abs(v * MFD2(static_cast<double>(n))));
+    float64x2 v = float64x2(2.0 / xx);
+    float64x2 log_arg = float64x2(static_cast<double>(n)) *
+                   log_full(multifloats::abs(v * float64x2(static_cast<double>(n))));
     bool rescale = log_arg._limbs[0] >= 1.1356e4;
     for (int i = n - 1; i >= 1; --i) {
-      MFD2 temp = b;
-      b = MFD2(static_cast<double>(2 * i)) * b / x - a;
+      float64x2 temp = b;
+      b = float64x2(static_cast<double>(2 * i)) * b / x - a;
       a = temp;
       if (rescale && b._limbs[0] > 1e100) {
         a = a / b;
         t = t / b;
-        b = MFD2(1.0);
+        b = float64x2(1.0);
       }
     }
-    MFD2 z0 = dd_bessel_j0_full(x);
-    MFD2 z1 = dd_bessel_j1_full(x);
+    float64x2 z0 = bessel_j0_full(x);
+    float64x2 z1 = bessel_j1_full(x);
     if (std::abs(z0._limbs[0]) >= std::abs(z1._limbs[0])) {
       result = t * z0 / b;
     } else {
@@ -1473,32 +1473,32 @@ static MFD2 dd_bessel_jn_full(int n, MFD2 x) {
   return parity ? -result : result;
 }
 
-static MFD2 dd_bessel_yn_full(int n, MFD2 x) {
+static float64x2 bessel_yn_full(int n, float64x2 x) {
   // Y_{-n}(x) = (-1)^n Y_n(x). No x-sign identity — Y is undefined on x < 0.
   int parity = 0;
   if (n < 0) { n = -n; parity ^= (n & 1); }
   double xx = x._limbs[0];
   if (xx <= 0.0) {
-    MFD2 r;
+    float64x2 r;
     r._limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
                               :  std::numeric_limits<double>::quiet_NaN();
     r._limbs[1] = 0.0;
     return r;
   }
   if (n == 0) {
-    MFD2 r = dd_bessel_y0_full(x);
+    float64x2 r = bessel_y0_full(x);
     return parity ? -r : r;
   }
   if (n == 1) {
-    MFD2 r = dd_bessel_y1_full(x);
+    float64x2 r = bessel_y1_full(x);
     return parity ? -r : r;
   }
-  if (!std::isfinite(xx)) return MFD2(0.0);
-  MFD2 a = dd_bessel_y0_full(x);
-  MFD2 b = dd_bessel_y1_full(x);
+  if (!std::isfinite(xx)) return float64x2(0.0);
+  float64x2 a = bessel_y0_full(x);
+  float64x2 b = bessel_y1_full(x);
   for (int i = 1; i < n; ++i) {
-    MFD2 temp = b;
-    b = MFD2(static_cast<double>(2 * i)) / x * b - a;
+    float64x2 temp = b;
+    b = float64x2(static_cast<double>(2 * i)) / x * b - a;
     a = temp;
     if (!std::isfinite(b._limbs[0])) break;
   }
@@ -1508,16 +1508,16 @@ static MFD2 dd_bessel_yn_full(int n, MFD2 x) {
 // Range variant: compute Y_{n1}, Y_{n1+1}, …, Y_{n2}(x) into `out` via a
 // single forward recurrence sweep. Cheaper than n2−n1+1 independent calls.
 // Caller guarantees out[] has room for n2−n1+1 elements.
-static void dd_bessel_yn_range_full(int n1, int n2, MFD2 x, MFD2 *out) {
+static void bessel_yn_range_full(int n1, int n2, float64x2 x, float64x2 *out) {
   int size = n2 - n1 + 1;
   if (size <= 0) return;
-  MFD2 a = dd_bessel_y0_full(x);
-  MFD2 b = dd_bessel_y1_full(x);
+  float64x2 a = bessel_y0_full(x);
+  float64x2 b = bessel_y1_full(x);
   if (n1 == 0) out[0] = a;
   if (n1 <= 1 && n2 >= 1) out[1 - n1] = b;
   for (int n = 2; n <= n2; ++n) {
-    MFD2 temp = b;
-    b = MFD2(static_cast<double>(2 * (n - 1))) / x * b - a;
+    float64x2 temp = b;
+    b = float64x2(static_cast<double>(2 * (n - 1))) / x * b - a;
     a = temp;
     if (n >= n1) out[n - n1] = b;
     if (!std::isfinite(b._limbs[0])) {
@@ -1548,7 +1548,7 @@ static inline float64x2_t to(MF2 const &x) { return {x._limbs[0], x._limbs[1]}; 
 // the MAC fusing into one register-resident body; a stray function call
 // here would spill the accumulator ladder and cost ~2× the hot loop.
 __attribute__((always_inline))
-static inline void dd_mac_inl(double ah, double al, double bh, double bl,
+static inline void mac_inl(double ah, double al, double bh, double bl,
                               double &s_hi, double &s_lo) {
   double p = ah * bh;
   double e = std::fma(ah, bh, -p);
@@ -1566,7 +1566,7 @@ static inline void dd_mac_inl(double ah, double al, double bh, double bl,
 // fast_two_sum because |s_hi| >= |s_lo| is not guaranteed after
 // cancellation in a long compensated dot-product.
 __attribute__((always_inline))
-static inline void dd_renorm_inl(double &s_hi, double &s_lo) {
+static inline void renorm_inl(double &s_hi, double &s_lo) {
   double t = s_hi + s_lo;
   double bp = t - s_hi;
   double ap = t - bp;
@@ -1577,8 +1577,8 @@ static inline void dd_renorm_inl(double &s_hi, double &s_lo) {
 }
 
 __attribute__((always_inline))
-static inline float64x2_t dd_finalize_inl(double s_hi, double s_lo) {
-  dd_renorm_inl(s_hi, s_lo);
+static inline float64x2_t finalize_inl(double s_hi, double s_lo) {
+  renorm_inl(s_hi, s_lo);
   return {s_hi, s_lo};
 }
 
@@ -1589,7 +1589,7 @@ static inline float64x2_t dd_finalize_inl(double s_hi, double s_lo) {
 // accumulator pair every `renorm_interval` reductions (keeps s_lo
 // bounded and precision ~DD for large k, matching dot_product).
 template <int MR>
-static inline void dd_gaxpy_mv_panel(const float64x2_t *__restrict__ a,
+static inline void gaxpy_mv_panel(const float64x2_t *__restrict__ a,
                                      const float64x2_t *__restrict__ x,
                                      float64x2_t *__restrict__ y, int64_t lda,
                                      int64_t k, int64_t renorm_interval) {
@@ -1602,10 +1602,10 @@ static inline void dd_gaxpy_mv_panel(const float64x2_t *__restrict__ a,
       const double xl = x[p].lo;
       const float64x2_t *__restrict__ acol = a + p * lda;
       for (int i = 0; i < MR; ++i) {
-        dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
+        mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
       }
     }
-    for (int i = 0; i < MR; ++i) y[i] = dd_finalize_inl(s_hi[i], s_lo[i]);
+    for (int i = 0; i < MR; ++i) y[i] = finalize_inl(s_hi[i], s_lo[i]);
     return;
   }
   // Chunked path: for large k, do `renorm_interval` reductions then
@@ -1620,15 +1620,15 @@ static inline void dd_gaxpy_mv_panel(const float64x2_t *__restrict__ a,
       const double xl = x[p].lo;
       const float64x2_t *__restrict__ acol = a + p * lda;
       for (int i = 0; i < MR; ++i) {
-        dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
+        mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
       }
     }
     p0 = pend;
     if (p0 < k) {
-      for (int i = 0; i < MR; ++i) dd_renorm_inl(s_hi[i], s_lo[i]);
+      for (int i = 0; i < MR; ++i) renorm_inl(s_hi[i], s_lo[i]);
     }
   }
-  for (int i = 0; i < MR; ++i) y[i] = dd_finalize_inl(s_hi[i], s_lo[i]);
+  for (int i = 0; i < MR; ++i) y[i] = finalize_inl(s_hi[i], s_lo[i]);
 }
 
 // Cold tail handler: 1..7 leftover rows. Kept out-of-line so the hot
@@ -1636,25 +1636,25 @@ static inline void dd_gaxpy_mv_panel(const float64x2_t *__restrict__ a,
 // into matmuldd_mv — otherwise the 7 extra template instantiations
 // would bloat the caller and push the accumulators out of registers.
 __attribute__((noinline))
-static void dd_gaxpy_mv_tail(const float64x2_t *__restrict__ a,
+static void gaxpy_mv_tail(const float64x2_t *__restrict__ a,
                              const float64x2_t *__restrict__ x,
                              float64x2_t *__restrict__ y, int tail,
                              int64_t lda, int64_t k,
                              int64_t renorm_interval) {
   switch (tail) {
-    case 1: dd_gaxpy_mv_panel<1>(a, x, y, lda, k, renorm_interval); break;
-    case 2: dd_gaxpy_mv_panel<2>(a, x, y, lda, k, renorm_interval); break;
-    case 3: dd_gaxpy_mv_panel<3>(a, x, y, lda, k, renorm_interval); break;
-    case 4: dd_gaxpy_mv_panel<4>(a, x, y, lda, k, renorm_interval); break;
-    case 5: dd_gaxpy_mv_panel<5>(a, x, y, lda, k, renorm_interval); break;
-    case 6: dd_gaxpy_mv_panel<6>(a, x, y, lda, k, renorm_interval); break;
-    case 7: dd_gaxpy_mv_panel<7>(a, x, y, lda, k, renorm_interval); break;
+    case 1: gaxpy_mv_panel<1>(a, x, y, lda, k, renorm_interval); break;
+    case 2: gaxpy_mv_panel<2>(a, x, y, lda, k, renorm_interval); break;
+    case 3: gaxpy_mv_panel<3>(a, x, y, lda, k, renorm_interval); break;
+    case 4: gaxpy_mv_panel<4>(a, x, y, lda, k, renorm_interval); break;
+    case 5: gaxpy_mv_panel<5>(a, x, y, lda, k, renorm_interval); break;
+    case 6: gaxpy_mv_panel<6>(a, x, y, lda, k, renorm_interval); break;
+    case 7: gaxpy_mv_panel<7>(a, x, y, lda, k, renorm_interval); break;
   }
 }
 
 // Tile any m into MR=8 row panels plus a 1..7 tail. Keep this small so
 // the hot panel<8> body inlines — accumulators need to stay in registers.
-static inline void dd_gaxpy_mv_dispatch(const float64x2_t *__restrict__ a,
+static inline void gaxpy_mv_dispatch(const float64x2_t *__restrict__ a,
                                         const float64x2_t *__restrict__ x,
                                         float64x2_t *__restrict__ y, int64_t m,
                                         int64_t k, int64_t lda,
@@ -1662,10 +1662,10 @@ static inline void dd_gaxpy_mv_dispatch(const float64x2_t *__restrict__ a,
   constexpr int MR = 8;
   int64_t i = 0;
   for (; i + MR <= m; i += MR) {
-    dd_gaxpy_mv_panel<MR>(a + i, x, y + i, lda, k, renorm_interval);
+    gaxpy_mv_panel<MR>(a + i, x, y + i, lda, k, renorm_interval);
   }
   int tail = static_cast<int>(m - i);
-  if (tail > 0) dd_gaxpy_mv_tail(a + i, x, y + i, tail, lda, k, renorm_interval);
+  if (tail > 0) gaxpy_mv_tail(a + i, x, y + i, tail, lda, k, renorm_interval);
 }
 
 // MR×NR GEMM µkernel: loads one column-slice of A per p and reuses it
@@ -1674,7 +1674,7 @@ static inline void dd_gaxpy_mv_dispatch(const float64x2_t *__restrict__ a,
 // machines with < 32 FP regs, but the spill cost is paid once per p
 // and dwarfed by the DD-mac FLOPs).
 template <int MR, int NR>
-static inline void dd_gemm_panel(const float64x2_t *__restrict__ a,
+static inline void gemm_panel(const float64x2_t *__restrict__ a,
                                  const float64x2_t *__restrict__ b,
                                  float64x2_t *__restrict__ c,
                                  int64_t lda, int64_t ldb, int64_t ldc,
@@ -1689,7 +1689,7 @@ static inline void dd_gemm_panel(const float64x2_t *__restrict__ a,
         const double bh = b[jj * ldb + p].hi;
         const double bl = b[jj * ldb + p].lo;
         for (int i = 0; i < MR; ++i) {
-          dd_mac_inl(ah[i], al[i], bh, bl, s_hi[i][jj], s_lo[i][jj]);
+          mac_inl(ah[i], al[i], bh, bl, s_hi[i][jj], s_lo[i][jj]);
         }
       }
     }
@@ -1707,13 +1707,13 @@ static inline void dd_gemm_panel(const float64x2_t *__restrict__ a,
       if (p0 < k) {
         for (int jj = 0; jj < NR; ++jj)
           for (int i = 0; i < MR; ++i)
-            dd_renorm_inl(s_hi[i][jj], s_lo[i][jj]);
+            renorm_inl(s_hi[i][jj], s_lo[i][jj]);
       }
     }
   }
   for (int jj = 0; jj < NR; ++jj)
     for (int i = 0; i < MR; ++i)
-      c[jj * ldc + i] = dd_finalize_inl(s_hi[i][jj], s_lo[i][jj]);
+      c[jj * ldc + i] = finalize_inl(s_hi[i][jj], s_lo[i][jj]);
 }
 } // anonymous namespace
 
@@ -1736,82 +1736,82 @@ float64x2_t rounddd(float64x2_t a) { return to(multifloats::round(from(a))); }
 float64x2_t fmindd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmin(from(a), from(b))); }
 float64x2_t fmaxdd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmax(from(a), from(b))); }
 float64x2_t hypotdd(float64x2_t a, float64x2_t b)    { return to(multifloats::hypot(from(a), from(b))); }
-float64x2_t powdd(float64x2_t a, float64x2_t b)      { return to(dd_pow_full(from(a), from(b))); }
+float64x2_t powdd(float64x2_t a, float64x2_t b)      { return to(pow_full(from(a), from(b))); }
 float64x2_t fmoddd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmod(from(a), from(b))); }
 float64x2_t fdimdd(float64x2_t a, float64x2_t b)     { return to(multifloats::fdim(from(a), from(b))); }
 float64x2_t copysigndd(float64x2_t a, float64x2_t b) { return to(multifloats::copysign(from(a), from(b))); }
 float64x2_t fmadd(float64x2_t a, float64x2_t b, float64x2_t c) { return to(multifloats::fma(from(a), from(b), from(c))); }
 
 // Exponential / logarithmic
-float64x2_t expdd(float64x2_t a)   { return to(dd_exp_full(from(a))); }
-float64x2_t exp2dd(float64x2_t a)  { return to(dd_exp2_full(from(a))); }
-float64x2_t logdd(float64x2_t a)   { return to(dd_log_full(from(a))); }
-float64x2_t log2dd(float64x2_t a)  { return to(dd_log2_full(from(a))); }
-float64x2_t log10dd(float64x2_t a) { return to(dd_log10_full(from(a))); }
+float64x2_t expdd(float64x2_t a)   { return to(exp_full(from(a))); }
+float64x2_t exp2dd(float64x2_t a)  { return to(exp2_full(from(a))); }
+float64x2_t logdd(float64x2_t a)   { return to(log_full(from(a))); }
+float64x2_t log2dd(float64x2_t a)  { return to(log2_full(from(a))); }
+float64x2_t log10dd(float64x2_t a) { return to(log10_full(from(a))); }
 
 // Trigonometric
-float64x2_t sindd(float64x2_t a)   { return to(dd_sin_full(from(a))); }
-float64x2_t cosdd(float64x2_t a)   { return to(dd_cos_full(from(a))); }
-float64x2_t tandd(float64x2_t a)   { return to(dd_tan_full(from(a))); }
-float64x2_t asindd(float64x2_t a)  { return to(dd_asin_full(from(a))); }
-float64x2_t acosdd(float64x2_t a)  { return to(dd_acos_full(from(a))); }
-float64x2_t atandd(float64x2_t a)  { return to(dd_atan_full(from(a))); }
-float64x2_t atan2dd(float64x2_t a, float64x2_t b) { return to(dd_atan2_full(from(a), from(b))); }
+float64x2_t sindd(float64x2_t a)   { return to(sin_full(from(a))); }
+float64x2_t cosdd(float64x2_t a)   { return to(cos_full(from(a))); }
+float64x2_t tandd(float64x2_t a)   { return to(tan_full(from(a))); }
+float64x2_t asindd(float64x2_t a)  { return to(asin_full(from(a))); }
+float64x2_t acosdd(float64x2_t a)  { return to(acos_full(from(a))); }
+float64x2_t atandd(float64x2_t a)  { return to(atan_full(from(a))); }
+float64x2_t atan2dd(float64x2_t a, float64x2_t b) { return to(atan2_full(from(a), from(b))); }
 
 // π-scaled trig: fn_pi(x) = fn(π·x) or fn(x)/π.
-float64x2_t sinpidd(float64x2_t a)  { return to(dd_sinpi_full(from(a))); }
-float64x2_t cospidd(float64x2_t a)  { return to(dd_cospi_full(from(a))); }
-float64x2_t tanpidd(float64x2_t a)  { return to(dd_tanpi_full(from(a))); }
-float64x2_t asinpidd(float64x2_t a) { return to(dd_asinpi_full(from(a))); }
-float64x2_t acospidd(float64x2_t a) { return to(dd_acospi_full(from(a))); }
-float64x2_t atanpidd(float64x2_t a) { return to(dd_atanpi_full(from(a))); }
-float64x2_t atan2pidd(float64x2_t a, float64x2_t b) { return to(dd_atan2pi_full(from(a), from(b))); }
+float64x2_t sinpidd(float64x2_t a)  { return to(sinpi_full(from(a))); }
+float64x2_t cospidd(float64x2_t a)  { return to(cospi_full(from(a))); }
+float64x2_t tanpidd(float64x2_t a)  { return to(tanpi_full(from(a))); }
+float64x2_t asinpidd(float64x2_t a) { return to(asinpi_full(from(a))); }
+float64x2_t acospidd(float64x2_t a) { return to(acospi_full(from(a))); }
+float64x2_t atanpidd(float64x2_t a) { return to(atanpi_full(from(a))); }
+float64x2_t atan2pidd(float64x2_t a, float64x2_t b) { return to(atan2pi_full(from(a), from(b))); }
 
 // Hyperbolic
-float64x2_t sinhdd(float64x2_t a)  { return to(dd_sinh_full(from(a))); }
-float64x2_t coshdd(float64x2_t a)  { return to(dd_cosh_full(from(a))); }
-float64x2_t tanhdd(float64x2_t a)  { return to(dd_tanh_full(from(a))); }
-float64x2_t asinhdd(float64x2_t a) { return to(dd_asinh_full(from(a))); }
-float64x2_t acoshdd(float64x2_t a) { return to(dd_acosh_full(from(a))); }
-float64x2_t atanhdd(float64x2_t a) { return to(dd_atanh_full(from(a))); }
+float64x2_t sinhdd(float64x2_t a)  { return to(sinh_full(from(a))); }
+float64x2_t coshdd(float64x2_t a)  { return to(cosh_full(from(a))); }
+float64x2_t tanhdd(float64x2_t a)  { return to(tanh_full(from(a))); }
+float64x2_t asinhdd(float64x2_t a) { return to(asinh_full(from(a))); }
+float64x2_t acoshdd(float64x2_t a) { return to(acosh_full(from(a))); }
+float64x2_t atanhdd(float64x2_t a) { return to(atanh_full(from(a))); }
 
 // Error functions
-float64x2_t erfdd(float64x2_t a)   { return to(dd_erf_full(from(a))); }
-float64x2_t erfcdd(float64x2_t a)  { return to(dd_erfc_full(from(a))); }
-float64x2_t erfcxdd(float64x2_t a) { return to(dd_erfc_scaled_full(from(a))); }
+float64x2_t erfdd(float64x2_t a)   { return to(erf_full(from(a))); }
+float64x2_t erfcdd(float64x2_t a)  { return to(erfc_full(from(a))); }
+float64x2_t erfcxdd(float64x2_t a) { return to(erfc_scaled_full(from(a))); }
 
 // Gamma functions
-float64x2_t tgammadd(float64x2_t a) { return to(dd_tgamma_full(from(a))); }
-float64x2_t lgammadd(float64x2_t a) { return to(dd_lgamma_full(from(a))); }
+float64x2_t tgammadd(float64x2_t a) { return to(tgamma_full(from(a))); }
+float64x2_t lgammadd(float64x2_t a) { return to(lgamma_full(from(a))); }
 
 // Bessel functions (math.h naming: j0, j1, y0, y1)
-float64x2_t j0dd(float64x2_t a) { return to(dd_bessel_j0_full(from(a))); }
-float64x2_t j1dd(float64x2_t a) { return to(dd_bessel_j1_full(from(a))); }
-float64x2_t y0dd(float64x2_t a) { return to(dd_bessel_y0_full(from(a))); }
-float64x2_t y1dd(float64x2_t a) { return to(dd_bessel_y1_full(from(a))); }
+float64x2_t j0dd(float64x2_t a) { return to(bessel_j0_full(from(a))); }
+float64x2_t j1dd(float64x2_t a) { return to(bessel_j1_full(from(a))); }
+float64x2_t y0dd(float64x2_t a) { return to(bessel_y0_full(from(a))); }
+float64x2_t y1dd(float64x2_t a) { return to(bessel_y1_full(from(a))); }
 
 // Integer-order Bessel functions (recurrence from j0/j1, y0/y1).
-float64x2_t jndd(int n, float64x2_t a) { return to(dd_bessel_jn_full(n, from(a))); }
-float64x2_t yndd(int n, float64x2_t a) { return to(dd_bessel_yn_full(n, from(a))); }
+float64x2_t jndd(int n, float64x2_t a) { return to(bessel_jn_full(n, from(a))); }
+float64x2_t yndd(int n, float64x2_t a) { return to(bessel_yn_full(n, from(a))); }
 void yn_rangedd(int n1, int n2, float64x2_t a, float64x2_t *out) {
   int size = n2 - n1 + 1;
   if (size <= 0) return;
   std::vector<MF2> buf(size);
-  dd_bessel_yn_range_full(n1, n2, from(a), buf.data());
+  bessel_yn_range_full(n1, n2, from(a), buf.data());
   for (int i = 0; i < size; ++i) out[i] = to(buf[i]);
 }
 
 // Fused sincos / sinhcosh. Out-pointer style (C has no multi-value return).
 void sincosdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
   MF2 ss, cc;
-  dd_sincos_full(from(a), ss, cc);
+  sincos_full(from(a), ss, cc);
   *s = to(ss);
   *c = to(cc);
 }
 
 void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
   MF2 ss, cc;
-  dd_sinhcosh_full(from(a), ss, cc);
+  sinhcosh_full(from(a), ss, cc);
   *s = to(ss);
   *c = to(cc);
 }
@@ -1820,10 +1820,10 @@ void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
 //
 // Branch cuts follow C99 Annex G (matching libquadmath cexpq/clogq/csqrtq).
 // Where the real-axis formula needs both sin(y) and cos(y) (or both sinh
-// and cosh), these call the fused dd_sincos_full / dd_sinhcosh_full kernels
+// and cosh), these call the fused sincos_full / sinhcosh_full kernels
 // so one range reduction + Taylor pair covers both outputs. Functions that
 // are built on top of cx_sqrt / cx_log (asin/acos/...) call the exported
-// dd_cx_* symbols directly; within a single TU the compiler inlines those.
+// cx_* symbols directly; within a single TU the compiler inlines those.
 //
 // The text "2 fused" vs "4 separate" in speed comments below is measured
 // against libstdc++'s generic <complex> template path (see commit notes).
@@ -1831,9 +1831,9 @@ void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
 // exp(a+bi) = e^a · (cos b + i·sin b). 2 transcendentals (exp + sincos).
 complex64x2_t cexpdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
-  MF2 ea = dd_exp_full(a);
+  MF2 ea = exp_full(a);
   MF2 s, c;
-  dd_sincos_full(b, s, c);
+  sincos_full(b, s, c);
   return { to(ea * c), to(ea * s) };
 }
 
@@ -1855,17 +1855,17 @@ complex64x2_t clogdd(complex64x2_t z) {
     r._limbs[1] = 0.0;
   } else {
     MF2 ratio = small / big;
-    MF2 one = dd_pair(1.0, 0.0);
-    MF2 half = dd_pair(0.5, 0.0);
-    r = dd_log_full(big) + half * dd_log_full(one + ratio * ratio);
+    MF2 one = float64x2(1.0, 0.0);
+    MF2 half = float64x2(0.5, 0.0);
+    r = log_full(big) + half * log_full(one + ratio * ratio);
   }
-  MF2 phi = dd_atan2_full(b, a);
+  MF2 phi = atan2_full(b, a);
   return { to(r), to(phi) };
 }
 
 // log10(z) = log(z) · (1/ln 10).
 complex64x2_t clog10dd(complex64x2_t z) {
-  static const MF2 inv_ln10 = dd_pair(0x1.bcb7b1526e50ep-2,
+  static const MF2 inv_ln10 = float64x2(0x1.bcb7b1526e50ep-2,
                                       0x1.95355baaafad3p-57);
   complex64x2_t l = clogdd(z);
   return { to(from(l.re) * inv_ln10), to(from(l.im) * inv_ln10) };
@@ -1889,7 +1889,7 @@ complex64x2_t csqrtdd(complex64x2_t z) {
   if (a._limbs[0] == 0.0 && b._limbs[0] == 0.0)
     return { to(MF2(0.0)), z.im };  // preserves signed zero of imag
   MF2 mod = multifloats::hypot(a, b);
-  MF2 half = dd_pair(0.5, 0.0);
+  MF2 half = float64x2(0.5, 0.0);
   if (a._limbs[0] >= 0.0) {
     MF2 r = multifloats::sqrt((mod + a) * half);
     MF2 i = b / (r + r);
@@ -1906,8 +1906,8 @@ complex64x2_t csqrtdd(complex64x2_t z) {
 complex64x2_t csindd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
-  dd_sincos_full(a, sa, ca);
-  dd_sinhcosh_full(b, sb, cb);
+  sincos_full(a, sa, ca);
+  sinhcosh_full(b, sb, cb);
   return { to(sa * cb), to(ca * sb) };
 }
 
@@ -1915,8 +1915,8 @@ complex64x2_t csindd(complex64x2_t z) {
 complex64x2_t ccosdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
-  dd_sincos_full(a, sa, ca);
-  dd_sinhcosh_full(b, sb, cb);
+  sincos_full(a, sa, ca);
+  sinhcosh_full(b, sb, cb);
   return { to(ca * cb), to(-(sa * sb)) };
 }
 
@@ -1926,8 +1926,8 @@ complex64x2_t ccosdd(complex64x2_t z) {
 complex64x2_t ctandd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
-  dd_sincos_full(a, sa, ca);
-  dd_sinhcosh_full(b, sb, cb);
+  sincos_full(a, sa, ca);
+  sinhcosh_full(b, sb, cb);
   MF2 den = ca * ca + sb * sb;
   return { to((sa * ca) / den), to((sb * cb) / den) };
 }
@@ -1950,7 +1950,7 @@ complex64x2_t casindd(complex64x2_t z) {
 // template truncates `(_Tp)1.5707963…L` to double on arm64-macOS, losing
 // the DD low limb — specializing here fixes that correctness bug.
 complex64x2_t cacosdd(complex64x2_t z) {
-  static const MF2 half_pi = dd_pair(0x1.921fb54442d18p+0,
+  static const MF2 half_pi = float64x2(0x1.921fb54442d18p+0,
                                      0x1.1a62633145c07p-54);
   complex64x2_t s = casindd(z);
   return { to(half_pi - from(s.re)), to(-from(s.im)) };
@@ -1967,17 +1967,17 @@ complex64x2_t catandd(complex64x2_t z) {
   MF2 bp1 = b + MF2(1.0), bm1 = b - MF2(1.0);
   MF2 num = a2 + bp1 * bp1;
   MF2 den = a2 + bm1 * bm1;
-  MF2 half = dd_pair(0.5, 0.0), quarter = dd_pair(0.25, 0.0);
-  return { to(half * dd_atan2_full(a + a, x)),
-           to(quarter * dd_log_full(num / den)) };
+  MF2 half = float64x2(0.5, 0.0), quarter = float64x2(0.25, 0.0);
+  return { to(half * atan2_full(a + a, x)),
+           to(quarter * log_full(num / den)) };
 }
 
 // sinh(a+bi) = sinh(a)·cos(b) + i·cosh(a)·sin(b). 2 fused transcendentals.
 complex64x2_t csinhdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
-  dd_sinhcosh_full(a, sa, ca);
-  dd_sincos_full(b, sb, cb);
+  sinhcosh_full(a, sa, ca);
+  sincos_full(b, sb, cb);
   return { to(sa * cb), to(ca * sb) };
 }
 
@@ -1985,8 +1985,8 @@ complex64x2_t csinhdd(complex64x2_t z) {
 complex64x2_t ccoshdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
-  dd_sinhcosh_full(a, sa, ca);
-  dd_sincos_full(b, sb, cb);
+  sinhcosh_full(a, sa, ca);
+  sincos_full(b, sb, cb);
   return { to(ca * cb), to(sa * sb) };
 }
 
@@ -1995,8 +1995,8 @@ complex64x2_t ccoshdd(complex64x2_t z) {
 complex64x2_t ctanhdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
-  dd_sinhcosh_full(a, sa, ca);
-  dd_sincos_full(b, sb, cb);
+  sinhcosh_full(a, sa, ca);
+  sincos_full(b, sb, cb);
   MF2 den = sa * sa + cb * cb;
   return { to((sa * ca) / den), to((sb * cb) / den) };
 }
@@ -2016,7 +2016,7 @@ complex64x2_t casinhdd(complex64x2_t z) {
 // cancellation in z²−1.
 complex64x2_t cacoshdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
-  MF2 half = dd_pair(0.5, 0.0);
+  MF2 half = float64x2(0.5, 0.0);
   complex64x2_t zp = { to((a + MF2(1.0)) * half), to(b * half) };
   complex64x2_t zm = { to((a - MF2(1.0)) * half), to(b * half) };
   complex64x2_t s1 = csqrtdd(zp);
@@ -2036,9 +2036,9 @@ complex64x2_t catanhdd(complex64x2_t z) {
   MF2 ap1 = a + MF2(1.0), am1 = a - MF2(1.0);
   MF2 num = b2 + ap1 * ap1;
   MF2 den = b2 + am1 * am1;
-  MF2 half = dd_pair(0.5, 0.0), quarter = dd_pair(0.25, 0.0);
-  return { to(quarter * dd_log_full(num / den)),
-           to(half * dd_atan2_full(b + b, x)) };
+  MF2 half = float64x2(0.5, 0.0), quarter = float64x2(0.25, 0.0);
+  return { to(quarter * log_full(num / den)),
+           to(half * atan2_full(b + b, x)) };
 }
 
 // Matrix multiply (column-major).
@@ -2071,26 +2071,26 @@ void matmuldd_mm(const float64x2_t *__restrict__ a, const float64x2_t *__restric
   for (; j + NR <= n; j += NR) {
     int64_t i = 0;
     for (; i + MR <= m; i += MR) {
-      dd_gemm_panel<MR, NR>(a + i, b + j * k, c + j * m + i,
+      gemm_panel<MR, NR>(a + i, b + j * k, c + j * m + i,
                             m, k, m, k, renorm_interval);
     }
     int tail_m = static_cast<int>(m - i);
     if (tail_m > 0) {
       for (int jj = 0; jj < NR; ++jj) {
-        dd_gaxpy_mv_tail(a + i, b + (j + jj) * k, c + (j + jj) * m + i,
+        gaxpy_mv_tail(a + i, b + (j + jj) * k, c + (j + jj) * m + i,
                          tail_m, m, k, renorm_interval);
       }
     }
   }
   for (; j < n; ++j) {
-    dd_gaxpy_mv_dispatch(a, b + j * k, c + j * m, m, k, m, renorm_interval);
+    gaxpy_mv_dispatch(a, b + j * k, c + j * m, m, k, m, renorm_interval);
   }
 }
 
 void matmuldd_mv(const float64x2_t *__restrict__ a, const float64x2_t *__restrict__ x,
                   float64x2_t *__restrict__ y, int64_t m, int64_t k,
                   int64_t renorm_interval) {
-  dd_gaxpy_mv_dispatch(a, x, y, m, k, m, renorm_interval);
+  gaxpy_mv_dispatch(a, x, y, m, k, m, renorm_interval);
 }
 
 // vm: y[j] = sum_p x[p] * B[p, j]. Column-major B makes B[:, j]
@@ -2104,7 +2104,7 @@ void matmuldd_vm(const float64x2_t *__restrict__ x, const float64x2_t *__restric
     const float64x2_t *__restrict__ bcol = b + j * k;
     if (simple) {
       for (int64_t p = 0; p < k; ++p) {
-        dd_mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
+        mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
       }
     } else {
       const int64_t chunk = renorm_interval;
@@ -2113,13 +2113,13 @@ void matmuldd_vm(const float64x2_t *__restrict__ x, const float64x2_t *__restric
         int64_t pend = p0 + chunk;
         if (pend > k) pend = k;
         for (int64_t p = p0; p < pend; ++p) {
-          dd_mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
+          mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
         }
         p0 = pend;
-        if (p0 < k) dd_renorm_inl(s_hi, s_lo);
+        if (p0 < k) renorm_inl(s_hi, s_lo);
       }
     }
-    y[j] = dd_finalize_inl(s_hi, s_lo);
+    y[j] = finalize_inl(s_hi, s_lo);
   }
 }
 
