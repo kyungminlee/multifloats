@@ -40,13 +40,13 @@
 #! =====================================================================
 #! Type system metadata
 #! =====================================================================
-#:set RTYPES = [('mf', 'type(float64x2)'), ('dp', 'real(dp)'), ('sp', 'real(sp)'), ('int', 'integer')]
-#:set CTYPES = [('cx', 'type(complex128x2)'), ('cdp', 'complex(dp)'), ('csp', 'complex(sp)')]
+#:set RTYPES = [('dd', 'type(float64x2)'), ('dp', 'real(dp)'), ('sp', 'real(sp)'), ('int', 'integer')]
+#:set CTYPES = [('cdd', 'type(complex64x2)'), ('cdp', 'complex(dp)'), ('csp', 'complex(sp)')]
 #:set ATYPES = RTYPES + CTYPES
 
-#:set CONV = {'mf': 'to_qp({})', 'cx': 'to_cqp({})', 'dp': 'real({}, qp)', 'sp': 'real({}, qp)', 'int': 'real({}, qp)', 'cdp': 'cmplx({}, kind=qp)', 'csp': 'cmplx({}, kind=qp)'}
-#:set ISCPLX = {'mf': False, 'cx': True, 'dp': False, 'sp': False, 'int': False, 'cdp': True, 'csp': True}
-#:set MFCONV = {'mf': '{}', 'dp': 'mf_from_dp({})', 'sp': 'mf_from_sp({})', 'int': 'mf_from_int({})'}
+#:set CONV = {'dd': 'to_qp({})', 'cdd': 'to_cqp({})', 'dp': 'real({}, qp)', 'sp': 'real({}, qp)', 'int': 'real({}, qp)', 'cdp': 'cmplx({}, kind=qp)', 'csp': 'cmplx({}, kind=qp)'}
+#:set ISCPLX = {'dd': False, 'cdd': True, 'dp': False, 'sp': False, 'int': False, 'cdp': True, 'csp': True}
+#:set DDCONV = {'dd': '{}', 'dp': 'dd_from_dp({})', 'sp': 'dd_from_sp({})', 'int': 'dd_from_int({})'}
 
 #! Operator tables
 #:set ARITH_OPS = [('+', 'add'), ('-', 'sub'), ('*', 'mul'), ('/', 'div')]
@@ -54,10 +54,10 @@
 #:set ORD_OPS = [('<', 'lt'), ('>', 'gt'), ('<=', 'le'), ('>=', 'ge')]
 
 #! Unary math function tables
-#:set UNARY_MF_MF = ['abs', 'sqrt', 'sin', 'cos', 'tan', 'sinpi', 'cospi', 'tanpi', 'exp', 'log', 'log10', 'atan', 'asin', 'acos', 'atanpi', 'asinpi', 'acospi', 'aint', 'anint', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1', 'fraction', 'rrspacing', 'spacing', 'epsilon', 'huge', 'tiny']
-#:set UNARY_CX_CX = ['sqrt', 'sin', 'cos', 'tan', 'exp', 'log', 'atan', 'asin', 'acos', 'conjg', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh']
-#:set UNARY_CX_MF = ['abs', 'aimag']
-#:set ALL_UNARY = sorted(set(UNARY_MF_MF + UNARY_CX_CX + UNARY_CX_MF))
+#:set UNARY_DD_DD = ['abs', 'sqrt', 'sin', 'cos', 'tan', 'sinpi', 'cospi', 'tanpi', 'exp', 'log', 'log10', 'atan', 'asin', 'acos', 'atanpi', 'asinpi', 'acospi', 'aint', 'anint', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh', 'erf', 'erfc', 'erfc_scaled', 'gamma', 'log_gamma', 'bessel_j0', 'bessel_j1', 'bessel_y0', 'bessel_y1', 'fraction', 'rrspacing', 'spacing', 'epsilon', 'huge', 'tiny']
+#:set UNARY_CDD_CDD = ['sqrt', 'sin', 'cos', 'tan', 'exp', 'log', 'atan', 'asin', 'acos', 'conjg', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh']
+#:set UNARY_CDD_DD = ['abs', 'aimag']
+#:set ALL_UNARY = sorted(set(UNARY_DD_DD + UNARY_CDD_CDD + UNARY_CDD_DD))
 
 #! Binary real function tables
 #:set BINARY_REAL = ['sign', 'mod', 'atan2', 'atan2pi', 'dim', 'modulo', 'hypot', 'nearest']
@@ -71,11 +71,11 @@
 #! Bessel functions with integer order
 #:set BESSEL_N = ['bessel_jn', 'bessel_yn']
 
-#! Functions: (mf, integer) → mf
-#:set MF_INT_TO_MF = ['scale', 'set_exponent']
+#! Functions: (dd, integer) → dd
+#:set DD_INT_TO_DD = ['scale', 'set_exponent']
 
 #! Inquiry functions
-#:set INQUIRY_MF_INT = ['digits', 'maxexponent', 'minexponent', 'radix']
+#:set INQUIRY_DD_INT = ['digits', 'maxexponent', 'minexponent', 'radix']
 #:set INQUIRY_BOTH_INT = ['precision', 'range']
 
 #! =====================================================================
@@ -122,7 +122,7 @@ module multifloats
     ! C-ABI matmul kernels (defined in multifloats_math.cc). The Fortran
     ! float64x2 type has SEQUENCE layout [hi, lo] which is bit-compatible
     ! with the C float64x2_t struct, so we pass arrays by c_loc. The final
-    ! renorm_interval arg mirrors MF_FMA_RENORM_INTERVAL (0 = off).
+    ! renorm_interval arg mirrors DD_FMA_RENORM_INTERVAL (0 = off).
     interface
         pure subroutine c_dd_matmul_mm(a, b, c, m, k, n, ri) &
                 bind(c, name="matmuldd_mm")
@@ -164,10 +164,10 @@ module multifloats
         real(dp) :: limbs(2)
     end type float64x2
 
-    type, public :: complex128x2
+    type, public :: complex64x2
         sequence
         type(float64x2) :: re, im
-    end type complex128x2
+    end type complex64x2
 
     ! ================================================================
     ! PUBLIC INTERFACE
@@ -178,43 +178,43 @@ module multifloats
     ! ----------------------------------------------------------------
 
     interface float64x2
-        module procedure mf_from_mf
-        module procedure mf_from_dp
-        module procedure mf_from_sp
-        module procedure mf_from_int
-        module procedure mf_from_i8
-        module procedure mf_from_i16
-        module procedure mf_from_i64
-        module procedure mf_from_char
-        module procedure mf_from_cx
-        module procedure mf_from_cdp
-        module procedure mf_from_csp
+        module procedure dd_from_dd
+        module procedure dd_from_dp
+        module procedure dd_from_sp
+        module procedure dd_from_int
+        module procedure dd_from_i8
+        module procedure dd_from_i16
+        module procedure dd_from_i64
+        module procedure dd_from_char
+        module procedure dd_from_cdd
+        module procedure dd_from_cdp
+        module procedure dd_from_csp
     end interface float64x2
 
-    interface complex128x2
-        module procedure cx_from_cx
+    interface complex64x2
+        module procedure cdd_from_cdd
         ! Two-argument (re, im) constructors — matching kinds.
-        module procedure cx_from_mf_2
-        module procedure cx_from_dp_2
-        module procedure cx_from_sp_2
-        module procedure cx_from_int_2
-        module procedure cx_from_i8_2
-        module procedure cx_from_i16_2
-        module procedure cx_from_i64_2
+        module procedure cdd_from_dd_2
+        module procedure cdd_from_dp_2
+        module procedure cdd_from_sp_2
+        module procedure cdd_from_int_2
+        module procedure cdd_from_i8_2
+        module procedure cdd_from_i16_2
+        module procedure cdd_from_i64_2
         ! Two-argument (re, im) constructors — common mixed kinds.
-        module procedure cx_from_mf_dp_2
-        module procedure cx_from_dp_mf_2
+        module procedure cdd_from_dd_dp_2
+        module procedure cdd_from_dp_dd_2
         ! Single-argument constructors (imag = 0).
-        module procedure cx_from_mf_1
-        module procedure cx_from_dp_1
-        module procedure cx_from_sp_1
-        module procedure cx_from_int_1
-        module procedure cx_from_i8_1
-        module procedure cx_from_i16_1
-        module procedure cx_from_i64_1
-        module procedure cx_from_cdp_1
-        module procedure cx_from_csp_1
-    end interface complex128x2
+        module procedure cdd_from_dd_1
+        module procedure cdd_from_dp_1
+        module procedure cdd_from_sp_1
+        module procedure cdd_from_int_1
+        module procedure cdd_from_i8_1
+        module procedure cdd_from_i16_1
+        module procedure cdd_from_i64_1
+        module procedure cdd_from_cdp_1
+        module procedure cdd_from_csp_1
+    end interface complex64x2
 
     ! ----------------------------------------------------------------
     ! Arithmetic operators (+, -, *, /)
@@ -224,14 +224,14 @@ module multifloats
     interface operator(${opsym}$)
 #:for n1, _ in ATYPES
 #:for n2, _ in ATYPES
-#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:if n1 in ('dd', 'cdd') or n2 in ('dd', 'cdd')
         module procedure ${n1}$_${opname}$_${n2}$
 #:endif
 #:endfor
 #:endfor
 #:if opsym == '-'
-        module procedure mf_neg
-        module procedure cx_neg
+        module procedure dd_neg
+        module procedure cdd_neg
 #:endif
     end interface
     public :: operator(${opsym}$)
@@ -244,7 +244,7 @@ module multifloats
     interface operator(**)
 #:for n1, _ in ATYPES
 #:for n2, _ in ATYPES
-#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:if n1 in ('dd', 'cdd') or n2 in ('dd', 'cdd')
         module procedure ${n1}$_pow_${n2}$
 #:endif
 #:endfor
@@ -260,7 +260,7 @@ module multifloats
     interface operator(${opsym}$)
 #:for n1, _ in ATYPES
 #:for n2, _ in ATYPES
-#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:if n1 in ('dd', 'cdd') or n2 in ('dd', 'cdd')
         module procedure ${n1}$_${opname}$_${n2}$
 #:endif
 #:endfor
@@ -277,7 +277,7 @@ module multifloats
     interface operator(${opsym}$)
 #:for n1, _ in RTYPES
 #:for n2, _ in RTYPES
-#:if n1 == 'mf' or n2 == 'mf'
+#:if n1 == 'dd' or n2 == 'dd'
         module procedure ${n1}$_${opname}$_${n2}$
 #:endif
 #:endfor
@@ -292,11 +292,11 @@ module multifloats
 
 #:for func in ALL_UNARY
     interface ${func}$
-#:if func in UNARY_MF_MF
-        module procedure mf_${func}$
+#:if func in UNARY_DD_DD
+        module procedure dd_${func}$
 #:endif
-#:if func in UNARY_CX_CX or func in UNARY_CX_MF
-        module procedure cx_${func}$
+#:if func in UNARY_CDD_CDD or func in UNARY_CDD_DD
+        module procedure cdd_${func}$
 #:endif
     end interface
     public :: ${func}$
@@ -310,7 +310,7 @@ module multifloats
     interface ${func}$
 #:for n1, _ in RTYPES
 #:for n2, _ in RTYPES
-#:if n1 == 'mf' or n2 == 'mf'
+#:if n1 == 'dd' or n2 == 'dd'
         module procedure ${n1}$_${func}$_${n2}$
 #:endif
 #:endfor
@@ -324,13 +324,13 @@ module multifloats
     interface ${func}$
 #:for n1, _ in RTYPES
 #:for n2, _ in RTYPES
-#:if n1 == 'mf' or n2 == 'mf'
+#:if n1 == 'dd' or n2 == 'dd'
         module procedure ${n1}$_${func}$_${n2}$
 #:endif
 #:endfor
 #:endfor
 #:for n in MINMAX_NARG
-        module procedure mf_${func}$${n}$
+        module procedure dd_${func}$${n}$
 #:endfor
     end interface
     public :: ${func}$
@@ -343,8 +343,8 @@ module multifloats
 #:for func in ARRAY_REDUCE_VAL
     interface ${func}$
 #:for rank in range(1, MAX_RANK+1)
-        module procedure mf_${func}$_${rank}$d
-        module procedure mf_${func}$_${rank}$d_dim
+        module procedure dd_${func}$_${rank}$d
+        module procedure dd_${func}$_${rank}$d_dim
 #:endfor
     end interface
     public :: ${func}$
@@ -357,24 +357,24 @@ module multifloats
 #:for func in ARRAY_REDUCE_LOC
     interface ${func}$
 #:for rank in range(1, MAX_RANK+1)
-        module procedure mf_${func}$_${rank}$d
-        module procedure mf_${func}$_${rank}$d_dim
+        module procedure dd_${func}$_${rank}$d
+        module procedure dd_${func}$_${rank}$d_dim
 #:endfor
     end interface
     public :: ${func}$
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! Array reductions: sum, product (mf + cx)
+    ! Array reductions: sum, product (dd + cdd)
     ! ----------------------------------------------------------------
 
 #:for func in ARRAY_REDUCE_SUM
     interface ${func}$
 #:for rank in range(1, MAX_RANK+1)
-        module procedure mf_${func}$_${rank}$d
-        module procedure mf_${func}$_${rank}$d_dim
-        module procedure cx_${func}$_${rank}$d
-        module procedure cx_${func}$_${rank}$d_dim
+        module procedure dd_${func}$_${rank}$d
+        module procedure dd_${func}$_${rank}$d_dim
+        module procedure cdd_${func}$_${rank}$d
+        module procedure cdd_${func}$_${rank}$d_dim
 #:endfor
     end interface
     public :: ${func}$
@@ -385,16 +385,16 @@ module multifloats
     ! ----------------------------------------------------------------
 
     interface dot_product
-        module procedure mf_dot_product
-        module procedure cx_dot_product
+        module procedure dd_dot_product
+        module procedure cdd_dot_product
     end interface
     public :: dot_product
 
     interface norm2
 #:for rank in range(1, MAX_RANK+1)
-        module procedure mf_norm2_${rank}$d
+        module procedure dd_norm2_${rank}$d
 #:if rank > 1
-        module procedure mf_norm2_${rank}$d_dim
+        module procedure dd_norm2_${rank}$d_dim
 #:endif
 #:endfor
     end interface
@@ -402,21 +402,21 @@ module multifloats
 
     interface findloc
 #:for rank in range(1, MAX_RANK+1)
-        module procedure mf_findloc_${rank}$d
-        module procedure mf_findloc_${rank}$d_dim
-        module procedure cx_findloc_${rank}$d
-        module procedure cx_findloc_${rank}$d_dim
+        module procedure dd_findloc_${rank}$d
+        module procedure dd_findloc_${rank}$d_dim
+        module procedure cdd_findloc_${rank}$d
+        module procedure cdd_findloc_${rank}$d_dim
 #:endfor
     end interface
     public :: findloc
 
     interface matmul
-        module procedure mf_matmul_mm
-        module procedure mf_matmul_mv
-        module procedure mf_matmul_vm
-        module procedure cx_matmul_mm
-        module procedure cx_matmul_mv
-        module procedure cx_matmul_vm
+        module procedure dd_matmul_mm
+        module procedure dd_matmul_mv
+        module procedure dd_matmul_vm
+        module procedure cdd_matmul_mm
+        module procedure cdd_matmul_mv
+        module procedure cdd_matmul_vm
     end interface
     public :: matmul
 
@@ -426,8 +426,8 @@ module multifloats
 
 #:for func in BESSEL_N
     interface ${func}$
-        module procedure mf_${func}$_elem
-        module procedure mf_${func}$_range
+        module procedure dd_${func}$_elem
+        module procedure dd_${func}$_range
     end interface
     public :: ${func}$
 
@@ -437,23 +437,23 @@ module multifloats
     ! ----------------------------------------------------------------
 
     interface ceiling
-        module procedure mf_ceiling
+        module procedure dd_ceiling
     end interface
     public :: ceiling
 
     interface floor
-        module procedure mf_floor
+        module procedure dd_floor
     end interface
     public :: floor
 
     interface exponent
-        module procedure mf_exponent
+        module procedure dd_exponent
     end interface
     public :: exponent
 
-#:for func in MF_INT_TO_MF
+#:for func in DD_INT_TO_DD
     interface ${func}$
-        module procedure mf_${func}$
+        module procedure dd_${func}$
     end interface
     public :: ${func}$
 
@@ -462,124 +462,124 @@ module multifloats
     ! Numeric inquiry functions
     ! ----------------------------------------------------------------
 
-#:for func in INQUIRY_MF_INT
+#:for func in INQUIRY_DD_INT
     interface ${func}$
-        module procedure mf_${func}$
+        module procedure dd_${func}$
     end interface
     public :: ${func}$
 
 #:endfor
 #:for func in INQUIRY_BOTH_INT
     interface ${func}$
-        module procedure mf_${func}$
-        module procedure cx_${func}$
+        module procedure dd_${func}$
+        module procedure cdd_${func}$
     end interface
     public :: ${func}$
 
 #:endfor
     interface storage_size
-        module procedure mf_storage_size
-        module procedure cx_storage_size
+        module procedure dd_storage_size
+        module procedure cdd_storage_size
     end interface
     public :: storage_size
 
     ! ----------------------------------------------------------------
-    ! Complex-specific: cmplx, real, mf_real
+    ! Complex-specific: cmplx, real, dd_real
     ! ----------------------------------------------------------------
 
     interface cmplx
-        module procedure mf_cmplx_2
-        module procedure mf_cmplx_1
+        module procedure dd_cmplx_2
+        module procedure dd_cmplx_1
     end interface
     public :: cmplx
 
     interface real
-        module procedure cx_real
-        module procedure mf_real_mf
+        module procedure cdd_real
+        module procedure dd_real_dd
     end interface
     public :: real
 
-    interface mf_real
-        module procedure mf_real_mf
-        module procedure cx_real_mf
+    interface dd_real
+        module procedure dd_real_dd
+        module procedure cdd_real_dd
     end interface
-    public :: mf_real
+    public :: dd_real
 
     ! ----------------------------------------------------------------
-    ! Conversions: dble, int, nint, mf_to_double
+    ! Conversions: dble, int, nint, dd_to_double
     ! ----------------------------------------------------------------
 
     interface dble
-        module procedure mf_dble
+        module procedure dd_dble
     end interface
     public :: dble
 
     interface int
-        module procedure mf_int
+        module procedure dd_int
     end interface
     public :: int
 
     interface nint
-        module procedure mf_nint
+        module procedure dd_nint
     end interface
     public :: nint
 
-    public :: mf_to_double
+    public :: dd_to_double
 
     ! ----------------------------------------------------------------
     ! random_number (impure subroutine)
     ! ----------------------------------------------------------------
 
     interface random_number
-        module procedure mf_random_number_0d
+        module procedure dd_random_number_0d
 #:for rank in range(1, MAX_RANK+1)
-        module procedure mf_random_number_${rank}$d
+        module procedure dd_random_number_${rank}$d
 #:endfor
     end interface
     public :: random_number
-    public :: mf_set_fma_renorm_interval
+    public :: dd_set_fma_renorm_interval
 
     ! ----------------------------------------------------------------
     ! Assignment (=)
     ! ----------------------------------------------------------------
 
     interface assignment(=)
-        ! lhs = mf / cx (forward direction: build a multifloat type)
+        ! lhs = dd / cdd (forward direction: build a multifloat type)
 #:for n, _ in ATYPES
-#:if n != 'mf'
-        module procedure mf_assign_${n}$
+#:if n != 'dd'
+        module procedure dd_assign_${n}$
 #:endif
 #:endfor
 #:for n, _ in ATYPES
-#:if n != 'cx'
-        module procedure cx_assign_${n}$
+#:if n != 'cdd'
+        module procedure cdd_assign_${n}$
 #:endif
 #:endfor
-        ! Non-default integer kinds → mf / cx
-        module procedure mf_assign_i8
-        module procedure mf_assign_i16
-        module procedure mf_assign_i64
-        module procedure cx_assign_i8
-        module procedure cx_assign_i16
-        module procedure cx_assign_i64
-        ! mf → built-in numeric types
-        module procedure dp_assign_mf
-        module procedure sp_assign_mf
-        module procedure int_assign_mf
-        module procedure i8_assign_mf
-        module procedure i16_assign_mf
-        module procedure i64_assign_mf
-        module procedure cdp_assign_mf
-        module procedure csp_assign_mf
-        ! cx → built-in numeric types
-        module procedure dp_assign_cx
-        module procedure sp_assign_cx
-        module procedure int_assign_cx
-        module procedure i8_assign_cx
-        module procedure i16_assign_cx
-        module procedure i64_assign_cx
-        module procedure cdp_assign_cx
-        module procedure csp_assign_cx
+        ! Non-default integer kinds → dd / cdd
+        module procedure dd_assign_i8
+        module procedure dd_assign_i16
+        module procedure dd_assign_i64
+        module procedure cdd_assign_i8
+        module procedure cdd_assign_i16
+        module procedure cdd_assign_i64
+        ! dd → built-in numeric types
+        module procedure dp_assign_dd
+        module procedure sp_assign_dd
+        module procedure int_assign_dd
+        module procedure i8_assign_dd
+        module procedure i16_assign_dd
+        module procedure i64_assign_dd
+        module procedure cdp_assign_dd
+        module procedure csp_assign_dd
+        ! cdd → built-in numeric types
+        module procedure dp_assign_cdd
+        module procedure sp_assign_cdd
+        module procedure int_assign_cdd
+        module procedure i8_assign_cdd
+        module procedure i16_assign_cdd
+        module procedure i64_assign_cdd
+        module procedure cdp_assign_cdd
+        module procedure csp_assign_cdd
     end interface
     public :: assignment(=)
 
@@ -588,14 +588,14 @@ module multifloats
     ! ----------------------------------------------------------------
 
     interface write(formatted)
-        module procedure write_mf_formatted
-        module procedure write_cx_formatted
+        module procedure write_dd_formatted
+        module procedure write_cdd_formatted
     end interface
     public :: write(formatted)
 
     interface read(formatted)
-        module procedure read_mf_formatted
-        module procedure read_cx_formatted
+        module procedure read_dd_formatted
+        module procedure read_cdd_formatted
     end interface
     public :: read(formatted)
 
@@ -606,32 +606,32 @@ module multifloats
     ! Named constants — using component initialization for portability
     ! (flang does not support sequence-type structure constructors in
     ! constant expressions).
-#:def MF_CONST(name, val)
+#:def DD_CONST(name, val)
     type(float64x2), parameter, public :: ${name}$ = &
         float64x2(limbs=[${val}$, 0.0_dp])
 #:enddef
-    $:MF_CONST('MF_ZERO',   '0.0_dp')
-    $:MF_CONST('MF_ONE',    '1.0_dp')
-    $:MF_CONST('MF_TWO',    '2.0_dp')
-    $:MF_CONST('MF_HALF',   '0.5_dp')
-    $:MF_CONST('MF_EIGHT',  '8.0_dp')
-    $:MF_CONST('MF_SAFMIN', '2.2250738585072014e-308_dp')
-    $:MF_CONST('MF_SAFMAX', '1.7976931348623157e+308_dp')
-    $:MF_CONST('MF_TSML',   '1.0e-100_dp')
-    $:MF_CONST('MF_TBIG',   '1.0e+100_dp')
-    $:MF_CONST('MF_SSML',   '1.0e-50_dp')
-    $:MF_CONST('MF_SBIG',   '1.0e+50_dp')
-    $:MF_CONST('MF_RTMIN',  '1.0e-150_dp')
-    $:MF_CONST('MF_RTMAX',  '1.0e+150_dp')
+    $:DD_CONST('DD_ZERO',   '0.0_dp')
+    $:DD_CONST('DD_ONE',    '1.0_dp')
+    $:DD_CONST('DD_TWO',    '2.0_dp')
+    $:DD_CONST('DD_HALF',   '0.5_dp')
+    $:DD_CONST('DD_EIGHT',  '8.0_dp')
+    $:DD_CONST('DD_SAFMIN', '2.2250738585072014e-308_dp')
+    $:DD_CONST('DD_SAFMAX', '1.7976931348623157e+308_dp')
+    $:DD_CONST('DD_TSML',   '1.0e-100_dp')
+    $:DD_CONST('DD_TBIG',   '1.0e+100_dp')
+    $:DD_CONST('DD_SSML',   '1.0e-50_dp')
+    $:DD_CONST('DD_SBIG',   '1.0e+50_dp')
+    $:DD_CONST('DD_RTMIN',  '1.0e-150_dp')
+    $:DD_CONST('DD_RTMAX',  '1.0e+150_dp')
 
     ! Renormalization interval for fused multiply-accumulate reductions
     ! (dot_product, matmul). The accumulator s_lo drifts by ~1 ulp per
-    ! iteration; renormalizing every MF_FMA_RENORM_INTERVAL steps keeps
+    ! iteration; renormalizing every DD_FMA_RENORM_INTERVAL steps keeps
     ! worst-case error within ~1e-31 (full DD). Set to 0 to disable
     ! periodic renormalization (single renorm at the end only).
     ! The default of 8 gives near-optimal precision with negligible
     ! overhead (~3 extra FP ops per 8 iterations = ~3% cost).
-    integer, public, protected :: MF_FMA_RENORM_INTERVAL = 8
+    integer, public, protected :: DD_FMA_RENORM_INTERVAL = 8
 
     ! ================================================================
     ! MODULE DATA, CONSTANTS & C-ABI INTERFACES
@@ -658,7 +658,7 @@ module multifloats
 
 #! Complex DD transcendentals delegated to C c*dd kernels. Function names
 #! are uniform so no map is needed — the Fortran-side name is always
-#! `cx_<func>`, the C symbol is always `c<func>dd`.
+#! `cdd_<func>`, the C symbol is always `c<func>dd`.
 #:set C_DELEGATE_CX_UNARY_FUNCS = ['sqrt', 'exp', 'log', 'sin', 'cos', 'tan', &
     'asin', 'acos', 'atan', 'sinh', 'cosh', 'tanh', 'asinh', 'acosh', 'atanh']
 
@@ -722,7 +722,7 @@ module multifloats
         end function
 #:endfor
 #:for func in C_DELEGATE_CX_UNARY_FUNCS
-        pure type(complex64x2_t) function c_dd_cx_${func}$(a) bind(c, name='c${func}$dd')
+        pure type(complex64x2_t) function c_dd_cdd_${func}$(a) bind(c, name='c${func}$dd')
             import :: complex64x2_t; type(complex64x2_t), value, intent(in) :: a
         end function
 #:endfor
@@ -778,10 +778,10 @@ contains
     ! ----------------------------------------------------------------
 
 #:if HAS_QUAD
-    elemental function to_qp(mf) result(res)
-        type(float64x2), intent(in) :: mf
+    elemental function to_qp(dd) result(res)
+        type(float64x2), intent(in) :: dd
         real(qp) :: res
-        res = real(mf%limbs(1), qp) + real(mf%limbs(2), qp)
+        res = real(dd%limbs(1), qp) + real(dd%limbs(2), qp)
     end function
 
     elemental function from_qp(v) result(res)
@@ -800,15 +800,15 @@ contains
         end if
     end function
 
-    elemental function to_cqp(cx) result(res)
-        type(complex128x2), intent(in) :: cx
+    elemental function to_cqp(cdd) result(res)
+        type(complex64x2), intent(in) :: cdd
         complex(qp) :: res
-        res = cmplx(to_qp(cx%re), to_qp(cx%im), kind=qp)
+        res = cmplx(to_qp(cdd%re), to_qp(cdd%im), kind=qp)
     end function
 
     elemental function from_cqp(v) result(res)
         complex(qp), intent(in) :: v
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re = from_qp(real(v, qp))
         res%im = from_qp(aimag(v))
     end function
@@ -818,51 +818,51 @@ contains
     ! Constructors
     ! ----------------------------------------------------------------
 
-    elemental function mf_from_mf(v) result(res)
+    elemental function dd_from_dd(v) result(res)
         type(float64x2), intent(in) :: v
         type(float64x2) :: res
         res = v
     end function
 
-    elemental function mf_from_dp(v) result(res)
+    elemental function dd_from_dp(v) result(res)
         real(dp), intent(in) :: v
         type(float64x2) :: res
         res%limbs = [v, 0.0_dp]
     end function
 
-    elemental function mf_from_sp(v) result(res)
+    elemental function dd_from_sp(v) result(res)
         real(sp), intent(in) :: v
         type(float64x2) :: res
         res%limbs = [real(v, dp), 0.0_dp]
     end function
 
-    elemental function mf_from_int(v) result(res)
+    elemental function dd_from_int(v) result(res)
         integer, intent(in) :: v
         type(float64x2) :: res
         ! Default integer kind is 32-bit and fits exactly in dp.
         res%limbs = [real(v, dp), 0.0_dp]
     end function
 
-    elemental function mf_from_i8(v) result(res)
+    elemental function dd_from_i8(v) result(res)
         integer(int8), intent(in) :: v
         type(float64x2) :: res
         res%limbs = [real(v, dp), 0.0_dp]
     end function
 
-    elemental function mf_from_i16(v) result(res)
+    elemental function dd_from_i16(v) result(res)
         integer(int16), intent(in) :: v
         type(float64x2) :: res
         res%limbs = [real(v, dp), 0.0_dp]
     end function
 
-    elemental function mf_from_i64(v) result(res)
+    elemental function dd_from_i64(v) result(res)
         integer(int64), intent(in) :: v
         type(float64x2) :: res
         ! int64 → dp may lose the bottom 11 bits when |v| >= 2^53.
         res%limbs = [real(v, dp), 0.0_dp]
     end function
 
-    function mf_from_char(v) result(res)
+    function dd_from_char(v) result(res)
         character(len=*), intent(in) :: v
         type(float64x2) :: res
 #:if HAS_QUAD
@@ -876,54 +876,54 @@ contains
 #:endif
     end function
 
-    elemental function mf_from_cx(cx) result(res)
-        type(complex128x2), intent(in) :: cx
+    elemental function dd_from_cdd(cdd) result(res)
+        type(complex64x2), intent(in) :: cdd
         type(float64x2) :: res
-        res = cx%re
+        res = cdd%re
     end function
 
-    elemental function mf_from_cdp(x) result(res)
+    elemental function dd_from_cdp(x) result(res)
         complex(dp), intent(in) :: x
         type(float64x2) :: res
         res%limbs = [real(x, dp), 0.0_dp]
     end function
 
-    elemental function mf_from_csp(x) result(res)
+    elemental function dd_from_csp(x) result(res)
         complex(sp), intent(in) :: x
         type(float64x2) :: res
         res%limbs = [real(real(x, sp), dp), 0.0_dp]
     end function
 
-    elemental function cx_from_cx(v) result(res)
-        type(complex128x2), intent(in) :: v
-        type(complex128x2) :: res
+    elemental function cdd_from_cdd(v) result(res)
+        type(complex64x2), intent(in) :: v
+        type(complex64x2) :: res
         res = v
     end function
 
-    elemental function cx_from_mf_2(r, i) result(res)
+    elemental function cdd_from_dd_2(r, i) result(res)
         type(float64x2), intent(in) :: r, i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re = r
         res%im = i
     end function
 
-    elemental function cx_from_dp_2(r, i) result(res)
+    elemental function cdd_from_dp_2(r, i) result(res)
         real(dp), intent(in) :: r, i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [r, 0.0_dp]
         res%im%limbs = [i, 0.0_dp]
     end function
 
-    elemental function cx_from_mf_1(r) result(res)
+    elemental function cdd_from_dd_1(r) result(res)
         type(float64x2), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re = r
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cx_from_dp_1(r) result(res)
+    elemental function cdd_from_dp_1(r) result(res)
         real(dp), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [r, 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
@@ -931,56 +931,56 @@ contains
     ! Two-argument matching-kind constructors for the remaining real /
     ! integer kinds. Each promotes both operands to dp before storing.
 
-    elemental function cx_from_sp_2(r, i) result(res)
+    elemental function cdd_from_sp_2(r, i) result(res)
         real(sp), intent(in) :: r, i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cx_from_int_2(r, i) result(res)
+    elemental function cdd_from_int_2(r, i) result(res)
         integer, intent(in) :: r, i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cx_from_i8_2(r, i) result(res)
+    elemental function cdd_from_i8_2(r, i) result(res)
         integer(int8), intent(in) :: r, i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cx_from_i16_2(r, i) result(res)
+    elemental function cdd_from_i16_2(r, i) result(res)
         integer(int16), intent(in) :: r, i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cx_from_i64_2(r, i) result(res)
+    elemental function cdd_from_i64_2(r, i) result(res)
         integer(int64), intent(in) :: r, i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    ! Mixed (mf, dp) and (dp, mf) — common when one part has been
+    ! Mixed (dd, dp) and (dp, dd) — common when one part has been
     ! computed in DD and the other is still a literal double.
 
-    elemental function cx_from_mf_dp_2(r, i) result(res)
+    elemental function cdd_from_dd_dp_2(r, i) result(res)
         type(float64x2), intent(in) :: r
         real(dp), intent(in) :: i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re = r
         res%im%limbs = [i, 0.0_dp]
     end function
 
-    elemental function cx_from_dp_mf_2(r, i) result(res)
+    elemental function cdd_from_dp_dd_2(r, i) result(res)
         real(dp), intent(in) :: r
         type(float64x2), intent(in) :: i
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [r, 0.0_dp]
         res%im = i
     end function
@@ -988,51 +988,51 @@ contains
     ! Single-argument constructors for the remaining numeric kinds
     ! (imag set to 0).
 
-    elemental function cx_from_sp_1(r) result(res)
+    elemental function cdd_from_sp_1(r) result(res)
         real(sp), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cx_from_int_1(r) result(res)
+    elemental function cdd_from_int_1(r) result(res)
         integer, intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cx_from_i8_1(r) result(res)
+    elemental function cdd_from_i8_1(r) result(res)
         integer(int8), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cx_from_i16_1(r) result(res)
+    elemental function cdd_from_i16_1(r) result(res)
         integer(int16), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cx_from_i64_1(r) result(res)
+    elemental function cdd_from_i64_1(r) result(res)
         integer(int64), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cx_from_cdp_1(r) result(res)
+    elemental function cdd_from_cdp_1(r) result(res)
         complex(dp), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [aimag(r), 0.0_dp]
     end function
 
-    elemental function cx_from_csp_1(r) result(res)
+    elemental function cdd_from_csp_1(r) result(res)
         complex(sp), intent(in) :: r
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re%limbs = [real(real(r, sp), dp), 0.0_dp]
         res%im%limbs = [real(aimag(r), dp), 0.0_dp]
     end function
@@ -1042,8 +1042,8 @@ contains
     ! ----------------------------------------------------------------
 
 #:for n, d in ATYPES
-#:if n != 'mf'
-    elemental subroutine mf_assign_${n}$(lhs, rhs)
+#:if n != 'dd'
+    elemental subroutine dd_assign_${n}$(lhs, rhs)
         type(float64x2), intent(out) :: lhs
         ${d}$, intent(in) :: rhs
 #:if n == 'dp'
@@ -1052,7 +1052,7 @@ contains
         lhs%limbs = [real(rhs, dp), 0.0_dp]
 #:elif n == 'int'
         lhs%limbs = [real(rhs, dp), 0.0_dp]
-#:elif n == 'cx'
+#:elif n == 'cdd'
         lhs = rhs%re
 #:elif n == 'cdp'
         lhs%limbs = [real(rhs, dp), 0.0_dp]
@@ -1064,11 +1064,11 @@ contains
 #:endif
 #:endfor
 #:for n, d in ATYPES
-#:if n != 'cx'
-    elemental subroutine cx_assign_${n}$(lhs, rhs)
-        type(complex128x2), intent(out) :: lhs
+#:if n != 'cdd'
+    elemental subroutine cdd_assign_${n}$(lhs, rhs)
+        type(complex64x2), intent(out) :: lhs
         ${d}$, intent(in) :: rhs
-#:if n == 'mf'
+#:if n == 'dd'
         lhs%re = rhs
         lhs%im%limbs = [0.0_dp, 0.0_dp]
 #:elif n == 'dp'
@@ -1092,18 +1092,18 @@ contains
 #:endif
 #:endfor
     ! ----------------------------------------------------------------
-    ! Non-default integer kinds → mf / cx
+    ! Non-default integer kinds → dd / cdd
     ! ----------------------------------------------------------------
 
 #:for ksuf, ktype in [('i8', 'integer(int8)'), ('i16', 'integer(int16)'), ('i64', 'integer(int64)')]
-    elemental subroutine mf_assign_${ksuf}$(lhs, rhs)
+    elemental subroutine dd_assign_${ksuf}$(lhs, rhs)
         type(float64x2), intent(out) :: lhs
         ${ktype}$, intent(in) :: rhs
         lhs%limbs = [real(rhs, dp), 0.0_dp]
     end subroutine
 
-    elemental subroutine cx_assign_${ksuf}$(lhs, rhs)
-        type(complex128x2), intent(out) :: lhs
+    elemental subroutine cdd_assign_${ksuf}$(lhs, rhs)
+        type(complex64x2), intent(out) :: lhs
         ${ktype}$, intent(in) :: rhs
         lhs%re%limbs = [real(rhs, dp), 0.0_dp]
         lhs%im%limbs = [0.0_dp, 0.0_dp]
@@ -1111,36 +1111,36 @@ contains
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! mf → built-in numeric types (truncation for integer kinds, mirrors
+    ! dd → built-in numeric types (truncation for integer kinds, mirrors
     ! the same semantics as `int_var = real_dp_var` in plain Fortran).
     ! ----------------------------------------------------------------
 
-    elemental subroutine dp_assign_mf(lhs, rhs)
+    elemental subroutine dp_assign_dd(lhs, rhs)
         real(dp), intent(out) :: lhs
         type(float64x2), intent(in) :: rhs
         lhs = rhs%limbs(1)
     end subroutine
 
-    elemental subroutine sp_assign_mf(lhs, rhs)
+    elemental subroutine sp_assign_dd(lhs, rhs)
         real(sp), intent(out) :: lhs
         type(float64x2), intent(in) :: rhs
         lhs = real(rhs%limbs(1), sp)
     end subroutine
 
-    elemental subroutine cdp_assign_mf(lhs, rhs)
+    elemental subroutine cdp_assign_dd(lhs, rhs)
         complex(dp), intent(out) :: lhs
         type(float64x2), intent(in) :: rhs
         lhs = cmplx(rhs%limbs(1), 0.0_dp, dp)
     end subroutine
 
-    elemental subroutine csp_assign_mf(lhs, rhs)
+    elemental subroutine csp_assign_dd(lhs, rhs)
         complex(sp), intent(out) :: lhs
         type(float64x2), intent(in) :: rhs
         lhs = cmplx(real(rhs%limbs(1), sp), 0.0_sp, sp)
     end subroutine
 
 #:for ksuf, ktype, klit in [('int', 'integer', 'int32'), ('i8', 'integer(int8)', 'int8'), ('i16', 'integer(int16)', 'int16'), ('i64', 'integer(int64)', 'int64')]
-    elemental subroutine ${ksuf}$_assign_mf(lhs, rhs)
+    elemental subroutine ${ksuf}$_assign_dd(lhs, rhs)
         ${ktype}$, intent(out) :: lhs
         type(float64x2), intent(in) :: rhs
         real(dp) :: hi
@@ -1156,38 +1156,38 @@ contains
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! cx → built-in numeric types (real types take the real part;
+    ! cdd → built-in numeric types (real types take the real part;
     ! integer kinds truncate the real part toward zero).
     ! ----------------------------------------------------------------
 
-    elemental subroutine dp_assign_cx(lhs, rhs)
+    elemental subroutine dp_assign_cdd(lhs, rhs)
         real(dp), intent(out) :: lhs
-        type(complex128x2), intent(in) :: rhs
+        type(complex64x2), intent(in) :: rhs
         lhs = rhs%re%limbs(1)
     end subroutine
 
-    elemental subroutine sp_assign_cx(lhs, rhs)
+    elemental subroutine sp_assign_cdd(lhs, rhs)
         real(sp), intent(out) :: lhs
-        type(complex128x2), intent(in) :: rhs
+        type(complex64x2), intent(in) :: rhs
         lhs = real(rhs%re%limbs(1), sp)
     end subroutine
 
-    elemental subroutine cdp_assign_cx(lhs, rhs)
+    elemental subroutine cdp_assign_cdd(lhs, rhs)
         complex(dp), intent(out) :: lhs
-        type(complex128x2), intent(in) :: rhs
+        type(complex64x2), intent(in) :: rhs
         lhs = cmplx(rhs%re%limbs(1), rhs%im%limbs(1), dp)
     end subroutine
 
-    elemental subroutine csp_assign_cx(lhs, rhs)
+    elemental subroutine csp_assign_cdd(lhs, rhs)
         complex(sp), intent(out) :: lhs
-        type(complex128x2), intent(in) :: rhs
+        type(complex64x2), intent(in) :: rhs
         lhs = cmplx(real(rhs%re%limbs(1), sp), real(rhs%im%limbs(1), sp), sp)
     end subroutine
 
 #:for ksuf, ktype, klit in [('int', 'integer', 'int32'), ('i8', 'integer(int8)', 'int8'), ('i16', 'integer(int16)', 'int16'), ('i64', 'integer(int64)', 'int64')]
-    elemental subroutine ${ksuf}$_assign_cx(lhs, rhs)
+    elemental subroutine ${ksuf}$_assign_cdd(lhs, rhs)
         ${ktype}$, intent(out) :: lhs
-        type(complex128x2), intent(in) :: rhs
+        type(complex64x2), intent(in) :: rhs
         real(dp) :: hi
         hi = rhs%re%limbs(1)
         lhs = int(hi, kind(lhs))
@@ -1202,7 +1202,7 @@ contains
     ! Conversions (elemental)
     ! ----------------------------------------------------------------
 
-    elemental function mf_dble(x) result(res)
+    elemental function dd_dble(x) result(res)
         type(float64x2), intent(in) :: x
         real(dp) :: res
         ! For a normalized DD, |lo| <= ulp(hi)/2, so the round-to-nearest
@@ -1210,7 +1210,7 @@ contains
         res = x%limbs(1)
     end function
 
-    elemental function mf_int(x) result(res)
+    elemental function dd_int(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
         real(dp) :: hi
@@ -1224,7 +1224,7 @@ contains
         end if
     end function
 
-    elemental function mf_nint(x) result(res)
+    elemental function dd_nint(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
         ! For all values where the closest integer is unambiguous, the
@@ -1232,13 +1232,13 @@ contains
         res = nint(x%limbs(1))
     end function
 
-    elemental function mf_to_double(x) result(res)
+    elemental function dd_to_double(x) result(res)
         type(float64x2), intent(in) :: x
         real(dp) :: res
         res = x%limbs(1)
     end function
 
-    elemental function mf_ceiling(x) result(res)
+    elemental function dd_ceiling(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
         real(dp) :: hi
@@ -1247,7 +1247,7 @@ contains
         if (hi == real(res, dp) .and. x%limbs(2) > 0.0_dp) res = res + 1
     end function
 
-    elemental function mf_floor(x) result(res)
+    elemental function dd_floor(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
         real(dp) :: hi
@@ -1256,7 +1256,7 @@ contains
         if (hi == real(res, dp) .and. x%limbs(2) < 0.0_dp) res = res - 1
     end function
 
-    elemental function mf_exponent(x) result(res)
+    elemental function dd_exponent(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
         res = exponent(x%limbs(1))
@@ -1266,15 +1266,15 @@ contains
     ! Unary operators (elemental)
     ! ----------------------------------------------------------------
 
-    elemental function mf_neg(x) result(res)
+    elemental function dd_neg(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
         res%limbs = -x%limbs
     end function
 
-    elemental function cx_neg(x) result(res)
-        type(complex128x2), intent(in) :: x
-        type(complex128x2) :: res
+    elemental function cdd_neg(x) result(res)
+        type(complex64x2), intent(in) :: x
+        type(complex64x2) :: res
         res%re%limbs = -x%re%limbs
         res%im%limbs = -x%im%limbs
     end function
@@ -1292,11 +1292,11 @@ $:C_DELEGATE_BINARY(ffull, csym)
 #:endfor
 
     ! ----------------------------------------------------------------
-    ! Unary math: mf → mf (elemental)
+    ! Unary math: dd → dd (elemental)
     ! ----------------------------------------------------------------
 
-#:for func in UNARY_MF_MF
-    elemental function mf_${func}$(x) result(res)
+#:for func in UNARY_DD_DD
+    elemental function dd_${func}$(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
 #:if func == 'abs'
@@ -1344,7 +1344,7 @@ $:C_DELEGATE_BINARY(ffull, csym)
         res%limbs = [scale(spacing(x%limbs(1)), -53), 0.0_dp]
 #:elif func == 'rrspacing'
         ! rrspacing(x) = |x| / spacing(x). Compute against the DD spacing
-        ! so the result is consistent with mf_spacing above.
+        ! so the result is consistent with dd_spacing above.
         res%limbs = [abs(x%limbs(1)) / scale(spacing(x%limbs(1)), -53), 0.0_dp]
 #:elif func == 'exp'
         res = dd_exp_full(x)
@@ -1407,20 +1407,20 @@ $:C_DELEGATE_BINARY(ffull, csym)
 #:elif func == 'bessel_y1'
         res = dd_bessel_y1_full(x)
 #:else
-        ! Should be unreachable: every entry of UNARY_MF_MF is handled above.
+        ! Should be unreachable: every entry of UNARY_DD_DD is handled above.
         res%limbs = [0.0_dp, 0.0_dp]
 #:endif
     end function
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! Unary math: cx → cx (elemental)
+    ! Unary math: cdd → cdd (elemental)
     ! ----------------------------------------------------------------
 
-#:for func in UNARY_CX_CX
-    elemental function cx_${func}$(x) result(res)
-        type(complex128x2), intent(in) :: x
-        type(complex128x2) :: res
+#:for func in UNARY_CDD_CDD
+    elemental function cdd_${func}$(x) result(res)
+        type(complex64x2), intent(in) :: x
+        type(complex64x2) :: res
 #:if func == 'conjg'
         res%re = x%re
         res%im%limbs = -x%im%limbs
@@ -1432,7 +1432,7 @@ $:C_DELEGATE_BINARY(ffull, csym)
             type(complex64x2_t) :: a, r
             a%re = float64x2_t(x%re%limbs(1), x%re%limbs(2))
             a%im = float64x2_t(x%im%limbs(1), x%im%limbs(2))
-            r = c_dd_cx_${func}$(a)
+            r = c_dd_cdd_${func}$(a)
             res%re%limbs = [r%re%hi, r%re%lo]
             res%im%limbs = [r%im%hi, r%im%lo]
         end block
@@ -1441,16 +1441,16 @@ $:C_DELEGATE_BINARY(ffull, csym)
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! Unary math: cx → mf (elemental)
+    ! Unary math: cdd → dd (elemental)
     ! ----------------------------------------------------------------
 
-#:for func in UNARY_CX_MF
-    elemental function cx_${func}$(x) result(res)
-        type(complex128x2), intent(in) :: x
+#:for func in UNARY_CDD_DD
+    elemental function cdd_${func}$(x) result(res)
+        type(complex64x2), intent(in) :: x
         type(float64x2) :: res
 #:if func == 'abs'
         ! |a + bi| = hypot(a, b)
-        res = mf_hypot_mf(x%re, x%im)
+        res = dd_hypot_dd(x%re, x%im)
 #:else
         ! aimag(a + bi) = b
         res = x%im
@@ -1459,37 +1459,37 @@ $:C_DELEGATE_BINARY(ffull, csym)
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! Complex-specific: cmplx, real, mf_real (elemental)
+    ! Complex-specific: cmplx, real, dd_real (elemental)
     ! ----------------------------------------------------------------
 
-    elemental function mf_cmplx_2(re, im) result(res)
+    elemental function dd_cmplx_2(re, im) result(res)
         type(float64x2), intent(in) :: re, im
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re = re
         res%im = im
     end function
 
-    elemental function mf_cmplx_1(re) result(res)
+    elemental function dd_cmplx_1(re) result(res)
         type(float64x2), intent(in) :: re
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         res%re = re
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cx_real(x) result(res)
-        type(complex128x2), intent(in) :: x
+    elemental function cdd_real(x) result(res)
+        type(complex64x2), intent(in) :: x
         type(float64x2) :: res
         res = x%re
     end function
 
-    elemental function mf_real_mf(x) result(res)
+    elemental function dd_real_dd(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
         res = x
     end function
 
-    elemental function cx_real_mf(x) result(res)
-        type(complex128x2), intent(in) :: x
+    elemental function cdd_real_dd(x) result(res)
+        type(complex64x2), intent(in) :: x
         type(float64x2) :: res
         res = x%re
     end function
@@ -1501,14 +1501,14 @@ $:C_DELEGATE_BINARY(ffull, csym)
 #:for func in BINARY_REAL + BINARY_MINMAX
 #:for n1, d1 in RTYPES
 #:for n2, d2 in RTYPES
-#:if n1 == 'mf' or n2 == 'mf'
+#:if n1 == 'dd' or n2 == 'dd'
     elemental function ${n1}$_${func}$_${n2}$(a, b) result(res)
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
         type(float64x2) :: res
         type(float64x2) :: x, y
-        x = ${MFCONV[n1].format('a')}$
-        y = ${MFCONV[n2].format('b')}$
+        x = ${DDCONV[n1].format('a')}$
+        y = ${DDCONV[n2].format('b')}$
 #:if func == 'min'
         if (x < y) then
             res = x
@@ -1551,7 +1551,7 @@ $:C_DELEGATE_BINARY(ffull, csym)
         else if (x > y) then
             res = x - y
         else
-            res = MF_ZERO
+            res = DD_ZERO
         end if
 #:elif func == 'hypot'
         res = dd_hypot_full(x, y)
@@ -1587,8 +1587,8 @@ $:C_DELEGATE_BINARY(ffull, csym)
     ! min/max with N arguments (N = 3..8). LAPACK has call sites with
     ! up to 5 arguments; the upper bound is generous so future call
     ! sites do not regress.
-#:def mf_minmax_body(func, n)
-    elemental function mf_${func}$${n}$(${', '.join(['a%d' % i for i in range(1, n+1)])}$) result(res)
+#:def dd_minmax_body(func, n)
+    elemental function dd_${func}$${n}$(${', '.join(['a%d' % i for i in range(1, n+1)])}$) result(res)
         type(float64x2), intent(in) :: ${', '.join(['a%d' % i for i in range(1, n+1)])}$
         type(float64x2) :: res
 #:set cmp = '<' if func == 'min' else '>'
@@ -1600,7 +1600,7 @@ $:C_DELEGATE_BINARY(ffull, csym)
 #:enddef
 #:for func in BINARY_MINMAX
 #:for n in MINMAX_NARG
-$:mf_minmax_body(func, n)
+$:dd_minmax_body(func, n)
 
 #:endfor
 #:endfor
@@ -1611,7 +1611,7 @@ $:mf_minmax_body(func, n)
     ! Full DD bessel_jn / bessel_yn delegate to C. Algorithm lives in
     ! src/multifloats_math.cc (forward recurrence when n <= |x|, Miller's
     ! backward recurrence for Jn when n > x).
-    elemental function mf_bessel_jn_elem(n, x) result(res)
+    elemental function dd_bessel_jn_elem(n, x) result(res)
         integer, intent(in) :: n
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
@@ -1620,7 +1620,7 @@ $:mf_minmax_body(func, n)
         res%limbs = [r%hi, r%lo]
     end function
 
-    elemental function mf_bessel_yn_elem(n, x) result(res)
+    elemental function dd_bessel_yn_elem(n, x) result(res)
         integer, intent(in) :: n
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
@@ -1629,7 +1629,7 @@ $:mf_minmax_body(func, n)
         res%limbs = [r%hi, r%lo]
     end function
 
-    pure function mf_bessel_jn_range(n1, n2, x) result(res)
+    pure function dd_bessel_jn_range(n1, n2, x) result(res)
         integer, intent(in) :: n1, n2
         type(float64x2), intent(in) :: x
         type(float64x2) :: res(max(n2 - n1 + 1, 0))
@@ -1637,11 +1637,11 @@ $:mf_minmax_body(func, n)
         ! Jn forward recurrence is unstable for n > x, so use the
         ! elemental function which handles backward recurrence correctly.
         do i = 1, size(res)
-            res(i) = mf_bessel_jn_elem(n1 + i - 1, x)
+            res(i) = dd_bessel_jn_elem(n1 + i - 1, x)
         end do
     end function
 
-    pure function mf_bessel_yn_range(n1, n2, x) result(res)
+    pure function dd_bessel_yn_range(n1, n2, x) result(res)
         integer, intent(in) :: n1, n2
         type(float64x2), intent(in) :: x
         type(float64x2) :: res(max(n2 - n1 + 1, 0))
@@ -1659,11 +1659,11 @@ $:mf_minmax_body(func, n)
     end function
 
     ! ----------------------------------------------------------------
-    ! Functions: (mf, integer) → mf (elemental)
+    ! Functions: (dd, integer) → dd (elemental)
     ! ----------------------------------------------------------------
 
-#:for func in MF_INT_TO_MF
-    elemental function mf_${func}$(x, i) result(res)
+#:for func in DD_INT_TO_DD
+    elemental function dd_${func}$(x, i) result(res)
         type(float64x2), intent(in) :: x
         integer, intent(in) :: i
         type(float64x2) :: res
@@ -1691,8 +1691,8 @@ $:mf_minmax_body(func, n)
     ! Numeric inquiry functions (elemental)
     ! ----------------------------------------------------------------
 
-#:for func in INQUIRY_MF_INT
-    elemental function mf_${func}$(x) result(res)
+#:for func in INQUIRY_DD_INT
+    elemental function dd_${func}$(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
 #:if func == 'digits'
@@ -1708,7 +1708,7 @@ $:mf_minmax_body(func, n)
 
 #:endfor
 #:for func in INQUIRY_BOTH_INT
-    elemental function mf_${func}$(x) result(res)
+    elemental function dd_${func}$(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
 #:if func == 'precision'
@@ -1718,8 +1718,8 @@ $:mf_minmax_body(func, n)
 #:endif
     end function
 
-    elemental function cx_${func}$(x) result(res)
-        type(complex128x2), intent(in) :: x
+    elemental function cdd_${func}$(x) result(res)
+        type(complex64x2), intent(in) :: x
         integer :: res
 #:if func == 'precision'
         res = 31
@@ -1729,14 +1729,14 @@ $:mf_minmax_body(func, n)
     end function
 
 #:endfor
-    elemental function mf_storage_size(x) result(res)
+    elemental function dd_storage_size(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
         res = 2 * storage_size(0.0_dp)
     end function
 
-    elemental function cx_storage_size(x) result(res)
-        type(complex128x2), intent(in) :: x
+    elemental function cdd_storage_size(x) result(res)
+        type(complex64x2), intent(in) :: x
         integer :: res
         res = 4 * storage_size(0.0_dp)
     end function
@@ -1748,7 +1748,7 @@ $:mf_minmax_body(func, n)
 #:for func in ARRAY_REDUCE_VAL
 #:set CMP_OP = '>' if func == 'maxval' else '<'
 #:for rank in range(1, MAX_RANK+1)
-    pure function mf_${func}$_${rank}$d(array, mask) result(res)
+    pure function dd_${func}$_${rank}$d(array, mask) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         type(float64x2) :: res
@@ -1756,7 +1756,7 @@ $:mf_minmax_body(func, n)
         integer :: ${IVARS(rank)}$
         have = .false.
         ! Provide a deterministic default for empty / fully-masked input.
-        res = mf_from_dp(0.0_dp)
+        res = dd_from_dp(0.0_dp)
 #:for d in range(rank, 0, -1)
         do i${d}$ = 1, size(array, ${d}$)
 #:endfor
@@ -1775,19 +1775,19 @@ $:mf_minmax_body(func, n)
     end function
 
 #:if rank == 1
-    pure function mf_${func}$_1d_dim(array, dim, mask) result(res)
+    pure function dd_${func}$_1d_dim(array, dim, mask) result(res)
         type(float64x2), intent(in) :: array(:)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(:)
         type(float64x2) :: res
         if (present(mask)) then
-            res = mf_${func}$_1d(array, mask=mask)
+            res = dd_${func}$_1d(array, mask=mask)
         else
-            res = mf_${func}$_1d(array)
+            res = dd_${func}$_1d(array)
         end if
     end function
 #:else
-    pure function mf_${func}$_${rank}$d_dim(array, dim, mask) result(res)
+    pure function dd_${func}$_${rank}$d_dim(array, dim, mask) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
@@ -1802,7 +1802,7 @@ $:mf_minmax_body(func, n)
             do i${i}$ = 1, size(array, ${i}$)
 #:endfor
                 have = .false.
-                cur = mf_from_dp(0.0_dp)
+                cur = dd_from_dp(0.0_dp)
                 do i${d}$ = 1, size(array, ${d}$)
                     if (present(mask)) then
                         if (.not. mask(${IDXS(rank)}$)) cycle
@@ -1833,7 +1833,7 @@ $:mf_minmax_body(func, n)
 #:set CMP_OP = '>' if func == 'maxloc' else '<'
 #:set CMP_STRICT = '>' if func == 'maxloc' else '<'
 #:for rank in range(1, MAX_RANK+1)
-    pure function mf_${func}$_${rank}$d(array, mask, back) result(res)
+    pure function dd_${func}$_${rank}$d(array, mask, back) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         logical, intent(in), optional :: back
@@ -1844,7 +1844,7 @@ $:mf_minmax_body(func, n)
         scan_back = .false.
         if (present(back)) scan_back = back
         have = .false.
-        best = mf_from_dp(0.0_dp)
+        best = dd_from_dp(0.0_dp)
         res = 0
 #:for d in range(rank, 0, -1)
         do i${d}$ = 1, size(array, ${d}$)
@@ -1868,7 +1868,7 @@ $:mf_minmax_body(func, n)
     end function
 
 #:if rank == 1
-    pure function mf_${func}$_1d_dim(array, dim, mask, back) result(res)
+    pure function dd_${func}$_1d_dim(array, dim, mask, back) result(res)
         type(float64x2), intent(in) :: array(:)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(:)
@@ -1876,18 +1876,18 @@ $:mf_minmax_body(func, n)
         integer :: res
         integer :: r1(1)
         if (present(mask) .and. present(back)) then
-            r1 = mf_${func}$_1d(array, mask=mask, back=back)
+            r1 = dd_${func}$_1d(array, mask=mask, back=back)
         else if (present(mask)) then
-            r1 = mf_${func}$_1d(array, mask=mask)
+            r1 = dd_${func}$_1d(array, mask=mask)
         else if (present(back)) then
-            r1 = mf_${func}$_1d(array, back=back)
+            r1 = dd_${func}$_1d(array, back=back)
         else
-            r1 = mf_${func}$_1d(array)
+            r1 = dd_${func}$_1d(array)
         end if
         res = r1(1)
     end function
 #:else
-    pure function mf_${func}$_${rank}$d_dim(array, dim, mask, back) result(res)
+    pure function dd_${func}$_${rank}$d_dim(array, dim, mask, back) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
@@ -1905,7 +1905,7 @@ $:mf_minmax_body(func, n)
             do i${i}$ = 1, size(array, ${i}$)
 #:endfor
                 have = .false.
-                best = mf_from_dp(0.0_dp)
+                best = dd_from_dp(0.0_dp)
                 idx = 0
                 do i${d}$ = 1, size(array, ${d}$)
                     if (present(mask)) then
@@ -1934,15 +1934,15 @@ $:mf_minmax_body(func, n)
 #:endfor
 #:endfor
     ! ----------------------------------------------------------------
-    ! Array reductions: sum, product — rank 1-7 (mf + cx)
+    ! Array reductions: sum, product — rank 1-7 (dd + cdd)
     ! ----------------------------------------------------------------
 
 #:for func in ARRAY_REDUCE_SUM
 #:set INIT_VAL = '0.0_dp' if func == 'sum' else '1.0_dp'
 #:set OP_SYM = '+' if func == 'sum' else '*'
 #:for rank in range(1, MAX_RANK+1)
-    ! mf ${func}$ rank ${rank}$
-    pure function mf_${func}$_${rank}$d(array, mask) result(res)
+    ! dd ${func}$ rank ${rank}$
+    pure function dd_${func}$_${rank}$d(array, mask) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         type(float64x2) :: res
@@ -1970,7 +1970,7 @@ $:mf_minmax_body(func, n)
         res%limbs(1) = t
         res%limbs(2) = s_lo - bp
 #:else
-        res = mf_from_dp(${INIT_VAL}$)
+        res = dd_from_dp(${INIT_VAL}$)
 #:for d in range(rank, 0, -1)
         do i${d}$ = 1, size(array, ${d}$)
 #:endfor
@@ -1985,19 +1985,19 @@ $:mf_minmax_body(func, n)
     end function
 
 #:if rank == 1
-    pure function mf_${func}$_1d_dim(array, dim, mask) result(res)
+    pure function dd_${func}$_1d_dim(array, dim, mask) result(res)
         type(float64x2), intent(in) :: array(:)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(:)
         type(float64x2) :: res
         if (present(mask)) then
-            res = mf_${func}$_1d(array, mask=mask)
+            res = dd_${func}$_1d(array, mask=mask)
         else
-            res = mf_${func}$_1d(array)
+            res = dd_${func}$_1d(array)
         end if
     end function
 #:else
-    pure function mf_${func}$_${rank}$d_dim(array, dim, mask) result(res)
+    pure function dd_${func}$_${rank}$d_dim(array, dim, mask) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
@@ -2016,7 +2016,7 @@ $:mf_minmax_body(func, n)
 #:endfor
 #:if func == 'sum'
                 ! Neumaier-compensated scalar accumulator, matching
-                ! mf_sum_${rank}$d above.
+                ! dd_sum_${rank}$d above.
                 s_hi = 0.0_dp; s_lo = 0.0_dp
                 do i${d}$ = 1, size(array, ${d}$)
                     if (present(mask)) then
@@ -2038,7 +2038,7 @@ $:mf_minmax_body(func, n)
 #:else
                 ! Product: each DD*DD is already ~1 DD ulp; Neumaier-style
                 ! compensation does not apply to multiplication.
-                cur = mf_from_dp(${INIT_VAL}$)
+                cur = dd_from_dp(${INIT_VAL}$)
                 do i${d}$ = 1, size(array, ${d}$)
                     if (present(mask)) then
                         if (.not. mask(${IDXS(rank)}$)) cycle
@@ -2055,11 +2055,11 @@ $:mf_minmax_body(func, n)
     end function
 #:endif
 
-    ! cx ${func}$ rank ${rank}$
-    pure function cx_${func}$_${rank}$d(array, mask) result(res)
-        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
+    ! cdd ${func}$ rank ${rank}$
+    pure function cdd_${func}$_${rank}$d(array, mask) result(res)
+        type(complex64x2), intent(in) :: array(${COLONS(rank)}$)
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
-        type(complex128x2) :: res
+        type(complex64x2) :: res
 #:if func == 'sum'
         real(dp) :: re_hi, re_lo, im_hi, im_lo
         real(dp) :: xh, xl, t, bp, ap, aerr, berr
@@ -2105,8 +2105,8 @@ $:mf_minmax_body(func, n)
         res%im%limbs(1) = t
         res%im%limbs(2) = aerr + berr
 #:else
-        zero = mf_from_dp(0.0_dp)
-        one = mf_from_dp(1.0_dp)
+        zero = dd_from_dp(0.0_dp)
+        one = dd_from_dp(1.0_dp)
         res%re = one
         res%im = zero
 #:for d in range(rank, 0, -1)
@@ -2123,34 +2123,34 @@ $:mf_minmax_body(func, n)
     end function
 
 #:if rank == 1
-    pure function cx_${func}$_1d_dim(array, dim, mask) result(res)
-        type(complex128x2), intent(in) :: array(:)
+    pure function cdd_${func}$_1d_dim(array, dim, mask) result(res)
+        type(complex64x2), intent(in) :: array(:)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(:)
-        type(complex128x2) :: res
+        type(complex64x2) :: res
         if (present(mask)) then
-            res = cx_${func}$_1d(array, mask=mask)
+            res = cdd_${func}$_1d(array, mask=mask)
         else
-            res = cx_${func}$_1d(array)
+            res = cdd_${func}$_1d(array)
         end if
     end function
 #:else
-    pure function cx_${func}$_${rank}$d_dim(array, dim, mask) result(res)
-        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
+    pure function cdd_${func}$_${rank}$d_dim(array, dim, mask) result(res)
+        type(complex64x2), intent(in) :: array(${COLONS(rank)}$)
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
-        type(complex128x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
+        type(complex64x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
 #:if func == 'sum'
         real(dp) :: re_hi, re_lo, im_hi, im_lo
         real(dp) :: xh, xl, t, bp, ap, aerr, berr
 #:else
-        type(complex128x2) :: cur
+        type(complex64x2) :: cur
         type(float64x2) :: zero, one
 #:endif
         integer :: ${IVARS(rank)}$
 #:if func == 'product'
-        zero = mf_from_dp(0.0_dp)
-        one = mf_from_dp(1.0_dp)
+        zero = dd_from_dp(0.0_dp)
+        one = dd_from_dp(1.0_dp)
 #:endif
         select case (dim)
 #:for d in range(1, rank+1)
@@ -2216,11 +2216,11 @@ $:mf_minmax_body(func, n)
     ! dot_product (pure)
     ! ----------------------------------------------------------------
 
-    pure function mf_dot_product(a, b) result(res)
+    pure function dd_dot_product(a, b) result(res)
         type(float64x2), intent(in) :: a(:), b(:)
         type(float64x2) :: res
         ! Fused multiply-accumulate with periodic renormalization.
-        ! Every MF_FMA_RENORM_INTERVAL iterations (default 8) we
+        ! Every DD_FMA_RENORM_INTERVAL iterations (default 8) we
         ! fast_two_sum the accumulator to keep s_lo bounded. Set the
         ! interval to 0 to renormalize only at the end.
         ! Hoist the `ri > 0` test out of the inner loop: the `ri <= 0`
@@ -2230,7 +2230,7 @@ $:mf_minmax_body(func, n)
         real(dp) :: s_hi, s_lo, ah, al, bh, bl
         real(dp) :: p, e, cross, t, bp, ap, aerr, berr
         integer :: k, kk, ke, n, ri
-        ri = MF_FMA_RENORM_INTERVAL
+        ri = DD_FMA_RENORM_INTERVAL
         n = size(a)
         s_hi = 0.0_dp
         s_lo = 0.0_dp
@@ -2274,25 +2274,25 @@ $:mf_minmax_body(func, n)
 
     ! Complex dot_product: sum(conj(a_k) * b_k).
     ! Expand real/imag components so each scalar reduction routes through
-    ! the compensated mf_dot_product (same Neumaier-style accumulator used
+    ! the compensated dd_dot_product (same Neumaier-style accumulator used
     ! by the real path) rather than a naive left fold. Uses 4 real dots at
     ! the cost of 4 small temp arrays.
     !
     ! Future: a single fused kernel that keeps four compensated DD
     ! accumulators (re_hi/lo, im_hi/lo) in registers across one pass over
     ! the inputs would cut memory traffic roughly in half and avoid the
-    ! temp-array copies. Worth revisiting if profiling shows cx reductions
+    ! temp-array copies. Worth revisiting if profiling shows cdd reductions
     ! as a bottleneck — current form prioritizes code reuse + correctness.
-    pure function cx_dot_product(a, b) result(res)
-        type(complex128x2), intent(in) :: a(:), b(:)
-        type(complex128x2) :: res
+    pure function cdd_dot_product(a, b) result(res)
+        type(complex64x2), intent(in) :: a(:), b(:)
+        type(complex64x2) :: res
         type(float64x2) :: a_re(size(a)), a_im(size(a))
         type(float64x2) :: b_re(size(b)), b_im(size(b))
         a_re = a%re; a_im = a%im
         b_re = b%re; b_im = b%im
         ! conj(a)·b = (a_re·b_re + a_im·b_im) + i (a_re·b_im - a_im·b_re)
-        res%re = mf_dot_product(a_re, b_re) + mf_dot_product(a_im, b_im)
-        res%im = mf_dot_product(a_re, b_im) - mf_dot_product(a_im, b_re)
+        res%re = dd_dot_product(a_re, b_re) + dd_dot_product(a_im, b_im)
+        res%im = dd_dot_product(a_re, b_im) - dd_dot_product(a_im, b_re)
     end function
 
     ! ----------------------------------------------------------------
@@ -2300,12 +2300,12 @@ $:mf_minmax_body(func, n)
     ! ----------------------------------------------------------------
 
 #:for rank in range(1, MAX_RANK+1)
-    pure function mf_norm2_${rank}$d(array) result(res)
+    pure function dd_norm2_${rank}$d(array) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         type(float64x2) :: res
         type(float64x2) :: s
         integer :: ${IVARS(rank)}$
-        s = mf_from_dp(0.0_dp)
+        s = dd_from_dp(0.0_dp)
 #:for d in range(rank, 0, -1)
         do i${d}$ = 1, size(array, ${d}$)
 #:endfor
@@ -2313,11 +2313,11 @@ $:mf_minmax_body(func, n)
 #:for d in range(rank)
         end do
 #:endfor
-        res = mf_sqrt(s)
+        res = dd_sqrt(s)
     end function
 
 #:if rank > 1
-    pure function mf_norm2_${rank}$d_dim(array, dim) result(res)
+    pure function dd_norm2_${rank}$d_dim(array, dim) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         integer, intent(in) :: dim
         type(float64x2) :: res(${DIM_REDUCED_SIZES(rank)}$)
@@ -2329,11 +2329,11 @@ $:mf_minmax_body(func, n)
 #:for i in [j for j in range(rank, 0, -1) if j != d]
             do i${i}$ = 1, size(array, ${i}$)
 #:endfor
-                cur = mf_from_dp(0.0_dp)
+                cur = dd_from_dp(0.0_dp)
                 do i${d}$ = 1, size(array, ${d}$)
                     cur = cur + array(${IDXS(rank)}$) * array(${IDXS(rank)}$)
                 end do
-                res(${OUT_IDXS(rank, d)}$) = mf_sqrt(cur)
+                res(${OUT_IDXS(rank, d)}$) = dd_sqrt(cur)
 #:for i in [j for j in range(rank, 0, -1) if j != d]
             end do
 #:endfor
@@ -2344,12 +2344,12 @@ $:mf_minmax_body(func, n)
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! findloc (pure) — rank 1-7 (mf + cx)
+    ! findloc (pure) — rank 1-7 (dd + cdd)
     ! ----------------------------------------------------------------
 
 #:for rank in range(1, MAX_RANK+1)
-    ! mf findloc rank ${rank}$
-    pure function mf_findloc_${rank}$d(array, value, mask, back) result(res)
+    ! dd findloc rank ${rank}$
+    pure function dd_findloc_${rank}$d(array, value, mask, back) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         type(float64x2), intent(in) :: value
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
@@ -2378,7 +2378,7 @@ $:mf_minmax_body(func, n)
     end function
 
 #:if rank == 1
-    pure function mf_findloc_1d_dim(array, value, dim, mask, back) result(res)
+    pure function dd_findloc_1d_dim(array, value, dim, mask, back) result(res)
         type(float64x2), intent(in) :: array(:)
         type(float64x2), intent(in) :: value
         integer, intent(in) :: dim
@@ -2387,18 +2387,18 @@ $:mf_minmax_body(func, n)
         integer :: res
         integer :: r1(1)
         if (present(mask) .and. present(back)) then
-            r1 = mf_findloc_1d(array, value, mask=mask, back=back)
+            r1 = dd_findloc_1d(array, value, mask=mask, back=back)
         else if (present(mask)) then
-            r1 = mf_findloc_1d(array, value, mask=mask)
+            r1 = dd_findloc_1d(array, value, mask=mask)
         else if (present(back)) then
-            r1 = mf_findloc_1d(array, value, back=back)
+            r1 = dd_findloc_1d(array, value, back=back)
         else
-            r1 = mf_findloc_1d(array, value)
+            r1 = dd_findloc_1d(array, value)
         end if
         res = r1(1)
     end function
 #:else
-    pure function mf_findloc_${rank}$d_dim(array, value, dim, mask, back) result(res)
+    pure function dd_findloc_${rank}$d_dim(array, value, dim, mask, back) result(res)
         type(float64x2), intent(in) :: array(${COLONS(rank)}$)
         type(float64x2), intent(in) :: value
         integer, intent(in) :: dim
@@ -2436,10 +2436,10 @@ $:mf_minmax_body(func, n)
     end function
 #:endif
 
-    ! cx findloc rank ${rank}$
-    pure function cx_findloc_${rank}$d(array, value, mask, back) result(res)
-        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
-        type(complex128x2), intent(in) :: value
+    ! cdd findloc rank ${rank}$
+    pure function cdd_findloc_${rank}$d(array, value, mask, back) result(res)
+        type(complex64x2), intent(in) :: array(${COLONS(rank)}$)
+        type(complex64x2), intent(in) :: value
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         logical, intent(in), optional :: back
         integer :: res(${rank}$)
@@ -2466,29 +2466,29 @@ $:mf_minmax_body(func, n)
     end function
 
 #:if rank == 1
-    pure function cx_findloc_1d_dim(array, value, dim, mask, back) result(res)
-        type(complex128x2), intent(in) :: array(:)
-        type(complex128x2), intent(in) :: value
+    pure function cdd_findloc_1d_dim(array, value, dim, mask, back) result(res)
+        type(complex64x2), intent(in) :: array(:)
+        type(complex64x2), intent(in) :: value
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(:)
         logical, intent(in), optional :: back
         integer :: res
         integer :: r1(1)
         if (present(mask) .and. present(back)) then
-            r1 = cx_findloc_1d(array, value, mask=mask, back=back)
+            r1 = cdd_findloc_1d(array, value, mask=mask, back=back)
         else if (present(mask)) then
-            r1 = cx_findloc_1d(array, value, mask=mask)
+            r1 = cdd_findloc_1d(array, value, mask=mask)
         else if (present(back)) then
-            r1 = cx_findloc_1d(array, value, back=back)
+            r1 = cdd_findloc_1d(array, value, back=back)
         else
-            r1 = cx_findloc_1d(array, value)
+            r1 = cdd_findloc_1d(array, value)
         end if
         res = r1(1)
     end function
 #:else
-    pure function cx_findloc_${rank}$d_dim(array, value, dim, mask, back) result(res)
-        type(complex128x2), intent(in) :: array(${COLONS(rank)}$)
-        type(complex128x2), intent(in) :: value
+    pure function cdd_findloc_${rank}$d_dim(array, value, dim, mask, back) result(res)
+        type(complex64x2), intent(in) :: array(${COLONS(rank)}$)
+        type(complex64x2), intent(in) :: value
         integer, intent(in) :: dim
         logical, intent(in), optional :: mask(${COLONS(rank)}$)
         logical, intent(in), optional :: back
@@ -2526,41 +2526,41 @@ $:mf_minmax_body(func, n)
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! matmul (pure) — mf + cx
+    ! matmul (pure) — dd + cdd
     ! ----------------------------------------------------------------
 
-    ! mf matmul: 2D × 2D → 2D (delegates to C kernel matmuldd_mm)
-    pure function mf_matmul_mm(a, b) result(res)
+    ! dd matmul: 2D × 2D → 2D (delegates to C kernel matmuldd_mm)
+    pure function dd_matmul_mm(a, b) result(res)
         type(float64x2), intent(in), target, contiguous :: a(:,:), b(:,:)
         type(float64x2), target :: res(size(a,1), size(b,2))
         call c_dd_matmul_mm(c_loc(a), c_loc(b), c_loc(res), &
             int(size(a,1), c_int64_t), int(size(a,2), c_int64_t), &
             int(size(b,2), c_int64_t), &
-            int(MF_FMA_RENORM_INTERVAL, c_int64_t))
+            int(DD_FMA_RENORM_INTERVAL, c_int64_t))
     end function
 
-    ! mf matmul: 2D × 1D → 1D (delegates to C kernel matmuldd_mv)
-    pure function mf_matmul_mv(a, b) result(res)
+    ! dd matmul: 2D × 1D → 1D (delegates to C kernel matmuldd_mv)
+    pure function dd_matmul_mv(a, b) result(res)
         type(float64x2), intent(in), target, contiguous :: a(:,:), b(:)
         type(float64x2), target :: res(size(a,1))
         call c_dd_matmul_mv(c_loc(a), c_loc(b), c_loc(res), &
             int(size(a,1), c_int64_t), int(size(a,2), c_int64_t), &
-            int(MF_FMA_RENORM_INTERVAL, c_int64_t))
+            int(DD_FMA_RENORM_INTERVAL, c_int64_t))
     end function
 
-    ! mf matmul: 1D × 2D → 1D (delegates to C kernel matmuldd_vm)
-    pure function mf_matmul_vm(a, b) result(res)
+    ! dd matmul: 1D × 2D → 1D (delegates to C kernel matmuldd_vm)
+    pure function dd_matmul_vm(a, b) result(res)
         type(float64x2), intent(in), target, contiguous :: a(:), b(:,:)
         type(float64x2), target :: res(size(b,2))
         call c_dd_matmul_vm(c_loc(a), c_loc(b), c_loc(res), &
             int(size(a), c_int64_t), int(size(b,2), c_int64_t), &
-            int(MF_FMA_RENORM_INTERVAL, c_int64_t))
+            int(DD_FMA_RENORM_INTERVAL, c_int64_t))
     end function
 
     ! Complex matmul via 4 real DD matmuls on the split (re, im) parts.
     ! (a + i b) · (c + i d) = (a·c - b·d) + i (a·d + b·c), so one complex
     ! matmul of shape (M, K) × (K, N) becomes four real matmuls of the
-    ! same shape, each going through the compensated mf_matmul_mm kernel.
+    ! same shape, each going through the compensated dd_matmul_mm kernel.
     ! Cost: 2 extra m·k + 2 extra k·n temp DD arrays (plus 2 m·n
     ! intermediates) per call.
     !
@@ -2568,47 +2568,47 @@ $:mf_minmax_body(func, n)
     ! accumulates the four real-part / imag-part contributions into a
     ! single set of compensated DD accumulators (4 doubles per output)
     ! would roughly halve the memory traffic and remove the temp arrays.
-    ! The real mf_matmul is compute-bound on most targets, so the payoff
-    ! is modest — revisit if cx matmul becomes a profile hotspot. The
-    ! analogous note on cx_dot_product above applies here too.
-    pure function cx_matmul_mm(a, b) result(res)
-        type(complex128x2), intent(in) :: a(:,:), b(:,:)
-        type(complex128x2) :: res(size(a,1), size(b,2))
+    ! The real dd_matmul is compute-bound on most targets, so the payoff
+    ! is modest — revisit if cdd matmul becomes a profile hotspot. The
+    ! analogous note on cdd_dot_product above applies here too.
+    pure function cdd_matmul_mm(a, b) result(res)
+        type(complex64x2), intent(in) :: a(:,:), b(:,:)
+        type(complex64x2) :: res(size(a,1), size(b,2))
         type(float64x2) :: a_re(size(a,1), size(a,2)), a_im(size(a,1), size(a,2))
         type(float64x2) :: b_re(size(b,1), size(b,2)), b_im(size(b,1), size(b,2))
         type(float64x2) :: p_re(size(a,1), size(b,2)), p_im(size(a,1), size(b,2))
         a_re = a%re; a_im = a%im
         b_re = b%re; b_im = b%im
-        p_re = mf_matmul_mm(a_re, b_re) - mf_matmul_mm(a_im, b_im)
-        p_im = mf_matmul_mm(a_re, b_im) + mf_matmul_mm(a_im, b_re)
+        p_re = dd_matmul_mm(a_re, b_re) - dd_matmul_mm(a_im, b_im)
+        p_im = dd_matmul_mm(a_re, b_im) + dd_matmul_mm(a_im, b_re)
         res%re = p_re
         res%im = p_im
     end function
 
-    pure function cx_matmul_mv(a, b) result(res)
-        type(complex128x2), intent(in) :: a(:,:), b(:)
-        type(complex128x2) :: res(size(a,1))
+    pure function cdd_matmul_mv(a, b) result(res)
+        type(complex64x2), intent(in) :: a(:,:), b(:)
+        type(complex64x2) :: res(size(a,1))
         type(float64x2) :: a_re(size(a,1), size(a,2)), a_im(size(a,1), size(a,2))
         type(float64x2) :: b_re(size(b)), b_im(size(b))
         type(float64x2) :: p_re(size(a,1)), p_im(size(a,1))
         a_re = a%re; a_im = a%im
         b_re = b%re; b_im = b%im
-        p_re = mf_matmul_mv(a_re, b_re) - mf_matmul_mv(a_im, b_im)
-        p_im = mf_matmul_mv(a_re, b_im) + mf_matmul_mv(a_im, b_re)
+        p_re = dd_matmul_mv(a_re, b_re) - dd_matmul_mv(a_im, b_im)
+        p_im = dd_matmul_mv(a_re, b_im) + dd_matmul_mv(a_im, b_re)
         res%re = p_re
         res%im = p_im
     end function
 
-    pure function cx_matmul_vm(a, b) result(res)
-        type(complex128x2), intent(in) :: a(:), b(:,:)
-        type(complex128x2) :: res(size(b,2))
+    pure function cdd_matmul_vm(a, b) result(res)
+        type(complex64x2), intent(in) :: a(:), b(:,:)
+        type(complex64x2) :: res(size(b,2))
         type(float64x2) :: a_re(size(a)), a_im(size(a))
         type(float64x2) :: b_re(size(b,1), size(b,2)), b_im(size(b,1), size(b,2))
         type(float64x2) :: p_re(size(b,2)), p_im(size(b,2))
         a_re = a%re; a_im = a%im
         b_re = b%re; b_im = b%im
-        p_re = mf_matmul_vm(a_re, b_re) - mf_matmul_vm(a_im, b_im)
-        p_im = mf_matmul_vm(a_re, b_im) + mf_matmul_vm(a_im, b_re)
+        p_re = dd_matmul_vm(a_re, b_re) - dd_matmul_vm(a_im, b_im)
+        p_im = dd_matmul_vm(a_re, b_im) + dd_matmul_vm(a_im, b_re)
         res%re = p_re
         res%im = p_im
     end function
@@ -2617,16 +2617,16 @@ $:mf_minmax_body(func, n)
     ! Configuration
     ! ----------------------------------------------------------------
 
-    subroutine mf_set_fma_renorm_interval(n)
+    subroutine dd_set_fma_renorm_interval(n)
         integer, intent(in) :: n
-        MF_FMA_RENORM_INTERVAL = n
+        DD_FMA_RENORM_INTERVAL = n
     end subroutine
 
     ! ----------------------------------------------------------------
     ! random_number (impure subroutine)
     ! ----------------------------------------------------------------
 
-    subroutine mf_random_number_0d(harvest)
+    subroutine dd_random_number_0d(harvest)
         type(float64x2), intent(out) :: harvest
         real(dp) :: hi, lo, s, b
         call random_number(hi)
@@ -2641,7 +2641,7 @@ $:mf_minmax_body(func, n)
     end subroutine
 
 #:for rank in range(1, MAX_RANK+1)
-    subroutine mf_random_number_${rank}$d(harvest)
+    subroutine dd_random_number_${rank}$d(harvest)
         type(float64x2), intent(out) :: harvest(${COLONS(rank)}$)
         real(dp) :: hi(${SIZES(rank, 'harvest')}$), lo(${SIZES(rank, 'harvest')}$)
         real(dp) :: s, b
@@ -2669,7 +2669,7 @@ $:mf_minmax_body(func, n)
 #! Unpack operand `name` (a or b) into scalar dp locals (hi, lo). For non-DD
 #! operands lo is 0. Used by the real-DD arithmetic bodies below.
 #:def unpack_operand(name, n, hi, lo)
-#:if n == 'mf'
+#:if n == 'dd'
         ${hi}$ = ${name}$%limbs(1)
         ${lo}$ = ${name}$%limbs(2)
 #:elif n == 'sp' or n == 'int'
@@ -2805,11 +2805,11 @@ $:mf_minmax_body(func, n)
         res%limbs(2) = e - bprime
 #:enddef
 
-#! Complex result: lift any non-complex operand to a complex128x2 via
+#! Complex result: lift any non-complex operand to a complex64x2 via
 #! assignment overloads, then do the op in (re, im) form.
-#:def cx_arith_body(opname)
+#:def cdd_arith_body(opname)
         block
-            type(complex128x2) :: ca, cb
+            type(complex64x2) :: ca, cb
             type(float64x2) :: denom
             ca = a
             cb = b
@@ -2833,15 +2833,15 @@ $:mf_minmax_body(func, n)
 #:for opsym, opname in ARITH_OPS
 #:for n1, d1 in ATYPES
 #:for n2, d2 in ATYPES
-#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:if n1 in ('dd', 'cdd') or n2 in ('dd', 'cdd')
 #:set rc = ISCPLX[n1] or ISCPLX[n2]
     elemental function ${n1}$_${opname}$_${n2}$(a, b) result(res)
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
-        ${'type(complex128x2)' if rc else 'type(float64x2)'}$ :: res
+        ${'type(complex64x2)' if rc else 'type(float64x2)'}$ :: res
 #:if not rc
         ! Hot fast path uses scalar dp locals (no float64x2 copies, no
-        ! generic mf_from_dp call). The single non-finite guard runs
+        ! generic dd_from_dp call). The single non-finite guard runs
         ! after the leading-limb op so a single test catches every IEEE
         ! special case.
         real(dp) :: x0, x1, y0, y1
@@ -2862,7 +2862,7 @@ $:dd_arith_mul_body()
 $:dd_arith_div_body()
 #:endif
 #:else
-$:cx_arith_body(opname)
+$:cdd_arith_body(opname)
 #:endif
     end function
 
@@ -2876,27 +2876,27 @@ $:cx_arith_body(opname)
 
 #:for n1, d1 in ATYPES
 #:for n2, d2 in ATYPES
-#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:if n1 in ('dd', 'cdd') or n2 in ('dd', 'cdd')
 #:set rc = ISCPLX[n1] or ISCPLX[n2]
     elemental function ${n1}$_pow_${n2}$(a, b) result(res)
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
-        ${'type(complex128x2)' if rc else 'type(float64x2)'}$ :: res
+        ${'type(complex64x2)' if rc else 'type(float64x2)'}$ :: res
 #:if n2 == 'int'
 #:if rc
         ! Integer-power on a complex base via repeated multiplication.
         block
-            type(complex128x2) :: base
+            type(complex64x2) :: base
             integer :: k, n
             base = a
-            res%re = MF_ONE
+            res%re = DD_ONE
             res%im%limbs = [0.0_dp, 0.0_dp]
             n = abs(b)
             do k = 1, n
                 res = res * base
             end do
             if (b < 0) then
-                res = complex128x2(MF_ONE, mf_from_dp(0.0_dp)) / res
+                res = complex64x2(DD_ONE, dd_from_dp(0.0_dp)) / res
             end if
         end block
 #:else
@@ -2905,21 +2905,21 @@ $:cx_arith_body(opname)
             type(float64x2) :: base
             integer :: k, n
             base = a
-            res = MF_ONE
+            res = DD_ONE
             n = abs(b)
             do k = 1, n
                 res = res * base
             end do
-            if (b < 0) res = MF_ONE / res
+            if (b < 0) res = DD_ONE / res
         end block
 #:endif
 #:elif rc
         ! General complex power: a^b = exp(b * log(a))
         block
-            type(complex128x2) :: ca, cb
+            type(complex64x2) :: ca, cb
             ca = a
             cb = b
-            res = cx_exp(cb * cx_log(ca))
+            res = cdd_exp(cb * cdd_log(ca))
         end block
 #:else
         ! General real power: a^b = exp(b * log(a))
@@ -2927,7 +2927,7 @@ $:cx_arith_body(opname)
             type(float64x2) :: x, y
             x = a
             y = b
-            res = mf_exp(y * mf_log(x))
+            res = dd_exp(y * dd_log(x))
         end block
 #:endif
     end function
@@ -2942,15 +2942,15 @@ $:cx_arith_body(opname)
 #:for opsym, opname in EQ_OPS
 #:for n1, d1 in ATYPES
 #:for n2, d2 in ATYPES
-#:if n1 in ('mf', 'cx') or n2 in ('mf', 'cx')
+#:if n1 in ('dd', 'cdd') or n2 in ('dd', 'cdd')
     elemental function ${n1}$_${opname}$_${n2}$(a, b) result(res)
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
         logical :: res
 #:if not ISCPLX[n1] and not ISCPLX[n2]
         type(float64x2) :: x, y
-        x = ${MFCONV[n1].format('a')}$
-        y = ${MFCONV[n2].format('b')}$
+        x = ${DDCONV[n1].format('a')}$
+        y = ${DDCONV[n2].format('b')}$
 #:if opname == 'eq'
         res = x%limbs(1) == y%limbs(1) .and. x%limbs(2) == y%limbs(2)
 #:else
@@ -2959,7 +2959,7 @@ $:cx_arith_body(opname)
 #:else
         ! Complex (in)equality: compare real and imaginary parts in native DD.
         block
-            type(complex128x2) :: ca, cb
+            type(complex64x2) :: ca, cb
             ca = a
             cb = b
 #:if opname == 'eq'
@@ -2982,14 +2982,14 @@ $:cx_arith_body(opname)
 #:for opsym, opname in ORD_OPS
 #:for n1, d1 in RTYPES
 #:for n2, d2 in RTYPES
-#:if n1 == 'mf' or n2 == 'mf'
+#:if n1 == 'dd' or n2 == 'dd'
     elemental function ${n1}$_${opname}$_${n2}$(a, b) result(res)
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
         logical :: res
         type(float64x2) :: x, y
-        x = ${MFCONV[n1].format('a')}$
-        y = ${MFCONV[n2].format('b')}$
+        x = ${DDCONV[n1].format('a')}$
+        y = ${DDCONV[n2].format('b')}$
 #:if opname == 'lt'
         res = x%limbs(1) < y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) < y%limbs(2))
 #:elif opname == 'gt'
@@ -3009,7 +3009,7 @@ $:cx_arith_body(opname)
     ! Defined I/O
     ! ----------------------------------------------------------------
 
-    subroutine write_mf_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+    subroutine write_dd_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
         type(float64x2), intent(in) :: dtv
         integer, intent(in) :: unit
         character(*), intent(in) :: iotype
@@ -3036,8 +3036,8 @@ $:cx_arith_body(opname)
 #:endif
     end subroutine
 
-    subroutine write_cx_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
-        type(complex128x2), intent(in) :: dtv
+    subroutine write_cdd_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+        type(complex64x2), intent(in) :: dtv
         integer, intent(in) :: unit
         character(*), intent(in) :: iotype
         integer, intent(in) :: v_list(:)
@@ -3064,7 +3064,7 @@ $:cx_arith_body(opname)
 #:endif
     end subroutine
 
-    subroutine read_mf_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+    subroutine read_dd_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
         type(float64x2), intent(inout) :: dtv
         integer, intent(in) :: unit
         character(*), intent(in) :: iotype
@@ -3094,8 +3094,8 @@ $:cx_arith_body(opname)
 #:endif
     end subroutine
 
-    subroutine read_cx_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
-        type(complex128x2), intent(inout) :: dtv
+    subroutine read_cdd_formatted(dtv, unit, iotype, v_list, iostat, iomsg)
+        type(complex64x2), intent(inout) :: dtv
         integer, intent(in) :: unit
         character(*), intent(in) :: iotype
         integer, intent(in) :: v_list(:)

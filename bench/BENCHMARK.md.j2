@@ -50,7 +50,7 @@ Precision is measured as the maximum relative error vs the quad-precision
 
 Each operation is timed over 1024 elements × 400 repetitions (fast ops)
 or fewer reps (transcendentals), with a NOINLINE drain after each rep to
-prevent dead-code elimination. **×** = speedup (`qp_time / mf_time`,
+prevent dead-code elimination. **×** = speedup (`qp_time / dd_time`,
 values > 1× mean multifloats is faster); **err** = max\_rel from the
 1M-input fuzz run; **prec** = precision label.
 {% for section in fortran_sections %}

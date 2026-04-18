@@ -34,7 +34,7 @@ extern "C" {
 typedef struct { double hi, lo; } float64x2_t;
 
 /* Complex double-double: two back-to-back float64x2_t (four doubles, no
- * padding). Matches Fortran's `type(complex128x2) sequence` layout and is
+ * padding). Matches Fortran's `type(complex64x2) sequence` layout and is
  * used by the c*dd transcendentals below. */
 typedef struct { float64x2_t re, im; } complex64x2_t;
 
@@ -192,7 +192,7 @@ MULTIFLOATS_API float64x2_t   cimagdd(complex64x2_t z);
  * Leading dimensions equal the first extent (no strides).
  *
  * renorm_interval: if > 0, renormalize accumulators every N reductions
- * (matches MF_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo
+ * (matches DD_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo
  * bounded for large k). Pass 0 to renormalize only at the end. */
 MULTIFLOATS_API void matmuldd_mm(const float64x2_t *a, const float64x2_t *b,
                          float64x2_t *c,

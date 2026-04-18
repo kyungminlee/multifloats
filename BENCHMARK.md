@@ -47,7 +47,7 @@ Precision is measured as the maximum relative error vs the quad-precision
 
 Each operation is timed over 1024 elements × 400 repetitions (fast ops)
 or fewer reps (transcendentals), with a NOINLINE drain after each rep to
-prevent dead-code elimination. **×** = speedup (`qp_time / mf_time`,
+prevent dead-code elimination. **×** = speedup (`qp_time / dd_time`,
 values > 1× mean multifloats is faster); **err** = max\_rel from the
 1M-input fuzz run; **prec** = precision label.
 
@@ -60,8 +60,8 @@ values > 1× mean multifloats is faster); **err** = max\_rel from the
 | mul | Julia: two\_prod EFT via FMA | full DD | 3.3e-32 | 3.1e-32 | 3.3e-32 | **4.8×** | **5.9×** | **4.5×** |
 | div | original: Newton refinement (1/y seed, one step) | full DD | 5.4e-32 | 6.1e-32 | 5.4e-32 | **3.3×** | **3.2×** | 1.7× |
 | sqrt | Julia: Karp–Markstein (reciprocal sqrt seed + Newton) | full DD | 5.2e-32 | 5.4e-32 | 5.2e-32 | **15×** | **17×** | **33×** |
-| add (mf+dp) | Julia: two\_sum EFT | exact | exact | exact | exact | **2.0×** | **4.3×** | **4.0×** |
-| mul (dp\*mf) | Julia: two\_prod EFT via FMA | full DD | 3.3e-32 | 3.1e-32 | 3.3e-32 | **4.9×** | **6.1×** | **3.9×** |
+| add (dd+dp) | Julia: two\_sum EFT | exact | exact | exact | exact | **2.0×** | **4.3×** | **4.0×** |
+| mul (dp\*dd) | Julia: two\_prod EFT via FMA | full DD | 3.3e-32 | 3.1e-32 | 3.3e-32 | **4.9×** | **6.1×** | **3.9×** |
 
 ### Unary
 
@@ -144,32 +144,32 @@ values > 1× mean multifloats is faster); **err** = max\_rel from the
 
 | op | approach | prec | M1 Max err | Skylake err | Raptor Lake err | M1 Max × | Skylake × | Raptor Lake × |
 |---|---|---|---|---|---|---|---|---|
-| cx\_add | original: component-wise DD add | full DD | 1.2e-32 | 1.3e-32 | 1.2e-32 | **3.1×** | **3.6×** | **3.9×** |
-| cx\_sub | original: component-wise DD sub | full DD | 5.6e-33 | 5.8e-33 | 5.6e-33 | **3.3×** | **3.4×** | **3.8×** |
-| cx\_mul | original: (ac−bd, ad+bc) via DD ops | full DD | 1.9e-32 | 2.0e-32 | 1.9e-32 | **5.3×** | **4.0×** | **4.0×** |
-| cx\_div | original: (ac+bd, bc−ad)/(c²+d²) | full DD / deriv | 4.5e-32 (re) / 1.5e-16 (im) | 4.6e-32 (re) / 1.1e-16 (im) | 4.5e-32 (re) / 1.5e-16 (im) | **5.3×** | **4.1×** | **2.7×** |
-| cx\_conjg | original: negate im limbs | exact | exact | exact | exact | **2.0×** | **3.5×** | **2.4×** |
-| cx\_abs | original: hypot(re, im) | full DD | 7.9e-32 | 6.6e-32 | 7.9e-32 | **3.5×** | **4.9×** | **7.3×** |
+| cdd\_add | original: component-wise DD add | full DD | 1.2e-32 | 1.3e-32 | 1.2e-32 | **3.1×** | **3.6×** | **3.9×** |
+| cdd\_sub | original: component-wise DD sub | full DD | 5.6e-33 | 5.8e-33 | 5.6e-33 | **3.3×** | **3.4×** | **3.8×** |
+| cdd\_mul | original: (ac−bd, ad+bc) via DD ops | full DD | 1.9e-32 | 2.0e-32 | 1.9e-32 | **5.3×** | **4.0×** | **4.0×** |
+| cdd\_div | original: (ac+bd, bc−ad)/(c²+d²) | full DD / deriv | 4.5e-32 (re) / 1.5e-16 (im) | 4.6e-32 (re) / 1.1e-16 (im) | 4.5e-32 (re) / 1.5e-16 (im) | **5.3×** | **4.1×** | **2.7×** |
+| cdd\_conjg | original: negate im limbs | exact | exact | exact | exact | **2.0×** | **3.5×** | **2.4×** |
+| cdd\_abs | original: hypot(re, im) | full DD | 7.9e-32 | 6.6e-32 | 7.9e-32 | **3.5×** | **4.9×** | **7.3×** |
 
 ### Complex transcendentals
 
 | op | approach | prec | M1 Max err | Skylake err | Raptor Lake err | M1 Max × | Skylake × | Raptor Lake × |
 |---|---|---|---|---|---|---|---|---|
-| cx\_sqrt | original: Kahan-style (\|z\|+\|a\|)/2 with scaling | full DD | 7.5e-32 | 6.4e-32 | 6.5e-32 | **4.3×** | **4.6×** | **5.7×** |
-| cx\_exp | original: exp(re)·(cos(im), sin(im)) | full DD | 7.1e-30 | 7.8e-31 | 7.1e-30 | 1.5× | 1.5× | 1.9× |
-| cx\_log | original: (log(\|z\|), atan2(im,re)) | full DD | 1.4e-30 (re) / 2.7e-32 (im) | 2.0e-29 (re) / 2.8e-32 (im) | 1.4e-30 (re) / 3.1e-32 (im) | 1.7× | 1.8× | **3.8×** |
-| cx\_sin | original: sin(re)cosh(im), cos(re)sinh(im) | full DD | 7.7e-30 | 4.9e-31 | 7.7e-30 | 1.4× | 1.4× | 1.4× |
-| cx\_cos | original: cos(re)cosh(im), −sin(re)sinh(im) | full DD | 7.7e-30 | 4.9e-31 | 7.7e-30 | 1.5× | 1.4× | 1.4× |
-| cx\_tan | original: complex sin/cos ratio | full DD | 1.7e-30 | 3.1e-30 | 1.6e-30 | 0.77× | 0.7× | 0.72× |
-| cx\_sinh | original: sinh(re)cos(im), cosh(re)sin(im) | full DD | 7.4e-30 | 1.2e-30 | 7.4e-30 | 1.6× | 1.5× | 1.5× |
-| cx\_cosh | original: cosh(re)cos(im), sinh(re)sin(im) | full DD | 7.1e-30 | 1.2e-30 | 7.1e-30 | 1.6× | 1.5× | 1.6× |
-| cx\_tanh | original: complex tanh via sinh/cosh | full DD | 1.2e-30 | 1.1e-30 | 8.6e-31 | 0.79× | 0.8× | 0.79× |
-| cx\_asin | original: −i·log(iz+√(1−z²)) | deriv / full DD | 2.5e-23 (re) / 2.1e-28 (im) | 2.8e-23 (re) / 8.4e-31 (im) | 2.5e-23 (re) / 2.1e-28 (im) | **2.1×** | **2.4×** | **4.1×** |
-| cx\_acos | original: π/2 − asin(z) | full DD | 1.7e-32 (re) / 2.1e-28 (im) | 2.9e-32 (re) / 8.4e-31 (im) | 1.3e-32 (re) / 2.1e-28 (im) | **2.1×** | **2.4×** | **4.1×** |
-| cx\_atan | original: (i/2)·log((i+z)/(i−z)) | full DD | 5.0e-32 (re) / 3.1e-31 (im) | 3.8e-32 (re) / 4.8e-31 (im) | 3.6e-32 (re) / 3.8e-31 (im) | 1.4× | 1.4× | **2.6×** |
-| cx\_asinh | original: log(z+√(z²+1)) | deriv / full DD | 2.3e-21 (re) / 6.8e-32 (im) | 6.7e-22 (re) / 6.6e-32 (im) | 2.3e-21 (re) / 7.3e-32 (im) | **2.0×** | **2.2×** | **4.0×** |
-| cx\_acosh | original: log(z+√(z²−1)) | full DD | 6.2e-30 (re) / 2.2e-32 (im) | 7.2e-31 (re) / 2.9e-32 (im) | 6.2e-30 (re) / 1.9e-32 (im) | 1.8× | **2.0×** | **3.3×** |
-| cx\_atanh | original: ½·log((1+z)/(1−z)) | deriv / full DD | 1.2e-22 (re) / 4.1e-32 (im) | 7.2e-23 (re) / 6.7e-32 (im) | 4.3e-22 (re) / 5.6e-32 (im) | 1.6× | 1.5× | **3.0×** |
+| cdd\_sqrt | original: Kahan-style (\|z\|+\|a\|)/2 with scaling | full DD | 7.5e-32 | 6.4e-32 | 6.5e-32 | **4.3×** | **4.6×** | **5.7×** |
+| cdd\_exp | original: exp(re)·(cos(im), sin(im)) | full DD | 7.1e-30 | 7.8e-31 | 7.1e-30 | 1.5× | 1.5× | 1.9× |
+| cdd\_log | original: (log(\|z\|), atan2(im,re)) | full DD | 1.4e-30 (re) / 2.7e-32 (im) | 2.0e-29 (re) / 2.8e-32 (im) | 1.4e-30 (re) / 3.1e-32 (im) | 1.7× | 1.8× | **3.8×** |
+| cdd\_sin | original: sin(re)cosh(im), cos(re)sinh(im) | full DD | 7.7e-30 | 4.9e-31 | 7.7e-30 | 1.4× | 1.4× | 1.4× |
+| cdd\_cos | original: cos(re)cosh(im), −sin(re)sinh(im) | full DD | 7.7e-30 | 4.9e-31 | 7.7e-30 | 1.5× | 1.4× | 1.4× |
+| cdd\_tan | original: complex sin/cos ratio | full DD | 1.7e-30 | 3.1e-30 | 1.6e-30 | 0.77× | 0.7× | 0.72× |
+| cdd\_sinh | original: sinh(re)cos(im), cosh(re)sin(im) | full DD | 7.4e-30 | 1.2e-30 | 7.4e-30 | 1.6× | 1.5× | 1.5× |
+| cdd\_cosh | original: cosh(re)cos(im), sinh(re)sin(im) | full DD | 7.1e-30 | 1.2e-30 | 7.1e-30 | 1.6× | 1.5× | 1.6× |
+| cdd\_tanh | original: complex tanh via sinh/cosh | full DD | 1.2e-30 | 1.1e-30 | 8.6e-31 | 0.79× | 0.8× | 0.79× |
+| cdd\_asin | original: −i·log(iz+√(1−z²)) | deriv / full DD | 2.5e-23 (re) / 2.1e-28 (im) | 2.8e-23 (re) / 8.4e-31 (im) | 2.5e-23 (re) / 2.1e-28 (im) | **2.1×** | **2.4×** | **4.1×** |
+| cdd\_acos | original: π/2 − asin(z) | full DD | 1.7e-32 (re) / 2.1e-28 (im) | 2.9e-32 (re) / 8.4e-31 (im) | 1.3e-32 (re) / 2.1e-28 (im) | **2.1×** | **2.4×** | **4.1×** |
+| cdd\_atan | original: (i/2)·log((i+z)/(i−z)) | full DD | 5.0e-32 (re) / 3.1e-31 (im) | 3.8e-32 (re) / 4.8e-31 (im) | 3.6e-32 (re) / 3.8e-31 (im) | 1.4× | 1.4× | **2.6×** |
+| cdd\_asinh | original: log(z+√(z²+1)) | deriv / full DD | 2.3e-21 (re) / 6.8e-32 (im) | 6.7e-22 (re) / 6.6e-32 (im) | 2.3e-21 (re) / 7.3e-32 (im) | **2.0×** | **2.2×** | **4.0×** |
+| cdd\_acosh | original: log(z+√(z²−1)) | full DD | 6.2e-30 (re) / 2.2e-32 (im) | 7.2e-31 (re) / 2.9e-32 (im) | 6.2e-30 (re) / 1.9e-32 (im) | 1.8× | **2.0×** | **3.3×** |
+| cdd\_atanh | original: ½·log((1+z)/(1−z)) | deriv / full DD | 1.2e-22 (re) / 4.1e-32 (im) | 7.2e-23 (re) / 6.7e-32 (im) | 4.3e-22 (re) / 5.6e-32 (im) | 1.6× | 1.5× | **3.0×** |
 
 ### Array reductions
 
@@ -200,7 +200,7 @@ mirror the Fortran split (`fortran_fuzz` / `fortran_bench`):
   ops and ~5k for transcendentals.
 - **×** columns come from `cpp_bench` at 1024 elements × reps, with an
   init-before-each-leg reset so drain feedback cannot drift the inputs
-  between the qp and mf legs.
+  between the qp and dd legs.
 
 **Precision parity with Fortran.** The C++ header now hits full DD on
 exp / log / pow, sin / cos / tan, and the whole hyperbolic family.
@@ -376,7 +376,7 @@ independent measurements on that system.
   accumulate kernel that computes the product's error-free representation
   and accumulates corrections into a scalar `s_lo`. `dot_product` lives
   in Fortran and uses periodic renormalization (configurable via
-  `mf_set_fma_renorm_interval`). `matmul` routes to a C kernel
+  `dd_set_fma_renorm_interval`). `matmul` routes to a C kernel
   (`src/multifloats_math.cc`) in AXPY / gaxpy loop order: outer over the
   shared dim `p`, inner over the output row `i`, so A is read as
   contiguous columns and the m output accumulators are independent. The
@@ -385,7 +385,7 @@ independent measurements on that system.
   `noinline` so the hot path inlines `panel<8>` into `matmuldd_mv` and
   the accumulators stay in registers); matrix-matrix calls the same
   dispatcher per output column. Periodic renormalization — mirroring
-  `mf_set_fma_renorm_interval` and passed through the C ABI — chunks
+  `dd_set_fma_renorm_interval` and passed through the C ABI — chunks
   the p-loop so `fast_two_sum` fires between chunks rather than inside
   the inner loop; when `k ≤ renorm_interval` the chunking scaffold is
   skipped entirely. M1 Max 8×8·8 matvec runs at ~2.7× vs libquadmath;

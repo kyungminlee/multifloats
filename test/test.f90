@@ -20,7 +20,7 @@ program multifloat_test
   call test_math_intrinsics()
   call test_overflow_paths()
   call test_sinpi_cospi_precision()
-  call test_cx_matmul_dot()
+  call test_cdd_matmul_dot()
   call test_compensated_reductions()
 
   if (num_errors == 0) then
@@ -317,10 +317,10 @@ contains
     inf = ieee_value(inf, ieee_positive_inf)
 
     a = 1.234d0
-    call assert(mf_is_finite(a), "1.234 is finite")
+    call assert(dd_is_finite(a), "1.234 is finite")
 
     a = inf
-    call assert(.not. mf_is_finite(a), "inf is not finite")
+    call assert(.not. dd_is_finite(a), "inf is not finite")
   end subroutine
 
   subroutine test_renormalize()
@@ -328,12 +328,12 @@ contains
     ! Manually set unnormalized state
     a%limbs(1) = 1.0d0
     a%limbs(2) = 1.0d0
-    call mf_renormalize(a)
+    call dd_renormalize(a)
     call assert_eq(a, 2.0d0, 0.0d0, "renormalize(1, 1) -> (2, 0)")
 
     a%limbs(1) = 1.0d-20
     a%limbs(2) = 1.0d0
-    call mf_renormalize(a)
+    call dd_renormalize(a)
     call assert_eq(a, 1.0d0, 1.0d-20, "renormalize(1e-20, 1) -> (1, 1e-20)")
   end subroutine
 
@@ -509,55 +509,55 @@ contains
     call assert_approx(r, -1.0d0, 0.0d0, "cospi(101) == -1")
   end subroutine
 
-  subroutine test_cx_matmul_dot()
+  subroutine test_cdd_matmul_dot()
     ! P3: complex matmul/dot_product now route through the compensated
     ! real kernels. Sanity-check identities that would fail if the
     ! complex formula were wrong. Precision validation is inherited from
     ! the real path's fuzz tests.
-    type(complex128x2) :: a(2, 2), b(2, 2), c(2, 2), u(2), v(2)
-    type(complex128x2) :: one, i_unit, two, zero, s
-    type(float64x2) :: zero_mf
-    zero_mf = float64x2(0.0d0)
-    one%re = float64x2(1.0d0); one%im = zero_mf
-    two%re = float64x2(2.0d0); two%im = zero_mf
-    zero%re = zero_mf; zero%im = zero_mf
-    i_unit%re = zero_mf; i_unit%im = float64x2(1.0d0)
+    type(complex64x2) :: a(2, 2), b(2, 2), c(2, 2), u(2), v(2)
+    type(complex64x2) :: one, i_unit, two, zero, s
+    type(float64x2) :: zero_dd
+    zero_dd = float64x2(0.0d0)
+    one%re = float64x2(1.0d0); one%im = zero_dd
+    two%re = float64x2(2.0d0); two%im = zero_dd
+    zero%re = zero_dd; zero%im = zero_dd
+    i_unit%re = zero_dd; i_unit%im = float64x2(1.0d0)
 
     ! [1 i; i 1] * [1 -i; -i 1] = [2 0; 0 2] (identity up to complex phase)
     a(1,1) = one;    a(1,2) = i_unit
     a(2,1) = i_unit; a(2,2) = one
-    b(1,1) = one;              b(1,2)%re = zero_mf; b(1,2)%im = float64x2(-1.0d0)
-    b(2,1)%re = zero_mf; b(2,1)%im = float64x2(-1.0d0)
+    b(1,1) = one;              b(1,2)%re = zero_dd; b(1,2)%im = float64x2(-1.0d0)
+    b(2,1)%re = zero_dd; b(2,1)%im = float64x2(-1.0d0)
     b(2,2) = one
     c = matmul(a, b)
-    call assert_approx(c(1,1)%re, 2.0d0, 0.0d0, "cx_matmul [1,1].re")
-    call assert_approx(c(1,1)%im, 0.0d0, 0.0d0, "cx_matmul [1,1].im")
-    call assert_approx(c(2,2)%re, 2.0d0, 0.0d0, "cx_matmul [2,2].re")
-    call assert_approx(c(1,2)%re, 0.0d0, 0.0d0, "cx_matmul [1,2].re")
+    call assert_approx(c(1,1)%re, 2.0d0, 0.0d0, "cdd_matmul [1,1].re")
+    call assert_approx(c(1,1)%im, 0.0d0, 0.0d0, "cdd_matmul [1,1].im")
+    call assert_approx(c(2,2)%re, 2.0d0, 0.0d0, "cdd_matmul [2,2].re")
+    call assert_approx(c(1,2)%re, 0.0d0, 0.0d0, "cdd_matmul [1,2].re")
 
     ! dot_product conjugates the first argument; dot(u, u) is real non-neg.
     u(1) = one
     u(2) = i_unit
     s = dot_product(u, u)
-    call assert_approx(s%re, 2.0d0, 0.0d0, "cx_dot(u, u) real == 2")
-    call assert_approx(s%im, 0.0d0, 0.0d0, "cx_dot(u, u) imag == 0")
+    call assert_approx(s%re, 2.0d0, 0.0d0, "cdd_dot(u, u) real == 2")
+    call assert_approx(s%im, 0.0d0, 0.0d0, "cdd_dot(u, u) imag == 0")
 
     ! dot(u, i*u) = conj(u_k) · (i u_k) = i (|u_1|^2 + |u_2|^2) = 2i
     v(1) = i_unit
-    v(2)%re = float64x2(-1.0d0); v(2)%im = zero_mf  ! i * i = -1
+    v(2)%re = float64x2(-1.0d0); v(2)%im = zero_dd  ! i * i = -1
     s = dot_product(u, v)
-    call assert_approx(s%re, 0.0d0, 0.0d0, "cx_dot(u, i·u) real == 0")
-    call assert_approx(s%im, 2.0d0, 0.0d0, "cx_dot(u, i·u) imag == 2")
+    call assert_approx(s%re, 0.0d0, 0.0d0, "cdd_dot(u, i·u) real == 0")
+    call assert_approx(s%im, 2.0d0, 0.0d0, "cdd_dot(u, i·u) imag == 2")
   end subroutine
 
   subroutine test_compensated_reductions()
-    ! P4: sum / sum(..., dim=...) / cx sum all route through Neumaier
+    ! P4: sum / sum(..., dim=...) / cdd sum all route through Neumaier
     ! compensation. Verify that the dim-reduction sum of a 1xN array
-    ! matches the rank-1 sum bit-exactly, and that cx sum preserves
+    ! matches the rank-1 sum bit-exactly, and that cdd sum preserves
     ! near-cancellation the same way the real sum does.
     type(float64x2) :: a(6), ma(1, 6), col(1)
     type(float64x2) :: s_flat, s_col_scalar
-    type(complex128x2) :: ca(6), cm(1, 6), ccol(1), cs, cs_col
+    type(complex64x2) :: ca(6), cm(1, 6), ccol(1), cs, cs_col
 
     ! Choose values that straddle DD exponents; naive left-fold loses
     ! the last element's contribution when accumulated before the
@@ -591,21 +591,21 @@ contains
     ccol = sum(cm, dim=2)
     cs_col = ccol(1)
 
-    call assert_approx(cs%re, 2.0d0, 0.0d0, "cx_sum.re == 2 (compensated)")
-    call assert_approx(cs%im, 4.0d0, 0.0d0, "cx_sum.im == 4 (compensated)")
+    call assert_approx(cs%re, 2.0d0, 0.0d0, "cdd_sum.re == 2 (compensated)")
+    call assert_approx(cs%im, 4.0d0, 0.0d0, "cdd_sum.im == 4 (compensated)")
     call assert_approx(cs_col%re, 2.0d0, 0.0d0, &
-                       "cx_sum(dim=2).re == 2 (compensated)")
+                       "cdd_sum(dim=2).re == 2 (compensated)")
     call assert_approx(cs_col%im, 4.0d0, 0.0d0, &
-                       "cx_sum(dim=2).im == 4 (compensated)")
+                       "cdd_sum(dim=2).im == 4 (compensated)")
   end subroutine
 
   ! Local shims for facilities the multifloats module does not expose.
-  logical function mf_is_finite(a) result(res)
+  logical function dd_is_finite(a) result(res)
     type(float64x2), intent(in) :: a
     res = ieee_is_finite(a%limbs(1)) .and. ieee_is_finite(a%limbs(2))
   end function
 
-  subroutine mf_renormalize(a)
+  subroutine dd_renormalize(a)
     type(float64x2), intent(inout) :: a
     double precision :: hi, lo, s, b_prime
     if (abs(a%limbs(1)) >= abs(a%limbs(2))) then

@@ -29,24 +29,23 @@
 #include <random>
 
 namespace mf = multifloats;
-using MF2 = mf::MultiFloat<double, 2>;
 using q_t = __float128;
 
 // =============================================================================
 // __float128 reference helpers
 // =============================================================================
 
-static q_t to_q(MF2 const &x) {
+static q_t to_q(mf::float64x2 const &x) {
   return (q_t)x._limbs[0] + (q_t)x._limbs[1];
 }
 
 // Project a q_t value down to a normalized double-double (the same way the
 // Fortran test's `to_f64x2` does — hi = nearest double, lo = rounding error,
 // then fast_two_sum renormalize).
-static MF2 to_mf2(q_t v) {
+static mf::float64x2 to_mf2(q_t v) {
   double hi = (double)v;
   if (!std::isfinite(hi)) {
-    MF2 r;
+    mf::float64x2 r;
     r._limbs[0] = hi;
     r._limbs[1] = 0.0;
     return r;
@@ -54,7 +53,7 @@ static MF2 to_mf2(q_t v) {
   double lo = (double)(v - (q_t)hi);
   double s = hi + lo;
   double b = s - hi;
-  MF2 r;
+  mf::float64x2 r;
   r._limbs[0] = s;
   r._limbs[1] = lo - b;
   return r;
@@ -184,7 +183,7 @@ static void report_fail(char const *op, char const *detail) {
   }
 }
 
-static void check(char const *op, MF2 const &got, q_t expected, q_t i1, q_t i2) {
+static void check(char const *op, mf::float64x2 const &got, q_t expected, q_t i1, q_t i2) {
   // NaN: leading limb must be NaN.
   if (q_isnan(expected)) {
     if (!std::isnan(got._limbs[0])) {
@@ -344,7 +343,7 @@ static void print_all_stats() {
   std::printf("\n");
 }
 
-static void check_comp(MF2 const &f1, MF2 const &f2, q_t q1, q_t q2) {
+static void check_comp(mf::float64x2 const &f1, mf::float64x2 const &f2, q_t q1, q_t q2) {
   if (q_isnan(q1) || q_isnan(q2)) return;
   q_t diff = q1 - q2;
   if (diff < 0) diff = -diff;
@@ -386,8 +385,8 @@ int main(int argc, char **argv) {
   for (long i = 1; i <= iterations; ++i) {
     q_t q1, q2;
     rng.generate_pair(q1, q2);
-    MF2 f1 = to_mf2(q1);
-    MF2 f2 = to_mf2(q2);
+    mf::float64x2 f1 = to_mf2(q1);
+    mf::float64x2 f2 = to_mf2(q2);
     double d1 = (double)q1;
     double d2 = (double)q2;
 
@@ -430,8 +429,8 @@ int main(int argc, char **argv) {
       // Mixed-mode and binary ops all route through the multiplicative
       // or hypot kernels and share mul's non-finite limitation.
       if (both_finite) {
-        check("add_fd", f1 + MF2(d2), q1 + (q_t)d2, q1, (q_t)d2);
-        check("mul_df", MF2(d1) * f2, (q_t)d1 * q2, (q_t)d1, q2);
+        check("add_fd", f1 + mf::float64x2(d2), q1 + (q_t)d2, q1, (q_t)d2);
+        check("mul_df", mf::float64x2(d1) * f2, (q_t)d1 * q2, (q_t)d1, q2);
         check("fmin", mf::fmin(f1, f2), q1 < q2 ? q1 : q2, q1, q2);
         check("fmax", mf::fmax(f1, f2), q1 < q2 ? q2 : q1, q1, q2);
         check("copysign", mf::copysign(f1, f2), copysignq(q1, q2), q1, q2);
@@ -517,11 +516,11 @@ int main(int argc, char **argv) {
       if (q_isfinite(q1) && q1 > (q_t)1e-3q && q1 < (q_t)1e3q &&
           q_isfinite(q2) && aq2 < (q_t)30) {
         check("pow", mf::pow(f1, f2), powq(q1, q2), q1, q2);
-        check("pow_md", mf::pow(f1, MF2(d2)), powq(q1, (q_t)d2), q1, (q_t)d2);
-        check("pow_dm", mf::pow(MF2(d1), f2), powq((q_t)d1, q2), (q_t)d1, q2);
+        check("pow_md", mf::pow(f1, mf::float64x2(d2)), powq(q1, (q_t)d2), q1, (q_t)d2);
+        check("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2), (q_t)d1, q2);
       }
       if (q_isfinite(q1) && aq1 < (q_t)1e10q) {
-        check("pow_int", mf::pow(f1, MF2(3.0)), powq(q1, (q_t)3), q1, (q_t)3);
+        check("pow_int", mf::pow(f1, mf::float64x2(3.0)), powq(q1, (q_t)3), q1, (q_t)3);
       }
 
       if (q_isfinite(q1)) {
@@ -531,7 +530,7 @@ int main(int argc, char **argv) {
       // 3-argument min/max via nested fmin/fmax.
       if (q_isfinite(q1) && q_isfinite(q2)) {
         q_t q3 = (q1 + q2) * (q_t)0.5q;
-        MF2 f3 = to_mf2(q3);
+        mf::float64x2 f3 = to_mf2(q3);
         q_t min12 = q1 < q2 ? q1 : q2;
         q_t q_min3 = min12 < q3 ? min12 : q3;
         q_t max12 = q1 < q2 ? q2 : q1;

@@ -27,7 +27,6 @@
 #include <random>
 
 namespace mf = multifloats;
-using MF2 = mf::MultiFloat<double, 2>;
 using q_t = __float128;
 using clk = std::chrono::steady_clock;
 
@@ -42,7 +41,7 @@ static constexpr int REPS_TRIG = 40;        // exp, log, sin, ...
 static constexpr int REPS_VERY_SLOW = 4;    // tgamma, erfc, ...
 
 static q_t q1[N], q2[N], qpos[N], qsmall[N], qbnd[N], qres[N];
-static MF2 f1[N], f2[N], fpos[N], fsmall[N], fbnd[N], fres[N];
+static mf::float64x2 f1[N], f2[N], fpos[N], fsmall[N], fbnd[N], fres[N];
 
 static double q_sink = 0.0;
 static double f_sink = 0.0;
@@ -51,10 +50,10 @@ static double f_sink = 0.0;
 // Plumbing
 // =============================================================================
 
-static MF2 to_mf2(q_t v) {
+static mf::float64x2 to_mf2(q_t v) {
   double hi = (double)v;
   if (!std::isfinite(hi)) {
-    MF2 r;
+    mf::float64x2 r;
     r._limbs[0] = hi;
     r._limbs[1] = hi;
     return r;
@@ -62,7 +61,7 @@ static MF2 to_mf2(q_t v) {
   double lo = (double)(v - (q_t)hi);
   double s = hi + lo;
   double err = lo - (s - hi);
-  MF2 r;
+  mf::float64x2 r;
   r._limbs[0] = s;
   r._limbs[1] = err;
   return r;
@@ -77,7 +76,7 @@ static void init_data() {
   // perturbation at ~1 ULP of hi.  This gives a non-zero lo limb so that
   // precision measurements exercise the full DD path, matching the Fortran
   // fuzz test which also generates inputs with non-trivial lo limbs.
-  auto make_dd = [&](double hi) -> std::pair<q_t, MF2> {
+  auto make_dd = [&](double hi) -> std::pair<q_t, mf::float64x2> {
     double lo = hi * std::ldexp(udd(rng), -52);
     q_t v = (q_t)hi + (q_t)lo;
     return {v, to_mf2(v)};
@@ -115,7 +114,7 @@ static void qfeed(q_t *in) {
 }
 
 __attribute__((noinline))
-static void ffeed(MF2 *in) {
+static void ffeed(mf::float64x2 *in) {
   double s = 0.0;
   for (int i = 0; i < N; ++i) {
     s += fres[i]._limbs[0];
@@ -141,7 +140,7 @@ static void report(const char *name, long n_ops, double tq, double tf) {
 //   QEXPR   : per-element expression for the qp leg, may use `i`
 //   MEXPR   : per-element expression for the mf leg, may use `i`
 //   QFB     : input array (q_t*)  to feed back into for the qp leg
-//   MFB     : input array (MF2*)  to feed back into for the mf leg
+//   MFB     : input array (mf::float64x2*)  to feed back into for the mf leg
 // =============================================================================
 
 #define BENCH(NAME, REPS, QEXPR, MEXPR, QFB, MFB)                              \
@@ -241,7 +240,7 @@ static void bench_hyperbolic() {
 static void bench_inv_hyperbolic() {
   BENCH("asinh",    REPS_TRIG, asinhq(q1[i]),         mf::asinh(f1[i]),      q1, f1);
   BENCH("acosh",    REPS_TRIG, acoshq(1.0q + qpos[i]),
-                               mf::acosh(MF2(1.0) + fpos[i]),               qpos, fpos);
+                               mf::acosh(mf::float64x2(1.0) + fpos[i]),               qpos, fpos);
   BENCH("atanh",    REPS_TRIG, atanhq(qbnd[i]),       mf::atanh(fbnd[i]),    qbnd, fbnd);
 }
 
@@ -279,7 +278,7 @@ int main() {
   bench_erf_gamma();
 
   std::printf(" ----------------------------------------------------------------\n");
-  std::printf(" sinks (must remain live): qp_sink=%g  mf_sink=%g\n", q_sink,
+  std::printf(" sinks (must remain live): qp_sink=%g  dd_sink=%g\n", q_sink,
               f_sink);
   return 0;
 }

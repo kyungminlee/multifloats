@@ -278,7 +278,7 @@ template <typename T, std::size_t N>
 constexpr MultiFloat<T, N> abs(MultiFloat<T, N> const &x) {
   // A DD like (+0, -eps) represents a negative value; flipping only on
   // signbit(hi) would leave it untouched. Use the first nonzero limb to
-  // decide — matches the Fortran mf_abs path.
+  // decide — matches the Fortran dd_abs path.
   for (std::size_t i = 0; i < N; ++i) {
     if (x._limbs[i] != T(0)) {
       return std::signbit(x._limbs[i]) ? -x : x;

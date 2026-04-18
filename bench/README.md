@@ -132,7 +132,7 @@ surfaces in the rendered table as `—`.
     "build":    "CMake 4.3.1, `-O3 -flto`, STATIC library"
   },
   "fortran": {
-    "bench": { "add": { "n_ops": 409600, "qp_time": 1.23, "mf_time": 0.65, "speedup": 1.90 }, "...": {} },
+    "bench": { "add": { "n_ops": 409600, "qp_time": 1.23, "dd_time": 0.65, "speedup": 1.90 }, "...": {} },
     "fuzz":  { "add": { "n": 1000000, "max_rel": 1.5e-32, "mean_rel": 4.5e-33 }, "...": {} }
   },
   "cpp": {
@@ -143,9 +143,9 @@ surfaces in the rendered table as `—`.
 ```
 
 `bench` keys match the label printed by the bench programs (e.g.
-`"add (mf+dp)"`, `"arr_matmul (8x8*8)"`); `fuzz` keys match the
+`"add (dd+dp)"`, `"arr_matmul (8x8*8)"`); `fuzz` keys match the
 `update_stats(op, ...)` labels used in `test/fuzz.{cc,f90}` (e.g.
-`"cx_div_re"` / `"cx_div_im"` for the split complex ops).
+`"cdd_div_re"` / `"cdd_div_im"` for the split complex ops).
 
 ## Adjusting what appears in the tables
 

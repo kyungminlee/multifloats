@@ -194,7 +194,7 @@ def run_exe(exe: Path) -> str:
 # A bench row looks like:
 #   " op_name        n_ops  tq.xxxx  tf.xxxx  speed.xxx"
 # with trailing ``x`` on the speedup. The op name can contain spaces /
-# punctuation (e.g. "add (mf+dp)", "arr_matmul (8x8*8)", "ldexp(.,5)"), so we
+# punctuation (e.g. "add (dd+dp)", "arr_matmul (8x8*8)", "ldexp(.,5)"), so we
 # anchor on the four numeric trailing fields.
 _BENCH_ROW_RE = re.compile(
     r"^\s+(?P<op>\S.+?)\s+"
@@ -217,7 +217,7 @@ def parse_bench(stdout: str) -> dict[str, dict]:
         results[op] = {
             "n_ops": int(m.group("n_ops")),
             "qp_time": float(m.group("tq")),
-            "mf_time": float(m.group("tf")),
+            "dd_time": float(m.group("tf")),
             "speedup": float(m.group("speedup")),
         }
     return results

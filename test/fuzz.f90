@@ -217,7 +217,7 @@ program multifloat_fuzz
        if (ieee_is_finite(real(q1, 8)) .and. q1 > 1.0e-3_qp .and. q1 < 1.0e3_qp .and. &
            ieee_is_finite(real(q2, 8)) .and. abs(q2) < 30.0_qp) then
          call check(f1 ** f2, q1 ** q2, "pow", q1, q2, num_errors)
-         ! Mixed-type pow: mf**dp, dp**mf
+         ! Mixed-type pow: dd**dp, dp**dd
          call check(f1 ** real(q2, 8), q1 ** real(q2, 8), "pow_md", q1, q2, num_errors)
          call check(real(q1, 8) ** f2, real(q1, 8) ** q2, "pow_dm", q1, q2, num_errors)
        end if
@@ -388,7 +388,7 @@ contains
   end function
 
   ! Operations that should produce full ~106-bit DD precision results.
-  ! cx_div and cx_sqrt are intentionally NOT here: they involve internal
+  ! cdd_div and cdd_sqrt are intentionally NOT here: they involve internal
   ! subtractive cancellation that costs a few digits from the upper bound.
   logical function is_full_dd(op)
     character(*), intent(in) :: op
@@ -401,31 +401,31 @@ contains
           "gamma", "lgamma", &
           "bj0", "bj1", "by0", "by1", "bjn", "byn", &
           "asin", "acos", "acosh", "asinh", "atanh", "atan2", &
-          "cx_log_re", "cx_log_im", "cx_sinh_re", "cx_sinh_im", &
-          "cx_cosh_re", "cx_cosh_im", "cx_sqrt_re", "cx_sqrt_im", &
-          "cx_sin_re", "cx_sin_im", "cx_cos_re", "cx_cos_im", &
-          "cx_tan_re", "cx_tan_im", "cx_tanh_re", "cx_tanh_im", &
-          "cx_acos_re", "cx_acos_im", "cx_acosh_re", "cx_acosh_im", &
-          "cx_asin_im", "cx_asinh_im", "cx_atan_re", "cx_atan_im", &
+          "cdd_log_re", "cdd_log_im", "cdd_sinh_re", "cdd_sinh_im", &
+          "cdd_cosh_re", "cdd_cosh_im", "cdd_sqrt_re", "cdd_sqrt_im", &
+          "cdd_sin_re", "cdd_sin_im", "cdd_cos_re", "cdd_cos_im", &
+          "cdd_tan_re", "cdd_tan_im", "cdd_tanh_re", "cdd_tanh_im", &
+          "cdd_acos_re", "cdd_acos_im", "cdd_acosh_re", "cdd_acosh_im", &
+          "cdd_asin_im", "cdd_asinh_im", "cdd_atan_re", "cdd_atan_im", &
           "aint", "anint", "fraction", "scale", "set_exponent", &
           "min3", "max3", &
           "arr_sum", "arr_max", "arr_min", "arr_dot", "arr_norm2", "arr_matmul", &
-          "cx_add_re", "cx_add_im", "cx_sub_re", "cx_sub_im", &
-          "cx_mul_re", "cx_mul_im", "cx_conjg_re", "cx_conjg_im", &
-          "cx_abs", "cx_aimag", &
-          "asn_mf_dp", "asn_mf_sp", "asn_mf_int", "asn_mf_i8", &
-          "asn_mf_i16", "asn_mf_i64", "asn_mf_cdp", "asn_mf_csp", &
-          "asn_cx_dp_re", "asn_cx_dp_im", "asn_cx_int_re", "asn_cx_int_im", &
-          "asn_cx_cdp_re", "asn_cx_cdp_im", &
-          "asn_dp_mf", "asn_sp_mf", "asn_cdp_mf_re", "asn_cdp_mf_im", &
-          "asn_csp_mf_re", "asn_int_mf", "asn_i64_mf", &
-          "ctor_mf_dp", "ctor_mf_sp", "ctor_mf_int", "ctor_mf_i8", &
-          "ctor_mf_i16", "ctor_mf_i64", "ctor_mf_cdp", "ctor_mf_csp", &
-          "ctor_cx_dp_re", "ctor_cx_dp_im", "ctor_cx_sp_re", &
-          "ctor_cx_cdp_re", "ctor_cx_cdp_im", &
-          "ctor_cx_dp_dp_re", "ctor_cx_dp_dp_im", &
-          "ctor_cx_mf_dp_re", "ctor_cx_mf_dp_im", &
-          "ctor_cx_dp_mf_re", "ctor_cx_dp_mf_im")
+          "cdd_add_re", "cdd_add_im", "cdd_sub_re", "cdd_sub_im", &
+          "cdd_mul_re", "cdd_mul_im", "cdd_conjg_re", "cdd_conjg_im", &
+          "cdd_abs", "cdd_aimag", &
+          "asn_dd_dp", "asn_dd_sp", "asn_dd_int", "asn_dd_i8", &
+          "asn_dd_i16", "asn_dd_i64", "asn_dd_cdp", "asn_dd_csp", &
+          "asn_cdd_dp_re", "asn_cdd_dp_im", "asn_cdd_int_re", "asn_cdd_int_im", &
+          "asn_cdd_cdp_re", "asn_cdd_cdp_im", &
+          "asn_dp_dd", "asn_sp_dd", "asn_cdp_dd_re", "asn_cdp_dd_im", &
+          "asn_csp_dd_re", "asn_int_dd", "asn_i64_dd", &
+          "ctor_dd_dp", "ctor_dd_sp", "ctor_dd_int", "ctor_dd_i8", &
+          "ctor_dd_i16", "ctor_dd_i64", "ctor_dd_cdp", "ctor_dd_csp", &
+          "ctor_cdd_dp_re", "ctor_cdd_dp_im", "ctor_cdd_sp_re", &
+          "ctor_cdd_cdp_re", "ctor_cdd_cdp_im", &
+          "ctor_cdd_dp_dp_re", "ctor_cdd_dp_dp_im", &
+          "ctor_cdd_dd_dp_re", "ctor_cdd_dd_dp_im", &
+          "ctor_cdd_dp_dd_re", "ctor_cdd_dp_dd_im")
       is_full_dd = .true.
     case default
       is_full_dd = .false.
@@ -440,14 +440,14 @@ contains
     character(*), intent(in) :: op
     select case (op)
     case ("arr_prod", &
-          "cx_exp_re", "cx_exp_im", "cx_log_im", &
-          "cx_sin_re", "cx_sin_im", "cx_cos_re", "cx_cos_im", &
-          "cx_sinh_re", "cx_sinh_im", "cx_cosh_re", "cx_cosh_im", &
-          "cx_tan_re", "cx_tan_im", "cx_tanh_re", "cx_tanh_im", &
-          "cx_atan_re", "cx_atan_im", "cx_asin_re", "cx_asin_im", &
-          "cx_acos_re", "cx_acos_im", "cx_asinh_re", "cx_asinh_im", &
-          "cx_acosh_re", "cx_acosh_im", "cx_atanh_re", "cx_atanh_im", &
-          "cx_div_re", "cx_div_im", "cx_sqrt_re", "cx_sqrt_im")
+          "cdd_exp_re", "cdd_exp_im", "cdd_log_im", &
+          "cdd_sin_re", "cdd_sin_im", "cdd_cos_re", "cdd_cos_im", &
+          "cdd_sinh_re", "cdd_sinh_im", "cdd_cosh_re", "cdd_cosh_im", &
+          "cdd_tan_re", "cdd_tan_im", "cdd_tanh_re", "cdd_tanh_im", &
+          "cdd_atan_re", "cdd_atan_im", "cdd_asin_re", "cdd_asin_im", &
+          "cdd_acos_re", "cdd_acos_im", "cdd_asinh_re", "cdd_asinh_im", &
+          "cdd_acosh_re", "cdd_acosh_im", "cdd_atanh_re", "cdd_atanh_im", &
+          "cdd_div_re", "cdd_div_im", "cdd_sqrt_re", "cdd_sqrt_im")
       is_compound = .true.
     case default
       is_compound = .false.
@@ -534,8 +534,8 @@ contains
   end subroutine
 
   ! Complex variant: check that real and imaginary parts both pass.
-  subroutine check_cx(c, q, op, ai_re, ai_im, bi_re, bi_im, errs)
-    type(complex128x2), intent(in) :: c
+  subroutine check_cdd(c, q, op, ai_re, ai_im, bi_re, bi_im, errs)
+    type(complex64x2), intent(in) :: c
     complex(qp), intent(in) :: q
     character(*), intent(in) :: op
     real(qp), intent(in) :: ai_re, ai_im, bi_re, bi_im
@@ -550,23 +550,23 @@ contains
     type(float64x2), intent(in) :: f1, f2
     real(qp), intent(in) :: q1, q2
     integer, intent(inout) :: errs
-    type(complex128x2) :: cf1, cf2, cfres
+    type(complex64x2) :: cf1, cf2, cfres
     complex(qp) :: cq1, cq2, cqres
 
-    cf1 = complex128x2(f1, f2)
-    cf2 = complex128x2(f2, f1)
+    cf1 = complex64x2(f1, f2)
+    cf2 = complex64x2(f2, f1)
     cq1 = cmplx(q1, q2, qp)
     cq2 = cmplx(q2, q1, qp)
 
     cqres = cq1 + cq2
     cfres = cf1 + cf2
-    call check_cx(cfres, cqres, "cx_add", q1, q2, q2, q1, errs)
+    call check_cdd(cfres, cqres, "cdd_add", q1, q2, q2, q1, errs)
 
     cqres = cq1 - cq2
     cfres = cf1 - cf2
-    call check_cx(cfres, cqres, "cx_sub", q1, q2, q2, q1, errs)
+    call check_cdd(cfres, cqres, "cdd_sub", q1, q2, q2, q1, errs)
 
-    ! Skip cx_mul on non-finite inputs: for ±inf/NaN components,
+    ! Skip cdd_mul on non-finite inputs: for ±inf/NaN components,
     ! libquadmath's __mulxc3 applies C99 Annex G infinity-rescue
     ! logic inconsistently (the LTO'd build of the reference reports
     ! (NaN, inf) while the non-LTO build reports (NaN, NaN) for the
@@ -575,52 +575,52 @@ contains
     if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
       cqres = cq1 * cq2
       cfres = cf1 * cf2
-      call check_cx(cfres, cqres, "cx_mul", q1, q2, q2, q1, errs)
+      call check_cdd(cfres, cqres, "cdd_mul", q1, q2, q2, q1, errs)
     end if
 
     if (cq2 /= cmplx(0, 0, qp) .and. ieee_is_finite(real(q1, 8)) .and. &
         ieee_is_finite(real(q2, 8))) then
       cqres = cq1 / cq2
       cfres = cf1 / cf2
-      call check_cx(cfres, cqres, "cx_div", q1, q2, q2, q1, errs)
+      call check_cdd(cfres, cqres, "cdd_div", q1, q2, q2, q1, errs)
     end if
 
     if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
       cfres = sqrt(cf1)
       cqres = sqrt(cq1)
-      call check_cx(cfres, cqres, "cx_sqrt", q1, q2, 0.0_qp, 0.0_qp, errs)
+      call check_cdd(cfres, cqres, "cdd_sqrt", q1, q2, 0.0_qp, 0.0_qp, errs)
 
       if (abs(q1) < 100.0_qp .and. abs(q2) < 100.0_qp) then
         cfres = exp(cf1)
         cqres = exp(cq1)
         if (ieee_is_finite(real(real(cqres), 8)) .and. &
             ieee_is_finite(real(aimag(cqres), 8))) then
-          call check_cx(cfres, cqres, "cx_exp", q1, q2, 0.0_qp, 0.0_qp, errs)
+          call check_cdd(cfres, cqres, "cdd_exp", q1, q2, 0.0_qp, 0.0_qp, errs)
         end if
       end if
 
       if (cq1 /= cmplx(0, 0, qp)) then
         cfres = log(cf1)
         cqres = log(cq1)
-        call check_cx(cfres, cqres, "cx_log", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_log", q1, q2, 0.0_qp, 0.0_qp, errs)
       end if
 
       if (abs(q1) < 100.0_qp .and. abs(q2) < 100.0_qp) then
         cfres = sin(cf1)
         cqres = sin(cq1)
-        call check_cx(cfres, cqres, "cx_sin", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_sin", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = cos(cf1)
         cqres = cos(cq1)
-        call check_cx(cfres, cqres, "cx_cos", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_cos", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = sinh(cf1)
         cqres = sinh(cq1)
-        call check_cx(cfres, cqres, "cx_sinh", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_sinh", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = cosh(cf1)
         cqres = cosh(cq1)
-        call check_cx(cfres, cqres, "cx_cosh", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_cosh", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         ! tan/tanh: skip when sinh(b)/cosh(b) overwhelms the leading
         ! limb so the real-part cancellation isn't catastrophic.
@@ -628,11 +628,11 @@ contains
             abs(cos(real(q2, 8))) > 0.01d0) then
           cfres = tan(cf1)
           cqres = tan(cq1)
-          call check_cx(cfres, cqres, "cx_tan", q1, q2, 0.0_qp, 0.0_qp, errs)
+          call check_cdd(cfres, cqres, "cdd_tan", q1, q2, 0.0_qp, 0.0_qp, errs)
 
           cfres = tanh(cf1)
           cqres = tanh(cq1)
-          call check_cx(cfres, cqres, "cx_tanh", q1, q2, 0.0_qp, 0.0_qp, errs)
+          call check_cdd(cfres, cqres, "cdd_tanh", q1, q2, 0.0_qp, 0.0_qp, errs)
         end if
       end if
 
@@ -643,36 +643,36 @@ contains
           max(abs(q1), abs(q2)) > 0.05_qp) then
         cfres = atan(cf1)
         cqres = atan(cq1)
-        call check_cx(cfres, cqres, "cx_atan", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_atan", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = asin(cf1)
         cqres = asin(cq1)
-        call check_cx(cfres, cqres, "cx_asin", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_asin", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = acos(cf1)
         cqres = acos(cq1)
-        call check_cx(cfres, cqres, "cx_acos", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_acos", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = asinh(cf1)
         cqres = asinh(cq1)
-        call check_cx(cfres, cqres, "cx_asinh", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_asinh", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = acosh(cf1)
         cqres = acosh(cq1)
-        call check_cx(cfres, cqres, "cx_acosh", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_acosh", q1, q2, 0.0_qp, 0.0_qp, errs)
 
         cfres = atanh(cf1)
         cqres = atanh(cq1)
-        call check_cx(cfres, cqres, "cx_atanh", q1, q2, 0.0_qp, 0.0_qp, errs)
+        call check_cdd(cfres, cqres, "cdd_atanh", q1, q2, 0.0_qp, 0.0_qp, errs)
       end if
 
       ! conjg, abs, aimag — full DD
       cfres = conjg(cf1)
       cqres = conjg(cq1)
-      call check_cx(cfres, cqres, "cx_conjg", q1, q2, 0.0_qp, 0.0_qp, errs)
+      call check_cdd(cfres, cqres, "cdd_conjg", q1, q2, 0.0_qp, 0.0_qp, errs)
 
-      call check(abs(cf1), abs(cq1), "cx_abs", q1, q2, errs)
-      call check(aimag(cf1), aimag(cq1), "cx_aimag", q1, q2, errs)
+      call check(abs(cf1), abs(cq1), "cdd_abs", q1, q2, errs)
+      call check(aimag(cf1), aimag(cq1), "cdd_aimag", q1, q2, errs)
     end if
   end subroutine
 
@@ -683,7 +683,7 @@ contains
     real(qp), intent(in) :: q
     integer, intent(inout) :: errs
     type(float64x2) :: x_dp, x_sp, x_int, x_i8, x_i16, x_i64, x_cdp, x_csp
-    type(complex128x2) :: z_dp, z_int, z_cdp
+    type(complex64x2) :: z_dp, z_int, z_cdp
     real(8) :: out_dp
     real(sp) :: out_sp
     integer :: out_int
@@ -697,63 +697,63 @@ contains
 
     hi = f%limbs(1)
 
-    ! ---------------- mf <- built-in (forward) ----------------
+    ! ---------------- dd <- built-in (forward) ----------------
     x_dp = hi
-    call check(x_dp, real(hi, qp), "asn_mf_dp", q, 0.0_qp, errs)
+    call check(x_dp, real(hi, qp), "asn_dd_dp", q, 0.0_qp, errs)
 
     x_sp = real(hi, sp)
-    call check(x_sp, real(real(hi, sp), qp), "asn_mf_sp", q, 0.0_qp, errs)
+    call check(x_sp, real(real(hi, sp), qp), "asn_dd_sp", q, 0.0_qp, errs)
 
     if (abs(hi) < 2.0e9_dp) then
       x_int = int(hi)
-      call check(x_int, real(int(hi), qp), "asn_mf_int", q, 0.0_qp, errs)
+      call check(x_int, real(int(hi), qp), "asn_dd_int", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 100.0_dp) then
       x_i8 = int(hi, int8)
-      call check(x_i8, real(int(hi, int8), qp), "asn_mf_i8", q, 0.0_qp, errs)
+      call check(x_i8, real(int(hi, int8), qp), "asn_dd_i8", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 30000.0_dp) then
       x_i16 = int(hi, int16)
-      call check(x_i16, real(int(hi, int16), qp), "asn_mf_i16", q, 0.0_qp, errs)
+      call check(x_i16, real(int(hi, int16), qp), "asn_dd_i16", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 1.0e18_dp) then
       x_i64 = int(hi, int64)
-      call check(x_i64, real(int(hi, int64), qp), "asn_mf_i64", q, 0.0_qp, errs)
+      call check(x_i64, real(int(hi, int64), qp), "asn_dd_i64", q, 0.0_qp, errs)
     end if
 
     x_cdp = cmplx(hi, 1.5_dp, dp)
-    call check(x_cdp, real(hi, qp), "asn_mf_cdp", q, 0.0_qp, errs)
+    call check(x_cdp, real(hi, qp), "asn_dd_cdp", q, 0.0_qp, errs)
     x_csp = cmplx(real(hi, sp), 1.5_sp, sp)
-    call check(x_csp, real(real(hi, sp), qp), "asn_mf_csp", q, 0.0_qp, errs)
+    call check(x_csp, real(real(hi, sp), qp), "asn_dd_csp", q, 0.0_qp, errs)
 
-    ! ---------------- cx <- built-in (forward) ----------------
+    ! ---------------- cdd <- built-in (forward) ----------------
     z_dp = hi
-    call check(z_dp%re, real(hi, qp), "asn_cx_dp_re", q, 0.0_qp, errs)
-    call check(z_dp%im, 0.0_qp, "asn_cx_dp_im", q, 0.0_qp, errs)
+    call check(z_dp%re, real(hi, qp), "asn_cdd_dp_re", q, 0.0_qp, errs)
+    call check(z_dp%im, 0.0_qp, "asn_cdd_dp_im", q, 0.0_qp, errs)
     if (abs(hi) < 2.0e9_dp) then
       z_int = int(hi)
-      call check(z_int%re, real(int(hi), qp), "asn_cx_int_re", q, 0.0_qp, errs)
-      call check(z_int%im, 0.0_qp, "asn_cx_int_im", q, 0.0_qp, errs)
+      call check(z_int%re, real(int(hi), qp), "asn_cdd_int_re", q, 0.0_qp, errs)
+      call check(z_int%im, 0.0_qp, "asn_cdd_int_im", q, 0.0_qp, errs)
     end if
     z_cdp = cmplx(hi, 2.5_dp, dp)
-    call check(z_cdp%re, real(hi, qp), "asn_cx_cdp_re", q, 0.0_qp, errs)
-    call check(z_cdp%im, 2.5_qp, "asn_cx_cdp_im", q, 0.0_qp, errs)
+    call check(z_cdp%re, real(hi, qp), "asn_cdd_cdp_re", q, 0.0_qp, errs)
+    call check(z_cdp%im, 2.5_qp, "asn_cdd_cdp_im", q, 0.0_qp, errs)
 
-    ! ---------------- mf -> built-in (reverse) ----------------
+    ! ---------------- dd -> built-in (reverse) ----------------
     out_dp = f
-    call check(float64x2(out_dp), real(hi, qp), "asn_dp_mf", q, 0.0_qp, errs)
+    call check(float64x2(out_dp), real(hi, qp), "asn_dp_dd", q, 0.0_qp, errs)
 
     out_sp = f
     call check(float64x2(real(out_sp, dp)), real(real(hi, sp), qp), &
-        "asn_sp_mf", q, 0.0_qp, errs)
+        "asn_sp_dd", q, 0.0_qp, errs)
 
     out_cdp = f
-    call check(float64x2(real(out_cdp, dp)), real(hi, qp), "asn_cdp_mf_re", q, 0.0_qp, errs)
-    call check(float64x2(aimag(out_cdp)), 0.0_qp, "asn_cdp_mf_im", q, 0.0_qp, errs)
+    call check(float64x2(real(out_cdp, dp)), real(hi, qp), "asn_cdp_dd_re", q, 0.0_qp, errs)
+    call check(float64x2(aimag(out_cdp)), 0.0_qp, "asn_cdp_dd_im", q, 0.0_qp, errs)
 
     out_csp = f
     call check(float64x2(real(real(out_csp, sp), dp)), &
-        real(real(hi, sp), qp), "asn_csp_mf_re", q, 0.0_qp, errs)
+        real(real(hi, sp), qp), "asn_csp_dd_re", q, 0.0_qp, errs)
 
     ! Integer truncation: must match Fortran's `int_var = real_dp_var`
     ! semantics on the leading limb.
@@ -766,62 +766,62 @@ contains
         if (q_trunc < 0_int64 .and. f%limbs(2) > 0.0_dp) q_trunc = q_trunc + 1_int64
       end if
       call check(float64x2(real(out_i64, dp)), real(q_trunc, qp), &
-          "asn_i64_mf", q, 0.0_qp, errs)
+          "asn_i64_dd", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 2.0e9_dp) then
       out_int = f
       call check(float64x2(real(out_int, dp)), real(int(hi), qp), &
-          "asn_int_mf", q, 0.0_qp, errs)
+          "asn_int_dd", q, 0.0_qp, errs)
     end if
 
     ! ---------------- float64x2(...) constructors ----------------
-    call check(float64x2(hi), real(hi, qp), "ctor_mf_dp", q, 0.0_qp, errs)
+    call check(float64x2(hi), real(hi, qp), "ctor_dd_dp", q, 0.0_qp, errs)
     call check(float64x2(real(hi, sp)), real(real(hi, sp), qp), &
-        "ctor_mf_sp", q, 0.0_qp, errs)
+        "ctor_dd_sp", q, 0.0_qp, errs)
     if (abs(hi) < 2.0e9_dp) then
       call check(float64x2(int(hi)), real(int(hi), qp), &
-          "ctor_mf_int", q, 0.0_qp, errs)
+          "ctor_dd_int", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 100.0_dp) then
       call check(float64x2(int(hi, int8)), real(int(hi, int8), qp), &
-          "ctor_mf_i8", q, 0.0_qp, errs)
+          "ctor_dd_i8", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 30000.0_dp) then
       call check(float64x2(int(hi, int16)), real(int(hi, int16), qp), &
-          "ctor_mf_i16", q, 0.0_qp, errs)
+          "ctor_dd_i16", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 1.0e18_dp) then
       call check(float64x2(int(hi, int64)), real(int(hi, int64), qp), &
-          "ctor_mf_i64", q, 0.0_qp, errs)
+          "ctor_dd_i64", q, 0.0_qp, errs)
     end if
     call check(float64x2(cmplx(hi, 1.5_dp, dp)), real(hi, qp), &
-        "ctor_mf_cdp", q, 0.0_qp, errs)
+        "ctor_dd_cdp", q, 0.0_qp, errs)
     call check(float64x2(cmplx(real(hi, sp), 1.5_sp, sp)), &
-        real(real(hi, sp), qp), "ctor_mf_csp", q, 0.0_qp, errs)
+        real(real(hi, sp), qp), "ctor_dd_csp", q, 0.0_qp, errs)
 
-    ! ---------------- complex128x2(...) constructors ----------------
+    ! ---------------- complex64x2(...) constructors ----------------
     block
-      type(complex128x2) :: ztmp
-      ztmp = complex128x2(hi)
-      call check(ztmp%re, real(hi, qp), "ctor_cx_dp_re", q, 0.0_qp, errs)
-      call check(ztmp%im, 0.0_qp, "ctor_cx_dp_im", q, 0.0_qp, errs)
-      ztmp = complex128x2(real(hi, sp))
-      call check(ztmp%re, real(real(hi, sp), qp), "ctor_cx_sp_re", q, 0.0_qp, errs)
-      ztmp = complex128x2(cmplx(hi, 2.5_dp, dp))
-      call check(ztmp%re, real(hi, qp), "ctor_cx_cdp_re", q, 0.0_qp, errs)
-      call check(ztmp%im, 2.5_qp, "ctor_cx_cdp_im", q, 0.0_qp, errs)
+      type(complex64x2) :: ztmp
+      ztmp = complex64x2(hi)
+      call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, 0.0_qp, "ctor_cdd_dp_im", q, 0.0_qp, errs)
+      ztmp = complex64x2(real(hi, sp))
+      call check(ztmp%re, real(real(hi, sp), qp), "ctor_cdd_sp_re", q, 0.0_qp, errs)
+      ztmp = complex64x2(cmplx(hi, 2.5_dp, dp))
+      call check(ztmp%re, real(hi, qp), "ctor_cdd_cdp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, 2.5_qp, "ctor_cdd_cdp_im", q, 0.0_qp, errs)
       ! Two-arg matching kinds
-      ztmp = complex128x2(hi, hi)
-      call check(ztmp%re, real(hi, qp), "ctor_cx_dp_dp_re", q, 0.0_qp, errs)
-      call check(ztmp%im, real(hi, qp), "ctor_cx_dp_dp_im", q, 0.0_qp, errs)
-      ! Mixed (mf, dp)
-      ztmp = complex128x2(f, hi)
-      call check(ztmp%re, real(hi, qp), "ctor_cx_mf_dp_re", q, 0.0_qp, errs)
-      call check(ztmp%im, real(hi, qp), "ctor_cx_mf_dp_im", q, 0.0_qp, errs)
-      ! Mixed (dp, mf)
-      ztmp = complex128x2(hi, f)
-      call check(ztmp%re, real(hi, qp), "ctor_cx_dp_mf_re", q, 0.0_qp, errs)
-      call check(ztmp%im, real(hi, qp), "ctor_cx_dp_mf_im", q, 0.0_qp, errs)
+      ztmp = complex64x2(hi, hi)
+      call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_dp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, real(hi, qp), "ctor_cdd_dp_dp_im", q, 0.0_qp, errs)
+      ! Mixed (dd, dp)
+      ztmp = complex64x2(f, hi)
+      call check(ztmp%re, real(hi, qp), "ctor_cdd_dd_dp_re", q, 0.0_qp, errs)
+      call check(ztmp%im, real(hi, qp), "ctor_cdd_dd_dp_im", q, 0.0_qp, errs)
+      ! Mixed (dp, dd)
+      ztmp = complex64x2(hi, f)
+      call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_dd_re", q, 0.0_qp, errs)
+      call check(ztmp%im, real(hi, qp), "ctor_cdd_dp_dd_im", q, 0.0_qp, errs)
     end block
   end subroutine
 

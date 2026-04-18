@@ -1,7 +1,7 @@
 program bench_abi
   ! Test whether bind(c) + value on Fortran-native DD kernels matches
   ! the C wrapper speed. Three legs:
-  !   fortran_mf : current elemental float64x2 operator (Fortran ABI)
+  !   fortran_dd : current elemental float64x2 operator (Fortran ABI)
   !   fortran_c  : same algorithm, but bind(c) with value args (C ABI)
   !   c_wrapper  : extern "C" wrapper calling C++ multifloats.hh (C ABI)
   !
@@ -38,7 +38,7 @@ program bench_abi
   ! Data
   type(float64x2), allocatable :: f1(:), f2(:), fres(:)
   type(dd_c), allocatable :: d1(:), d2(:), dres(:)
-  real(dp) :: mf_sink = 0.0_dp, fc_sink = 0.0_dp, cw_sink = 0.0_dp
+  real(dp) :: dd_sink = 0.0_dp, fc_sink = 0.0_dp, cw_sink = 0.0_dp
   integer :: i
 
   allocate(f1(N), f2(N), fres(N), d1(N), d2(N), dres(N))
@@ -57,11 +57,11 @@ program bench_abi
   end block
 
   print '(a)', "================================================================"
-  print '(a)', " ABI test: Fortran-mf vs Fortran-bind(c) vs C-wrapper"
+  print '(a)', " ABI test: Fortran-dd vs Fortran-bind(c) vs C-wrapper"
   print '(a)', "================================================================"
   print '(a)', ""
   print '(a)', &
-    " op              n_ops    mf [s]    fc [s]    cw [s]  mf/fc   mf/cw   fc/cw"
+    " op              n_ops    dd [s]    fc [s]    cw [s]  dd/fc   dd/cw   fc/cw"
   print '(a)', &
     " ---------------------------------------------------------------------------"
 
@@ -74,7 +74,7 @@ program bench_abi
   print '(a)', &
     " ---------------------------------------------------------------------------"
   print '(a,es11.3,a,es11.3,a,es11.3)', &
-    " sinks: mf=", mf_sink, " fc=", fc_sink, " cw=", cw_sink
+    " sinks: dd=", dd_sink, " fc=", fc_sink, " cw=", cw_sink
 
 contains
 
@@ -90,15 +90,15 @@ contains
     elapsed = real(t1 - t0, real64) / real(rate, real64)
   end function
 
-  subroutine mf_drain(arr)
-    !GCC$ ATTRIBUTES NOINLINE :: mf_drain
+  subroutine dd_drain(arr)
+    !GCC$ ATTRIBUTES NOINLINE :: dd_drain
     type(float64x2), intent(inout) :: arr(:)
     real(dp) :: s
     integer :: j
     s = 0.0_dp
     do j = 1, size(fres); s = s + fres(j)%limbs(1); end do
     arr(1)%limbs(1) = arr(1)%limbs(1) + s * 1e-30_dp
-    mf_sink = mf_sink + s
+    dd_sink = dd_sink + s
   end subroutine
 
   subroutine fc_drain(arr)
@@ -134,11 +134,11 @@ contains
     ! --- Fortran multifloats (Fortran ABI) ---
     call tick(t0)
     select case (op)
-    case ("add");  do r=1,REPS; do i=1,N; fres(i)=f1(i)+f2(i);      end do; call mf_drain(f1); end do
-    case ("sub");  do r=1,REPS; do i=1,N; fres(i)=f1(i)-f2(i);      end do; call mf_drain(f1); end do
-    case ("mul");  do r=1,REPS; do i=1,N; fres(i)=f1(i)*f2(i);      end do; call mf_drain(f1); end do
-    case ("div");  do r=1,REPS; do i=1,N; fres(i)=f1(i)/f2(i);      end do; call mf_drain(f1); end do
-    case ("sqrt"); do r=1,REPS; do i=1,N; fres(i)=sqrt(f1(i));       end do; call mf_drain(f1); end do
+    case ("add");  do r=1,REPS; do i=1,N; fres(i)=f1(i)+f2(i);      end do; call dd_drain(f1); end do
+    case ("sub");  do r=1,REPS; do i=1,N; fres(i)=f1(i)-f2(i);      end do; call dd_drain(f1); end do
+    case ("mul");  do r=1,REPS; do i=1,N; fres(i)=f1(i)*f2(i);      end do; call dd_drain(f1); end do
+    case ("div");  do r=1,REPS; do i=1,N; fres(i)=f1(i)/f2(i);      end do; call dd_drain(f1); end do
+    case ("sqrt"); do r=1,REPS; do i=1,N; fres(i)=sqrt(f1(i));       end do; call dd_drain(f1); end do
     end select
     tmf = elapsed(t0)
 

@@ -1893,8 +1893,8 @@ void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
 // Where the real-axis formula needs both sin(y) and cos(y) (or both sinh
 // and cosh), these call the fused sincos_full / sinhcosh_full kernels
 // so one range reduction + Taylor pair covers both outputs. Functions that
-// are built on top of cx_sqrt / cx_log (asin/acos/...) call the exported
-// cx_* symbols directly; within a single TU the compiler inlines those.
+// are built on top of cdd_sqrt / cdd_log (asin/acos/...) call the exported
+// cdd_* symbols directly; within a single TU the compiler inlines those.
 //
 // The text "2 fused" vs "4 separate" in speed comments below is measured
 // against libstdc++'s generic <complex> template path (see commit notes).

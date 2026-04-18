@@ -1,6 +1,6 @@
 program bench_c_wrappers
-  ! Three-way benchmark: quad precision (qp) vs Fortran multifloats (mf)
-  ! vs C-ABI wrappers around C++ multifloats (cmf).
+  ! Three-way benchmark: quad precision (qp) vs Fortran multifloats (dd)
+  ! vs C-ABI wrappers around C++ multifloats (cw).
   !
   ! The C wrappers return float64x2_t (16 bytes) by value via the platform C
   ! ABI, which on ARM64 uses d0/d1 registers — no hidden pointer. This
@@ -189,12 +189,12 @@ program bench_c_wrappers
   call init_data()
 
   print '(a)', "================================================================"
-  print '(a)', " Three-way benchmark: qp vs Fortran-mf vs C-wrapped-mf"
+  print '(a)', " Three-way benchmark: qp vs Fortran-dd vs C-wrapped-dd"
   print '(a,i0)', " N=", N
   print '(a)', "================================================================"
   print '(a)', ""
   print '(a)', &
-    " op                      n_ops     qp [s]     mf [s]    cmf [s]  qp/mf   qp/cmf  mf/cmf"
+    " op                      n_ops     qp [s]     dd [s]    cw [s]  qp/dd   qp/cw  dd/cw"
   print '(a)', &
     " --------------------------------------------------------------------------------------"
 
@@ -211,7 +211,7 @@ program bench_c_wrappers
   print '(a)', &
     " --------------------------------------------------------------------------------------"
   print '(a,es11.3,a,es11.3,a,es11.3)', &
-    " sinks: qp=", real(q_sink, dp), " mf=", f_sink, " cmf=", c_sink
+    " sinks: qp=", real(q_sink, dp), " dd=", f_sink, " cw=", c_sink
 
 contains
 
@@ -230,10 +230,10 @@ contains
     to_f64x2%limbs(2) = l - b
   end function
 
-  type(float64x2_t) function mf_to_dd(f)
+  type(float64x2_t) function dd_to_dd(f)
     type(float64x2), intent(in) :: f
-    mf_to_dd%hi = f%limbs(1)
-    mf_to_dd%lo = f%limbs(2)
+    dd_to_dd%hi = f%limbs(1)
+    dd_to_dd%lo = f%limbs(2)
   end function
 
   subroutine init_data()
@@ -252,11 +252,11 @@ contains
       qbnd(i) = real((r(3) - 0.5_dp) * 1.8_dp, qp)
     end do
     do i = 1, N
-      f1(i) = to_f64x2(q1(i));     c1(i) = mf_to_dd(f1(i))
-      f2(i) = to_f64x2(q2(i));     c2(i) = mf_to_dd(f2(i))
-      fpos(i) = to_f64x2(qpos(i)); cpos(i) = mf_to_dd(fpos(i))
-      fsmall(i) = to_f64x2(qsmall(i)); csmall(i) = mf_to_dd(fsmall(i))
-      fbnd(i) = to_f64x2(qbnd(i)); cbnd(i) = mf_to_dd(fbnd(i))
+      f1(i) = to_f64x2(q1(i));     c1(i) = dd_to_dd(f1(i))
+      f2(i) = to_f64x2(q2(i));     c2(i) = dd_to_dd(f2(i))
+      fpos(i) = to_f64x2(qpos(i)); cpos(i) = dd_to_dd(fpos(i))
+      fsmall(i) = to_f64x2(qsmall(i)); csmall(i) = dd_to_dd(fsmall(i))
+      fbnd(i) = to_f64x2(qbnd(i)); cbnd(i) = dd_to_dd(fbnd(i))
     end do
   end subroutine
 

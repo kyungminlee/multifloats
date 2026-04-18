@@ -1,6 +1,6 @@
 program multifloat_bench
   ! Benchmark every kernel category exercised by test/fuzz.f90, comparing
-  ! the multifloats float64x2 / complex128x2 implementations against the
+  ! the multifloats float64x2 / complex64x2 implementations against the
   ! REAL(KIND=16) / COMPLEX(KIND=16) reference. The multifloats version is
   ! expected to be substantially faster — this program quantifies that.
   !
@@ -13,8 +13,8 @@ program multifloat_bench
   !     elides the entire rep loop because all reps would otherwise
   !     produce the same overwritten output.
   !   - The drain (sum + feedback) is INSIDE the timed region. It costs
-  !     ≈N adds per rep, the same overhead in both the qp and mf legs,
-  !     so the qp/mf speedup ratio is still meaningful even when the
+  !     ≈N adds per rep, the same overhead in both the qp and dd legs,
+  !     so the qp/dd speedup ratio is still meaningful even when the
   !     "real" op being benchmarked is itself a single add.
   use multifloats
   use, intrinsic :: iso_fortran_env, only: int64, real64
@@ -36,7 +36,7 @@ program multifloat_bench
   real(qp), allocatable :: q1(:), q2(:), q3(:), qpos(:), qsmall(:), qbnd(:), qres(:)
   type(float64x2), allocatable :: f1(:), f2(:), f3(:), fpos(:), fsmall(:), fbnd(:), fres(:)
   complex(qp), allocatable :: cq1(:), cq2(:), cqres(:)
-  type(complex128x2), allocatable :: cf1(:), cf2(:), cfres(:)
+  type(complex64x2), allocatable :: cf1(:), cf2(:), cfres(:)
 
   ! Sinks: each op funnels its accumulator here, then the program prints
   ! both totals at the end so the optimizer cannot dead-strip the whole
@@ -44,7 +44,7 @@ program multifloat_bench
   real(qp) :: q_sink = 0.0_qp
   type(float64x2) :: f_sink
   complex(qp) :: cq_sink = (0.0_qp, 0.0_qp)
-  type(complex128x2) :: cf_sink
+  type(complex64x2) :: cf_sink
 
   call init_data()
   f_sink     = float64x2(0.0_dp)
@@ -55,7 +55,7 @@ program multifloat_bench
   print '(a,i0,a,i0)', " multifloats benchmark — N=", N, " elements per rep, batched"
   print '(a)',         "================================================================"
   print '(a)',         ""
-  print '(a)', " op                       n_ops      qp [s]      mf [s]    speedup"
+  print '(a)', " op                       n_ops      qp [s]      dd [s]    speedup"
   print '(a)', " ----------------------------------------------------------------"
 
   call bench_arith()
@@ -74,7 +74,7 @@ program multifloat_bench
 
   print '(a)', " ----------------------------------------------------------------"
   print '(a,es12.4,a,es12.4)', " sinks (must remain live): qp_sink=", &
-      real(q_sink, dp), "  mf_sink=", f_sink%limbs(1) + f_sink%limbs(2)
+      real(q_sink, dp), "  dd_sink=", f_sink%limbs(1) + f_sink%limbs(2)
   print '(a,es12.4,a,es12.4)', "                           cqp_re= ", &
       real(real(cq_sink, dp), dp), "  cmf_re=", cf_sink%re%limbs(1) + cf_sink%re%limbs(2)
 
@@ -126,8 +126,8 @@ contains
       fbnd(i)  = to_f64x2(qbnd(i))
       cq1(i)   = cmplx(qbnd(i), qsmall(i), qp)
       cq2(i)   = cmplx(qsmall(i), qbnd(i), qp)
-      cf1(i)   = complex128x2(fbnd(i), fsmall(i))
-      cf2(i)   = complex128x2(fsmall(i), fbnd(i))
+      cf1(i)   = complex64x2(fbnd(i), fsmall(i))
+      cf2(i)   = complex64x2(fsmall(i), fbnd(i))
     end do
   end subroutine
 
@@ -161,7 +161,7 @@ contains
   ! no libquadmath calls), then feed back into q_in(1) so the next rep
   ! sees a (slightly) different input. NOINLINE so the optimizer cannot
   ! fuse this with the rep-loop body and elide reps after the first.
-  ! Draining via dp instead of qp/mf sum keeps drain cost negligible
+  ! Draining via dp instead of qp/dd sum keeps drain cost negligible
   ! relative to the op being measured.
   subroutine qfeed(q_in)
     !GCC$ ATTRIBUTES NOINLINE :: qfeed
@@ -176,7 +176,7 @@ contains
     q_sink = q_sink + real(s, qp)
   end subroutine
 
-  ! mf feedback: drain via the leading dp limbs only.
+  ! dd feedback: drain via the leading dp limbs only.
   subroutine ffeed(f_in)
     !GCC$ ATTRIBUTES NOINLINE :: ffeed
     type(float64x2), intent(inout) :: f_in(:)
@@ -207,7 +207,7 @@ contains
 
   subroutine cffeed(cf_in)
     !GCC$ ATTRIBUTES NOINLINE :: cffeed
-    type(complex128x2), intent(inout) :: cf_in(:)
+    type(complex64x2), intent(inout) :: cf_in(:)
     real(dp) :: sr, si
     integer :: i
     sr = 0.0_dp; si = 0.0_dp
@@ -306,7 +306,7 @@ contains
     tf = elapsed(t0)
     call report("sqrt", n_ops, tq, tf)
 
-    ! mixed-mode add (mf + dp)
+    ! mixed-mode add (dd + dp)
     block
       real(dp) :: d
       call tick(t0)
@@ -323,10 +323,10 @@ contains
         call ffeed(f1)
       end do
       tf = elapsed(t0)
-      call report("add (mf+dp)", n_ops, tq, tf)
+      call report("add (dd+dp)", n_ops, tq, tf)
     end block
 
-    ! mixed-mode mul (dp * mf)
+    ! mixed-mode mul (dp * dd)
     block
       real(dp) :: d
       call tick(t0)
@@ -343,7 +343,7 @@ contains
         call ffeed(f2)
       end do
       tf = elapsed(t0)
-      call report("mul (dp*mf)", n_ops, tq, tf)
+      call report("mul (dp*dd)", n_ops, tq, tf)
     end block
   end subroutine
 
@@ -1127,7 +1127,7 @@ contains
     n_ops_fast = int(N, int64) * int(REPS_FAST, int64)
     n_ops_slow = int(N, int64) * int(REPS_VERY_SLOW, int64)
 
-    ! cx_add
+    ! cdd_add
     call tick(t0)
     do r = 1, REPS_FAST
       do i = 1, N; cqres(i) = cq1(i) + cq2(i); end do
@@ -1140,9 +1140,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_add", n_ops_fast, tq, tf)
+    call report("cdd_add", n_ops_fast, tq, tf)
 
-    ! cx_sub
+    ! cdd_sub
     call tick(t0)
     do r = 1, REPS_FAST
       do i = 1, N; cqres(i) = cq1(i) - cq2(i); end do
@@ -1155,9 +1155,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_sub", n_ops_fast, tq, tf)
+    call report("cdd_sub", n_ops_fast, tq, tf)
 
-    ! cx_mul
+    ! cdd_mul
     call tick(t0)
     do r = 1, REPS_FAST
       do i = 1, N; cqres(i) = cq1(i) * cq2(i); end do
@@ -1170,9 +1170,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_mul", n_ops_fast, tq, tf)
+    call report("cdd_mul", n_ops_fast, tq, tf)
 
-    ! cx_div
+    ! cdd_div
     call tick(t0)
     do r = 1, REPS_FAST
       do i = 1, N; cqres(i) = cq1(i) / cq2(i); end do
@@ -1185,9 +1185,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_div", n_ops_fast, tq, tf)
+    call report("cdd_div", n_ops_fast, tq, tf)
 
-    ! cx_conjg
+    ! cdd_conjg
     call tick(t0)
     do r = 1, REPS_FAST
       do i = 1, N; cqres(i) = conjg(cq1(i)); end do
@@ -1200,9 +1200,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_conjg", n_ops_fast, tq, tf)
+    call report("cdd_conjg", n_ops_fast, tq, tf)
 
-    ! cx_abs (complex → real)
+    ! cdd_abs (complex → real)
     block
       real(qp) :: qs
       type(float64x2) :: fs
@@ -1222,10 +1222,10 @@ contains
         cf1(1)%re%limbs(1) = cf1(1)%re%limbs(1) + fs%limbs(1) * 1.0e-30_dp
       end do
       tf = elapsed(t0)
-      call report("cx_abs", n_ops_fast, tq, tf)
+      call report("cdd_abs", n_ops_fast, tq, tf)
     end block
 
-    ! cx_sqrt
+    ! cdd_sqrt
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = sqrt(cq1(i)); end do
@@ -1238,9 +1238,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_sqrt", n_ops_slow, tq, tf)
+    call report("cdd_sqrt", n_ops_slow, tq, tf)
 
-    ! cx_exp
+    ! cdd_exp
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = exp(cq1(i)); end do
@@ -1253,9 +1253,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_exp", n_ops_slow, tq, tf)
+    call report("cdd_exp", n_ops_slow, tq, tf)
 
-    ! cx_log
+    ! cdd_log
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = log(cq1(i)); end do
@@ -1268,9 +1268,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_log", n_ops_slow, tq, tf)
+    call report("cdd_log", n_ops_slow, tq, tf)
 
-    ! cx_sin
+    ! cdd_sin
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = sin(cq1(i)); end do
@@ -1283,9 +1283,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_sin", n_ops_slow, tq, tf)
+    call report("cdd_sin", n_ops_slow, tq, tf)
 
-    ! cx_cos
+    ! cdd_cos
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = cos(cq1(i)); end do
@@ -1298,9 +1298,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_cos", n_ops_slow, tq, tf)
+    call report("cdd_cos", n_ops_slow, tq, tf)
 
-    ! cx_tan
+    ! cdd_tan
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = tan(cq1(i)); end do
@@ -1313,9 +1313,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_tan", n_ops_slow, tq, tf)
+    call report("cdd_tan", n_ops_slow, tq, tf)
 
-    ! cx_sinh
+    ! cdd_sinh
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = sinh(cq1(i)); end do
@@ -1328,9 +1328,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_sinh", n_ops_slow, tq, tf)
+    call report("cdd_sinh", n_ops_slow, tq, tf)
 
-    ! cx_cosh
+    ! cdd_cosh
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = cosh(cq1(i)); end do
@@ -1343,9 +1343,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_cosh", n_ops_slow, tq, tf)
+    call report("cdd_cosh", n_ops_slow, tq, tf)
 
-    ! cx_tanh
+    ! cdd_tanh
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = tanh(cq1(i)); end do
@@ -1358,9 +1358,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_tanh", n_ops_slow, tq, tf)
+    call report("cdd_tanh", n_ops_slow, tq, tf)
 
-    ! cx_asin
+    ! cdd_asin
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = asin(cq1(i)); end do
@@ -1373,9 +1373,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_asin", n_ops_slow, tq, tf)
+    call report("cdd_asin", n_ops_slow, tq, tf)
 
-    ! cx_acos
+    ! cdd_acos
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = acos(cq1(i)); end do
@@ -1388,9 +1388,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_acos", n_ops_slow, tq, tf)
+    call report("cdd_acos", n_ops_slow, tq, tf)
 
-    ! cx_atan
+    ! cdd_atan
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = atan(cq1(i)); end do
@@ -1403,9 +1403,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_atan", n_ops_slow, tq, tf)
+    call report("cdd_atan", n_ops_slow, tq, tf)
 
-    ! cx_asinh
+    ! cdd_asinh
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = asinh(cq1(i)); end do
@@ -1418,9 +1418,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_asinh", n_ops_slow, tq, tf)
+    call report("cdd_asinh", n_ops_slow, tq, tf)
 
-    ! cx_acosh
+    ! cdd_acosh
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = acosh(cq1(i)); end do
@@ -1433,9 +1433,9 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_acosh", n_ops_slow, tq, tf)
+    call report("cdd_acosh", n_ops_slow, tq, tf)
 
-    ! cx_atanh
+    ! cdd_atanh
     call tick(t0)
     do r = 1, REPS_VERY_SLOW
       do i = 1, N; cqres(i) = atanh(cq1(i)); end do
@@ -1448,7 +1448,7 @@ contains
       call cffeed(cf1)
     end do
     tf = elapsed(t0)
-    call report("cx_atanh", n_ops_slow, tq, tf)
+    call report("cdd_atanh", n_ops_slow, tq, tf)
   end subroutine
 
   ! ----------------------------------------------------------------

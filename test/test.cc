@@ -18,7 +18,6 @@
 #include <vector>
 
 namespace mf = multifloats;
-using MF2 = mf::MultiFloat<double, 2>;
 
 // =============================================================================
 // __float128 reference helpers
@@ -26,14 +25,14 @@ using MF2 = mf::MultiFloat<double, 2>;
 
 using q_t = __float128;
 
-static q_t to_q(MF2 const &x) {
+static q_t to_q(mf::float64x2 const &x) {
   return (q_t)x._limbs[0] + (q_t)x._limbs[1];
 }
 
-static MF2 from_q(q_t v) {
+static mf::float64x2 from_q(q_t v) {
   double hi = (double)v;
   if (!std::isfinite(hi)) {
-    MF2 r;
+    mf::float64x2 r;
     r._limbs[0] = hi;
     r._limbs[1] = hi;
     return r;
@@ -42,7 +41,7 @@ static MF2 from_q(q_t v) {
   // fast_two_sum normalization (|hi| >= |lo| holds by construction).
   double s = hi + lo;
   double err = lo - (s - hi);
-  MF2 r;
+  mf::float64x2 r;
   r._limbs[0] = s;
   r._limbs[1] = err;
   return r;
@@ -101,9 +100,9 @@ static int g_checks = 0;
 
 // Compare a multifloat result against a __float128 reference, accumulate
 // statistics, and fail loudly if the relative error exceeds `tol`.
-static void check_q(char const *op, MF2 const &got, q_t expected, double tol,
-                    Stats &stats, MF2 const *a = nullptr,
-                    MF2 const *b = nullptr) {
+static void check_q(char const *op, mf::float64x2 const &got, q_t expected, double tol,
+                    Stats &stats, mf::float64x2 const *a = nullptr,
+                    mf::float64x2 const *b = nullptr) {
   ++g_checks;
   q_t got_q = to_q(got);
   double rel = q_rel_err(got_q, expected);
@@ -146,8 +145,8 @@ static constexpr double kDivTol = 1e-28;
 // normalized double-double. This guarantees that to_q() is the exact
 // inverse of the construction, so the __float128 reference is exact for
 // every operation.
-static std::vector<MF2> sample_inputs() {
-  std::vector<MF2> v;
+static std::vector<mf::float64x2> sample_inputs() {
+  std::vector<mf::float64x2> v;
   auto push_q = [&v](q_t value) { v.push_back(from_q(value)); };
 
   // Pure doubles.
@@ -187,24 +186,24 @@ static std::vector<MF2> sample_inputs() {
 // =============================================================================
 
 static void test_construction_and_conversion() {
-  MF2 z;
+  mf::float64x2 z;
   REQUIRE(z._limbs[0] == 0.0);
   REQUIRE(z._limbs[1] == 0.0);
 
-  MF2 one(1.0);
+  mf::float64x2 one(1.0);
   REQUIRE(one._limbs[0] == 1.0);
   REQUIRE(one._limbs[1] == 0.0);
   REQUIRE(static_cast<double>(one) == 1.0);
   REQUIRE(to_q(one) == (q_t)1);
 
-  MF2 negz(-0.0);
+  mf::float64x2 negz(-0.0);
   REQUIRE(static_cast<double>(negz) == 0.0);
   REQUIRE(std::signbit(negz._limbs[0]));
 }
 
 static void test_equality_and_ordering() {
-  for (MF2 const &a : sample_inputs()) {
-    for (MF2 const &b : sample_inputs()) {
+  for (mf::float64x2 const &a : sample_inputs()) {
+    for (mf::float64x2 const &b : sample_inputs()) {
       q_t qa = to_q(a);
       q_t qb = to_q(b);
       REQUIRE((a == b) == (qa == qb));
@@ -222,7 +221,7 @@ static void test_equality_and_ordering() {
 // =============================================================================
 
 static void test_unary(Stats &stats) {
-  for (MF2 const &x : sample_inputs()) {
+  for (mf::float64x2 const &x : sample_inputs()) {
     q_t qx = to_q(x);
     check_q("neg", -x, -qx, 0.0, stats);
     check_q("pos", +x, qx, 0.0, stats);
@@ -231,12 +230,12 @@ static void test_unary(Stats &stats) {
 
 static void test_addition(Stats &stats) {
   auto inputs = sample_inputs();
-  for (MF2 const &a : inputs) {
-    for (MF2 const &b : inputs) {
+  for (mf::float64x2 const &a : inputs) {
+    for (mf::float64x2 const &b : inputs) {
       q_t expected = to_q(a) + to_q(b);
       check_q("add", a + b, expected, kAddTol, stats, &a, &b);
 
-      MF2 c = a;
+      mf::float64x2 c = a;
       c += b;
       check_q("add+=", c, expected, kAddTol, stats, &a, &b);
     }
@@ -245,12 +244,12 @@ static void test_addition(Stats &stats) {
 
 static void test_subtraction(Stats &stats) {
   auto inputs = sample_inputs();
-  for (MF2 const &a : inputs) {
-    for (MF2 const &b : inputs) {
+  for (mf::float64x2 const &a : inputs) {
+    for (mf::float64x2 const &b : inputs) {
       q_t expected = to_q(a) - to_q(b);
       check_q("sub", a - b, expected, kAddTol, stats);
 
-      MF2 c = a;
+      mf::float64x2 c = a;
       c -= b;
       check_q("sub-=", c, expected, kAddTol, stats);
     }
@@ -259,12 +258,12 @@ static void test_subtraction(Stats &stats) {
 
 static void test_multiplication(Stats &stats) {
   auto inputs = sample_inputs();
-  for (MF2 const &a : inputs) {
-    for (MF2 const &b : inputs) {
+  for (mf::float64x2 const &a : inputs) {
+    for (mf::float64x2 const &b : inputs) {
       q_t expected = to_q(a) * to_q(b);
       check_q("mul", a * b, expected, kMulTol, stats);
 
-      MF2 c = a;
+      mf::float64x2 c = a;
       c *= b;
       check_q("mul*=", c, expected, kMulTol, stats);
     }
@@ -273,15 +272,15 @@ static void test_multiplication(Stats &stats) {
 
 static void test_division(Stats &stats) {
   auto inputs = sample_inputs();
-  for (MF2 const &a : inputs) {
-    for (MF2 const &b : inputs) {
+  for (mf::float64x2 const &a : inputs) {
+    for (mf::float64x2 const &b : inputs) {
       if (b._limbs[0] == 0.0) {
         continue;
       }
       q_t expected = to_q(a) / to_q(b);
       check_q("div", a / b, expected, kDivTol, stats);
 
-      MF2 c = a;
+      mf::float64x2 c = a;
       c /= b;
       check_q("div/=", c, expected, kDivTol, stats);
     }
@@ -294,14 +293,14 @@ static void test_division(Stats &stats) {
 
 static void test_abs_fmin_fmax(Stats &stats) {
   auto inputs = sample_inputs();
-  for (MF2 const &x : inputs) {
+  for (mf::float64x2 const &x : inputs) {
     q_t qx = to_q(x);
     q_t qexp = qx < 0 ? -qx : qx;
     check_q("abs", mf::abs(x), qexp, 0.0, stats);
     check_q("fabs", mf::fabs(x), qexp, 0.0, stats);
   }
-  for (MF2 const &a : inputs) {
-    for (MF2 const &b : inputs) {
+  for (mf::float64x2 const &a : inputs) {
+    for (mf::float64x2 const &b : inputs) {
       q_t qa = to_q(a);
       q_t qb = to_q(b);
       check_q("fmin", mf::fmin(a, b), qa < qb ? qa : qb, 0.0, stats);
@@ -312,8 +311,8 @@ static void test_abs_fmin_fmax(Stats &stats) {
 
 static void test_copysign(Stats &stats) {
   auto inputs = sample_inputs();
-  for (MF2 const &x : inputs) {
-    for (MF2 const &y : inputs) {
+  for (mf::float64x2 const &x : inputs) {
+    for (mf::float64x2 const &y : inputs) {
       q_t qx = to_q(x);
       bool xs = std::signbit(x._limbs[0]);
       bool ys = std::signbit(y._limbs[0]);
@@ -327,10 +326,10 @@ static void test_copysign(Stats &stats) {
 static void test_classification() {
   double inf = std::numeric_limits<double>::infinity();
   double nan = std::numeric_limits<double>::quiet_NaN();
-  MF2 finite(1.5);
-  MF2 zero(0.0);
-  MF2 neg(-1.5);
-  MF2 pinf(inf), ninf(-inf), mnan(nan);
+  mf::float64x2 finite(1.5);
+  mf::float64x2 zero(0.0);
+  mf::float64x2 neg(-1.5);
+  mf::float64x2 pinf(inf), ninf(-inf), mnan(nan);
 
   REQUIRE(!mf::signbit(finite));
   REQUIRE(mf::signbit(neg));
@@ -349,13 +348,13 @@ static void test_classification() {
 
   // Non-canonical DDs where hi is (signed) zero: the value lives in lo,
   // so signbit/abs must consult lo rather than blindly trusting hi.
-  MF2 tiny_neg;
+  mf::float64x2 tiny_neg;
   tiny_neg._limbs[0] = 0.0;
   tiny_neg._limbs[1] = -1e-300;
   REQUIRE(mf::signbit(tiny_neg));
   REQUIRE(!mf::signbit(mf::abs(tiny_neg)));
 
-  MF2 tiny_pos;
+  mf::float64x2 tiny_pos;
   tiny_pos._limbs[0] = -0.0;
   tiny_pos._limbs[1] = 1e-300;
   REQUIRE(!mf::signbit(tiny_pos));
@@ -365,8 +364,8 @@ static void test_classification() {
 static void test_ldexp_scalbn_ilogb(Stats &stats) {
   auto inputs = sample_inputs();
   int const ns[] = {-50, -1, 0, 1, 25};
-  for (MF2 const &x : inputs) {
-    if (!mf::isfinite(x) || x == MF2(0.0)) {
+  for (mf::float64x2 const &x : inputs) {
+    if (!mf::isfinite(x) || x == mf::float64x2(0.0)) {
       continue;
     }
     q_t qx = to_q(x);
@@ -393,34 +392,34 @@ static void test_ldexp_scalbn_ilogb(Stats &stats) {
 //   5. accuracy: for t ∈ [0, 1] and same-sign a,b the result has no cancellation
 //   6. NaN propagation: if any argument is NaN the result is NaN
 static void test_lerp(Stats &stats) {
-  MF2 const cases[][2] = {
-      {MF2(0.0), MF2(1.0)},
-      {MF2(-1.0), MF2(1.0)},   // opposite signs
-      {MF2(1.0), MF2(2.0)},    // same sign, ascending
-      {MF2(-2.0), MF2(-1.0)},  // same sign, both negative
-      {MF2(3.0), MF2(3.0)},    // a == b
+  mf::float64x2 const cases[][2] = {
+      {mf::float64x2(0.0), mf::float64x2(1.0)},
+      {mf::float64x2(-1.0), mf::float64x2(1.0)},   // opposite signs
+      {mf::float64x2(1.0), mf::float64x2(2.0)},    // same sign, ascending
+      {mf::float64x2(-2.0), mf::float64x2(-1.0)},  // same sign, both negative
+      {mf::float64x2(3.0), mf::float64x2(3.0)},    // a == b
       {from_q(M_PIq), from_q(M_Eq)},
       {from_q(scalbnq((q_t)1, 50)), from_q(scalbnq((q_t)1, -50))},
   };
   double const ts[] = {0.0, 0.25, 0.5, 0.75, 1.0, -0.5, 1.5, 2.0};
 
   for (auto const &p : cases) {
-    MF2 const &a = p[0];
-    MF2 const &b = p[1];
+    mf::float64x2 const &a = p[0];
+    mf::float64x2 const &b = p[1];
     q_t qa = to_q(a), qb = to_q(b);
     // Endpoint exactness (spec requirement, not tolerance-based).
-    REQUIRE(mf::lerp(a, b, MF2(0.0)) == a);
-    REQUIRE(mf::lerp(a, b, MF2(1.0)) == b);
+    REQUIRE(mf::lerp(a, b, mf::float64x2(0.0)) == a);
+    REQUIRE(mf::lerp(a, b, mf::float64x2(1.0)) == b);
     // a == b: every t returns a.
     if (a == b) {
       for (double t : ts) {
-        REQUIRE(mf::lerp(a, b, MF2(t)) == a);
+        REQUIRE(mf::lerp(a, b, mf::float64x2(t)) == a);
       }
       continue;
     }
     // Value check vs __float128 reference at intermediate t.
     for (double t : ts) {
-      MF2 r = mf::lerp(a, b, MF2(t));
+      mf::float64x2 r = mf::lerp(a, b, mf::float64x2(t));
       q_t expected = qa + (q_t)t * (qb - qa);
       // For t in [0,1], lerp is exact to DD precision.
       // For extrapolation, allow the standard DD add/mul tolerance.
@@ -429,18 +428,18 @@ static void test_lerp(Stats &stats) {
   }
 
   // NaN propagation.
-  MF2 nan_val;
+  mf::float64x2 nan_val;
   nan_val._limbs[0] = std::numeric_limits<double>::quiet_NaN();
   nan_val._limbs[1] = 0.0;
-  REQUIRE(mf::isnan(mf::lerp(nan_val, MF2(1.0), MF2(0.5))));
-  REQUIRE(mf::isnan(mf::lerp(MF2(0.0), nan_val, MF2(0.5))));
-  REQUIRE(mf::isnan(mf::lerp(MF2(0.0), MF2(1.0), nan_val)));
+  REQUIRE(mf::isnan(mf::lerp(nan_val, mf::float64x2(1.0), mf::float64x2(0.5))));
+  REQUIRE(mf::isnan(mf::lerp(mf::float64x2(0.0), nan_val, mf::float64x2(0.5))));
+  REQUIRE(mf::isnan(mf::lerp(mf::float64x2(0.0), mf::float64x2(1.0), nan_val)));
 
   // Monotonicity sweep on a well-conditioned same-sign pair.
-  MF2 a(1.0), b(2.0);
-  MF2 prev = mf::lerp(a, b, MF2(0.0));
+  mf::float64x2 a(1.0), b(2.0);
+  mf::float64x2 prev = mf::lerp(a, b, mf::float64x2(0.0));
   for (int i = 1; i <= 100; ++i) {
-    MF2 cur = mf::lerp(a, b, MF2((double)i / 100.0));
+    mf::float64x2 cur = mf::lerp(a, b, mf::float64x2((double)i / 100.0));
     REQUIRE(cur >= prev);
     prev = cur;
   }
@@ -458,15 +457,15 @@ static void test_nextafter_symmetry() {
   double const powers_of_two[] = {
       0x1p-50, 0x1p-10, 0x1p-1, 0x1p0, 0x1p1, 0x1p2, 0x1p3, 0x1p10, 0x1p50,
   };
-  MF2 const pinf(std::numeric_limits<double>::infinity());
-  MF2 const ninf(-std::numeric_limits<double>::infinity());
+  mf::float64x2 const pinf(std::numeric_limits<double>::infinity());
+  mf::float64x2 const ninf(-std::numeric_limits<double>::infinity());
 
   for (double p2 : powers_of_two) {
     // Both signs — sign handling on the hi limb must not flip the ulp.
     for (double sign : {+1.0, -1.0}) {
-      MF2 x(sign * p2);
-      MF2 up = mf::nextafter(x, pinf);
-      MF2 dn = mf::nextafter(x, ninf);
+      mf::float64x2 x(sign * p2);
+      mf::float64x2 up = mf::nextafter(x, pinf);
+      mf::float64x2 dn = mf::nextafter(x, ninf);
 
       // Both steps must be nonzero (no collapse to x).
       REQUIRE(up != x);
@@ -498,9 +497,9 @@ static void test_nextafter_symmetry() {
   };
   for (double v : non_p2) {
     for (double sign : {+1.0, -1.0}) {
-      MF2 x(sign * v);
-      MF2 up = mf::nextafter(x, pinf);
-      MF2 dn = mf::nextafter(x, ninf);
+      mf::float64x2 x(sign * v);
+      mf::float64x2 up = mf::nextafter(x, pinf);
+      mf::float64x2 dn = mf::nextafter(x, ninf);
       REQUIRE(up != x);
       REQUIRE(dn != x);
       REQUIRE(mf::nextafter(up, ninf) == x);
@@ -513,7 +512,7 @@ static void test_nextafter_symmetry() {
 
   // Identity: x == y implies nextafter returns y unchanged (exact).
   for (double p2 : powers_of_two) {
-    MF2 x(p2);
+    mf::float64x2 x(p2);
     REQUIRE(mf::nextafter(x, x) == x);
   }
 
@@ -525,9 +524,9 @@ static void test_nextafter_symmetry() {
       (q_t)1 / (q_t)7,
   };
   for (q_t seed : seeds) {
-    MF2 x = from_q(seed);
-    MF2 up = mf::nextafter(x, pinf);
-    MF2 dn = mf::nextafter(x, ninf);
+    mf::float64x2 x = from_q(seed);
+    mf::float64x2 up = mf::nextafter(x, pinf);
+    mf::float64x2 dn = mf::nextafter(x, ninf);
     REQUIRE(mf::nextafter(up, ninf) == x);
     REQUIRE(mf::nextafter(dn, pinf) == x);
   }
@@ -561,8 +560,8 @@ static void test_complex_accessors(Stats &stats) {
   };
 
   for (Case c : cases) {
-    MF2 re = from_q(c.re);
-    MF2 im = from_q(c.im);
+    mf::float64x2 re = from_q(c.re);
+    mf::float64x2 im = from_q(c.im);
     complex64x2_t z = {
         {re._limbs[0], re._limbs[1]},
         {im._limbs[0], im._limbs[1]},
@@ -573,7 +572,7 @@ static void test_complex_accessors(Stats &stats) {
     __imag__ cq = c.im;
     // cabs: |z|
     {
-      MF2 got;
+      mf::float64x2 got;
       float64x2_t r = cabsdd(z);
       got._limbs[0] = r.hi;
       got._limbs[1] = r.lo;
@@ -581,7 +580,7 @@ static void test_complex_accessors(Stats &stats) {
     }
     // carg: atan2(im, re); libquadmath's cargq takes __complex128.
     {
-      MF2 got;
+      mf::float64x2 got;
       float64x2_t r = cargdd(z);
       got._limbs[0] = r.hi;
       got._limbs[1] = r.lo;
@@ -674,8 +673,8 @@ static void test_atan_cutover(Stats &stats) {
   };
 
   auto check_atan = [&](q_t qx) {
-    MF2 x = from_q(qx);
-    MF2 got = mf::atan(x);
+    mf::float64x2 x = from_q(qx);
+    mf::float64x2 got = mf::atan(x);
     q_t expected = atanq(qx);
     // atan is always well-conditioned (|d/dx atan| <= 1), so tolerance is
     // the standard DD kernel tier.
@@ -712,10 +711,10 @@ static void test_atan_cutover(Stats &stats) {
 
   // Verify that the cutover value lands in the large branch: round-trip
   // identity arctan(x) + arctan(1/x) = pi/2 for x > 0 at |x| = 32/3.
-  MF2 x = from_q((q_t)(32.0 / 3.0));
-  MF2 one(1.0);
-  MF2 y = one / x;
-  MF2 sum = mf::atan(x) + mf::atan(y);
+  mf::float64x2 x = from_q((q_t)(32.0 / 3.0));
+  mf::float64x2 one(1.0);
+  mf::float64x2 y = one / x;
+  mf::float64x2 sum = mf::atan(x) + mf::atan(y);
   q_t got = to_q(sum);
   q_t expected = M_PIq / (q_t)2;
   q_t diff = got - expected;

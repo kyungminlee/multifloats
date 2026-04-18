@@ -29,10 +29,10 @@ program test_multifloats_precision
   call test_reduction_mask(failures)
   call test_reduction_dim(failures)
   call test_loc_back(failures)
-  call test_assignments_to_mf(failures)
-  call test_assignments_to_cx(failures)
-  call test_assignments_from_mf(failures)
-  call test_assignments_from_cx(failures)
+  call test_assignments_to_dd(failures)
+  call test_assignments_to_cdd(failures)
+  call test_assignments_from_dd(failures)
+  call test_assignments_from_cdd(failures)
   call test_constructors(failures)
 
   if (failures /= 0) then
@@ -44,16 +44,16 @@ program test_multifloats_precision
 
 contains
 
-  pure elemental function mf_to_qp(x) result(y)
+  pure elemental function dd_to_qp(x) result(y)
     type(float64x2), intent(in) :: x
     real(qp) :: y
     y = real(x%limbs(1), qp) + real(x%limbs(2), qp)
   end function
 
-  pure elemental function cx_to_cqp(x) result(y)
-    type(complex128x2), intent(in) :: x
+  pure elemental function cdd_to_cqp(x) result(y)
+    type(complex64x2), intent(in) :: x
     complex(qp) :: y
-    y = cmplx(mf_to_qp(x%re), mf_to_qp(x%im), kind=qp)
+    y = cmplx(dd_to_qp(x%re), dd_to_qp(x%im), kind=qp)
   end function
 
   subroutine check_true(label, cond, failures)
@@ -79,7 +79,7 @@ contains
       mag = max(1.0_qp, abs(expect))
     end if
     bound = tol * mag
-    err = abs(mf_to_qp(got) - expect)
+    err = abs(dd_to_qp(got) - expect)
     rel = err / max(1.0_qp, abs(expect))
     write(*,'(a,1x,es24.16,1x,es24.16,1x,es24.16)') trim(label), err, rel, bound
     if (err > bound) then
@@ -90,7 +90,7 @@ contains
 
   subroutine check_complex_close(label, got, expect, failures, scale)
     character(*), intent(in) :: label
-    type(complex128x2), intent(in) :: got
+    type(complex64x2), intent(in) :: got
     complex(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp), intent(in), optional :: scale
@@ -101,7 +101,7 @@ contains
       mag = max(1.0_qp, abs(expect))
     end if
     bound = tol * mag
-    err = abs(cx_to_cqp(got) - expect)
+    err = abs(cdd_to_cqp(got) - expect)
     rel = err / max(1.0_qp, abs(expect))
     write(*,'(a,1x,es24.16,1x,es24.16,1x,es24.16)') trim(label), err, rel, bound
     if (err > bound) then
@@ -114,12 +114,12 @@ contains
   ! are derived from the first-order derivative-corrected real DD kernels.
   subroutine check_complex_approx(label, got, expect, failures)
     character(*), intent(in) :: label
-    type(complex128x2), intent(in) :: got
+    type(complex64x2), intent(in) :: got
     complex(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp) :: err, bound
     bound = max(abs(expect), 1.0_qp) * 1.0e-14_qp
-    err = abs(cx_to_cqp(got) - expect)
+    err = abs(cdd_to_cqp(got) - expect)
     write(*,'(a,1x,es24.16,1x,es24.16)') trim(label), err, bound
     if (err > bound) then
       failures = failures + 1
@@ -130,7 +130,7 @@ contains
   subroutine test_scalar_constructors(failures)
     integer, intent(inout) :: failures
     type(float64x2) :: x
-    type(complex128x2) :: z
+    type(complex64x2) :: z
 
     x = float64x2(1.25_dp)
     call check_real_close('ctor dp', x, 1.25_qp, failures)
@@ -147,10 +147,10 @@ contains
     x = cmplx(2.5_dp, -9.0_dp, kind=dp)
     call check_real_close('assign complex->real', x, 2.5_qp, failures)
 
-    z = complex128x2(float64x2(1.5_dp), float64x2(-0.25_dp))
-    call check_complex_close('ctor complex mf', z, cmplx(1.5_qp, -0.25_qp, qp), failures)
+    z = complex64x2(float64x2(1.5_dp), float64x2(-0.25_dp))
+    call check_complex_close('ctor complex dd', z, cmplx(1.5_qp, -0.25_qp, qp), failures)
 
-    z = complex128x2(3.0_dp, -2.0_dp)
+    z = complex64x2(3.0_dp, -2.0_dp)
     call check_complex_close('ctor complex dp', z, cmplx(3.0_qp, -2.0_qp, qp), failures)
   end subroutine
 
@@ -161,22 +161,22 @@ contains
 
     x%limbs = [1.0_dp, 2.0e-30_dp]
     y%limbs = [2.0_dp, -3.0e-30_dp]
-    qx = mf_to_qp(x)
-    qy = mf_to_qp(y)
+    qx = dd_to_qp(x)
+    qy = dd_to_qp(y)
 
-    call check_real_close('add mf-mf', x + y, qx + qy, failures)
-    call check_real_close('sub mf-mf', x - y, qx - qy, failures)
-    call check_real_close('mul mf-mf', x * y, qx * qy, failures)
-    call check_real_close('div mf-mf', x / y, qx / qy, failures)
+    call check_real_close('add dd-dd', x + y, qx + qy, failures)
+    call check_real_close('sub dd-dd', x - y, qx - qy, failures)
+    call check_real_close('mul dd-dd', x * y, qx * qy, failures)
+    call check_real_close('div dd-dd', x / y, qx / qy, failures)
 
-    call check_real_close('add mf-dp', x + 2.0_dp, qx + 2.0_qp, failures)
-    call check_real_close('add dp-mf', 2.0_dp + x, 2.0_qp + qx, failures)
-    call check_real_close('sub mf-int', x - 2, qx - 2.0_qp, failures)
-    call check_real_close('sub int-mf', 2 - x, 2.0_qp - qx, failures)
-    call check_real_close('mul mf-sp', x * real(0.5_sp, sp), qx * 0.5_qp, failures)
-    call check_real_close('mul sp-mf', real(0.5_sp, sp) * x, 0.5_qp * qx, failures)
-    call check_real_close('div mf-dp', x / 2.0_dp, qx / 2.0_qp, failures)
-    call check_real_close('div dp-mf', 2.0_dp / x, 2.0_qp / qx, failures)
+    call check_real_close('add dd-dp', x + 2.0_dp, qx + 2.0_qp, failures)
+    call check_real_close('add dp-dd', 2.0_dp + x, 2.0_qp + qx, failures)
+    call check_real_close('sub dd-int', x - 2, qx - 2.0_qp, failures)
+    call check_real_close('sub int-dd', 2 - x, 2.0_qp - qx, failures)
+    call check_real_close('mul dd-sp', x * real(0.5_sp, sp), qx * 0.5_qp, failures)
+    call check_real_close('mul sp-dd', real(0.5_sp, sp) * x, 0.5_qp * qx, failures)
+    call check_real_close('div dd-dp', x / 2.0_dp, qx / 2.0_qp, failures)
+    call check_real_close('div dp-dd', 2.0_dp / x, 2.0_qp / qx, failures)
     call check_real_close('pow int', x ** 3, qx ** 3, failures, scale=abs(qx ** 3))
 
   end subroutine
@@ -187,7 +187,7 @@ contains
     real(qp) :: qx
 
     x%limbs = [1.25_dp, 1.0e-30_dp]
-    qx = mf_to_qp(x)
+    qx = dd_to_qp(x)
 
     call check_real_close('abs', abs(-x), abs(-qx), failures)
   end subroutine
@@ -207,38 +207,38 @@ contains
 
   subroutine test_complex_arithmetic(failures)
     integer, intent(inout) :: failures
-    type(complex128x2) :: z1, z2
+    type(complex64x2) :: z1, z2
     complex(qp) :: q1, q2
 
-    z1 = complex128x2(float64x2(1.25_dp), float64x2(-0.5_dp))
-    z2 = complex128x2(0.75_dp, 0.25_dp)
-    q1 = cx_to_cqp(z1)
-    q2 = cx_to_cqp(z2)
+    z1 = complex64x2(float64x2(1.25_dp), float64x2(-0.5_dp))
+    z2 = complex64x2(0.75_dp, 0.25_dp)
+    q1 = cdd_to_cqp(z1)
+    q2 = cdd_to_cqp(z2)
 
-    call check_complex_close('cx add', z1 + z2, q1 + q2, failures)
-    call check_complex_close('cx sub mixed', z1 - cmplx(0.5_dp, -0.125_dp, dp), q1 - cmplx(0.5_qp, -0.125_qp, qp), failures)
-    call check_complex_close('cx mul', z1 * z2, q1 * q2, failures)
-    call check_complex_close('cx div', z1 / z2, q1 / q2, failures)
+    call check_complex_close('cdd add', z1 + z2, q1 + q2, failures)
+    call check_complex_close('cdd sub mixed', z1 - cmplx(0.5_dp, -0.125_dp, dp), q1 - cmplx(0.5_qp, -0.125_qp, qp), failures)
+    call check_complex_close('cdd mul', z1 * z2, q1 * q2, failures)
+    call check_complex_close('cdd div', z1 / z2, q1 / q2, failures)
     ! sqrt is full DD precision; exp / log / trig / hyperbolic are
     ! built from the first-order derivative-corrected real kernels and
     ! only carry single-double precision.
-    call check_complex_close('cx sqrt', sqrt(z1), sqrt(q1), failures)
-    call check_complex_approx('cx exp', exp(z1), exp(q1), failures)
+    call check_complex_close('cdd sqrt', sqrt(z1), sqrt(q1), failures)
+    call check_complex_approx('cdd exp', exp(z1), exp(q1), failures)
 
-    call check_real_close('cx abs', abs(z1), abs(q1), failures)
-    call check_real_close('cx aimag', aimag(z1), aimag(q1), failures)
+    call check_real_close('cdd abs', abs(z1), abs(q1), failures)
+    call check_real_close('cdd aimag', aimag(z1), aimag(q1), failures)
   end subroutine
 
   subroutine test_array_ops(failures)
     integer, intent(inout) :: failures
     type(float64x2) :: a(2), m1(2,2), m2(2,2), mv(2), mm(2,2)
-    type(complex128x2) :: cz(2)
+    type(complex64x2) :: cz(2)
     real(qp) :: qa(2), qm1(2,2), qm2(2,2), qv(2), qmm(2,2)
     complex(qp) :: qcz(2)
 
     a(1)%limbs = [1.0_dp, 1.0e-30_dp]
     a(2)%limbs = [2.0_dp, -2.0e-30_dp]
-    qa = [mf_to_qp(a(1)), mf_to_qp(a(2))]
+    qa = [dd_to_qp(a(1)), dd_to_qp(a(2))]
 
     call check_real_close('sum', sum(a), sum(qa), failures)
     call check_real_close('product', product(a), product(qa), failures, scale=abs(product(qa)))
@@ -265,8 +265,8 @@ contains
     call check_real_close('matmul mv 1', mv(1), qv(1), failures, scale=10.0_qp)
     call check_real_close('matmul mv 2', mv(2), qv(2), failures, scale=10.0_qp)
 
-    cz = [complex128x2(1.0_dp, -0.5_dp), complex128x2(0.25_dp, 0.75_dp)]
-    qcz = [cx_to_cqp(cz(1)), cx_to_cqp(cz(2))]
+    cz = [complex64x2(1.0_dp, -0.5_dp), complex64x2(0.25_dp, 0.75_dp)]
+    qcz = [cdd_to_cqp(cz(1)), cdd_to_cqp(cz(2))]
     call check_complex_close('complex sum', sum(cz), sum(qcz), failures)
     call check_complex_close('complex dot_product', dot_product(cz, cz), dot_product(qcz, qcz), failures)
   end subroutine
@@ -276,15 +276,15 @@ contains
     type(float64x2) :: x, r
 
     x%limbs = [3.5_dp, 2.0e-30_dp]
-    call check_true('dble', abs(dble(x) - real(mf_to_qp(x), dp)) <= epsilon(1.0_dp), failures)
-    call check_true('int', int(x) == int(mf_to_qp(x)), failures)
-    call check_true('nint', nint(x) == nint(mf_to_qp(x)), failures)
-    call check_true('floor', floor(x) == floor(mf_to_qp(x)), failures)
-    call check_true('ceiling', ceiling(x) == ceiling(mf_to_qp(x)), failures)
+    call check_true('dble', abs(dble(x) - real(dd_to_qp(x), dp)) <= epsilon(1.0_dp), failures)
+    call check_true('int', int(x) == int(dd_to_qp(x)), failures)
+    call check_true('nint', nint(x) == nint(dd_to_qp(x)), failures)
+    call check_true('floor', floor(x) == floor(dd_to_qp(x)), failures)
+    call check_true('ceiling', ceiling(x) == ceiling(dd_to_qp(x)), failures)
 
     call random_number(r)
-    call check_true('random lower', mf_to_qp(r) >= 0.0_qp, failures)
-    call check_true('random upper', mf_to_qp(r) < 1.0_qp, failures)
+    call check_true('random lower', dd_to_qp(r) >= 0.0_qp, failures)
+    call check_true('random upper', dd_to_qp(r) < 1.0_qp, failures)
   end subroutine
 
   ! ----------------------------------------------------------------
@@ -563,53 +563,53 @@ contains
   ! Assignment-operator coverage (every direction supported)
   ! ----------------------------------------------------------------
 
-  subroutine test_assignments_to_mf(failures)
+  subroutine test_assignments_to_dd(failures)
     integer, intent(inout) :: failures
     type(float64x2) :: x
 
-    ! mf <- real / int / complex of every kind we expose.
+    ! dd <- real / int / complex of every kind we expose.
     x = 3.5_dp
-    call check_real_close('mf <- dp', x, 3.5_qp, failures)
+    call check_real_close('dd <- dp', x, 3.5_qp, failures)
     x = 3.5_sp
-    call check_real_close('mf <- sp', x, real(3.5_sp, qp), failures)
+    call check_real_close('dd <- sp', x, real(3.5_sp, qp), failures)
     x = 7
-    call check_real_close('mf <- int', x, 7.0_qp, failures)
+    call check_real_close('dd <- int', x, 7.0_qp, failures)
     x = 7_int8
-    call check_real_close('mf <- int8', x, 7.0_qp, failures)
+    call check_real_close('dd <- int8', x, 7.0_qp, failures)
     x = 1234_int16
-    call check_real_close('mf <- int16', x, 1234.0_qp, failures)
+    call check_real_close('dd <- int16', x, 1234.0_qp, failures)
     x = 123456789012_int64
-    call check_real_close('mf <- int64', x, 123456789012.0_qp, failures)
+    call check_real_close('dd <- int64', x, 123456789012.0_qp, failures)
     x = (2.5_dp, -8.0_dp)            ! complex(dp); imag dropped
-    call check_real_close('mf <- cdp', x, 2.5_qp, failures)
+    call check_real_close('dd <- cdp', x, 2.5_qp, failures)
     x = (1.25_sp, 4.0_sp)            ! complex(sp); imag dropped
-    call check_real_close('mf <- csp', x, real(1.25_sp, qp), failures)
+    call check_real_close('dd <- csp', x, real(1.25_sp, qp), failures)
   end subroutine
 
-  subroutine test_assignments_to_cx(failures)
+  subroutine test_assignments_to_cdd(failures)
     integer, intent(inout) :: failures
-    type(complex128x2) :: z
+    type(complex64x2) :: z
 
     z = 3.5_dp
-    call check_complex_close('cx <- dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
+    call check_complex_close('cdd <- dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
     z = 3.5_sp
-    call check_complex_close('cx <- sp', z, cmplx(real(3.5_sp, qp), 0.0_qp, qp), failures)
+    call check_complex_close('cdd <- sp', z, cmplx(real(3.5_sp, qp), 0.0_qp, qp), failures)
     z = 7
-    call check_complex_close('cx <- int', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    call check_complex_close('cdd <- int', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
     z = 7_int8
-    call check_complex_close('cx <- int8', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    call check_complex_close('cdd <- int8', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
     z = 1234_int16
-    call check_complex_close('cx <- int16', z, cmplx(1234.0_qp, 0.0_qp, qp), failures)
+    call check_complex_close('cdd <- int16', z, cmplx(1234.0_qp, 0.0_qp, qp), failures)
     z = 123456789012_int64
-    call check_complex_close('cx <- int64', z, cmplx(123456789012.0_qp, 0.0_qp, qp), failures)
+    call check_complex_close('cdd <- int64', z, cmplx(123456789012.0_qp, 0.0_qp, qp), failures)
     z = (2.5_dp, -8.0_dp)
-    call check_complex_close('cx <- cdp', z, cmplx(2.5_qp, -8.0_qp, qp), failures)
+    call check_complex_close('cdd <- cdp', z, cmplx(2.5_qp, -8.0_qp, qp), failures)
     z = (1.25_sp, 4.0_sp)
-    call check_complex_close('cx <- csp', z, &
+    call check_complex_close('cdd <- csp', z, &
         cmplx(real(1.25_sp, qp), real(4.0_sp, qp), qp), failures)
   end subroutine
 
-  subroutine test_assignments_from_mf(failures)
+  subroutine test_assignments_from_dd(failures)
     integer, intent(inout) :: failures
     type(float64x2) :: x
     real(dp) :: d
@@ -623,39 +623,39 @@ contains
 
     x = 3.14159265358979_dp
     d = x
-    call check_true('dp <- mf', d == x%limbs(1), failures)
+    call check_true('dp <- dd', d == x%limbs(1), failures)
     s = x
-    call check_true('sp <- mf', s == real(x%limbs(1), sp), failures)
+    call check_true('sp <- dd', s == real(x%limbs(1), sp), failures)
     cd = x
-    call check_true('cdp <- mf real', real(cd, dp) == x%limbs(1), failures)
-    call check_true('cdp <- mf imag', aimag(cd) == 0.0_dp, failures)
+    call check_true('cdp <- dd real', real(cd, dp) == x%limbs(1), failures)
+    call check_true('cdp <- dd imag', aimag(cd) == 0.0_dp, failures)
     cs = x
-    call check_true('csp <- mf real', real(cs, sp) == real(x%limbs(1), sp), failures)
-    call check_true('csp <- mf imag', aimag(cs) == 0.0_sp, failures)
+    call check_true('csp <- dd real', real(cs, sp) == real(x%limbs(1), sp), failures)
+    call check_true('csp <- dd imag', aimag(cs) == 0.0_sp, failures)
 
     ! Integer truncation toward zero (matches Fortran int(...) semantics).
     x = 42.7_dp
     i = x; j8 = x; j16 = x; j64 = x
-    call check_true('int  <- mf 42.7', i == 42, failures)
-    call check_true('int8 <- mf 42.7', j8 == 42_int8, failures)
-    call check_true('int16<- mf 42.7', j16 == 42_int16, failures)
-    call check_true('int64<- mf 42.7', j64 == 42_int64, failures)
+    call check_true('int  <- dd 42.7', i == 42, failures)
+    call check_true('int8 <- dd 42.7', j8 == 42_int8, failures)
+    call check_true('int16<- dd 42.7', j16 == 42_int16, failures)
+    call check_true('int64<- dd 42.7', j64 == 42_int64, failures)
     x = -42.7_dp
     i = x
-    call check_true('int  <- mf -42.7', i == -42, failures)
+    call check_true('int  <- dd -42.7', i == -42, failures)
     ! Boundary: hi == integer, lo < 0 → truncate toward zero by 1
     x%limbs = [4.0_dp, -1.0e-30_dp]
     i = x
-    call check_true('int  <- mf (4, -tiny)', i == 3, failures)
+    call check_true('int  <- dd (4, -tiny)', i == 3, failures)
     x%limbs = [-4.0_dp, 1.0e-30_dp]
     i = x
-    call check_true('int  <- mf (-4, tiny)', i == -3, failures)
+    call check_true('int  <- dd (-4, tiny)', i == -3, failures)
   end subroutine
 
   subroutine test_constructors(failures)
     integer, intent(inout) :: failures
     type(float64x2) :: x
-    type(complex128x2) :: z
+    type(complex64x2) :: z
 
     ! float64x2(...) — every supported single-arg form.
     x = float64x2(3.5_dp)
@@ -673,63 +673,63 @@ contains
     x = float64x2('1.2345678901234567890123456789')
     call check_real_close('ctor float64x2 char', x, &
         1.2345678901234567890123456789_qp, failures)
-    x = float64x2((2.5_dp, -8.0_dp))      ! cdp → mf takes the real part
+    x = float64x2((2.5_dp, -8.0_dp))      ! cdp → dd takes the real part
     call check_real_close('ctor float64x2 cdp', x, 2.5_qp, failures)
-    x = float64x2((1.25_sp, 4.0_sp))      ! csp → mf takes the real part
+    x = float64x2((1.25_sp, 4.0_sp))      ! csp → dd takes the real part
     call check_real_close('ctor float64x2 csp', x, real(1.25_sp, qp), failures)
-    z = complex128x2(float64x2(1.0_dp), float64x2(2.0_dp))
-    x = float64x2(z)                      ! cx → mf takes the real part
-    call check_real_close('ctor float64x2 cx', x, 1.0_qp, failures)
+    z = complex64x2(float64x2(1.0_dp), float64x2(2.0_dp))
+    x = float64x2(z)                      ! cdd → dd takes the real part
+    call check_real_close('ctor float64x2 cdd', x, 1.0_qp, failures)
 
-    ! complex128x2(...) — single-arg forms.
-    z = complex128x2(float64x2(1.5_dp))
-    call check_complex_close('ctor cx mf', z, cmplx(1.5_qp, 0.0_qp, qp), failures)
-    z = complex128x2(3.5_dp)
-    call check_complex_close('ctor cx dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
-    z = complex128x2(3.5_sp)
-    call check_complex_close('ctor cx sp', z, cmplx(real(3.5_sp, qp), 0.0_qp, qp), failures)
-    z = complex128x2(7)
-    call check_complex_close('ctor cx int', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
-    z = complex128x2(7_int8)
-    call check_complex_close('ctor cx int8', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
-    z = complex128x2(1234_int16)
-    call check_complex_close('ctor cx int16', z, cmplx(1234.0_qp, 0.0_qp, qp), failures)
-    z = complex128x2(123456789012_int64)
-    call check_complex_close('ctor cx int64', z, &
+    ! complex64x2(...) — single-arg forms.
+    z = complex64x2(float64x2(1.5_dp))
+    call check_complex_close('ctor cdd dd', z, cmplx(1.5_qp, 0.0_qp, qp), failures)
+    z = complex64x2(3.5_dp)
+    call check_complex_close('ctor cdd dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
+    z = complex64x2(3.5_sp)
+    call check_complex_close('ctor cdd sp', z, cmplx(real(3.5_sp, qp), 0.0_qp, qp), failures)
+    z = complex64x2(7)
+    call check_complex_close('ctor cdd int', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    z = complex64x2(7_int8)
+    call check_complex_close('ctor cdd int8', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
+    z = complex64x2(1234_int16)
+    call check_complex_close('ctor cdd int16', z, cmplx(1234.0_qp, 0.0_qp, qp), failures)
+    z = complex64x2(123456789012_int64)
+    call check_complex_close('ctor cdd int64', z, &
         cmplx(123456789012.0_qp, 0.0_qp, qp), failures)
-    z = complex128x2((2.5_dp, -8.0_dp))
-    call check_complex_close('ctor cx cdp', z, cmplx(2.5_qp, -8.0_qp, qp), failures)
-    z = complex128x2((1.25_sp, 4.0_sp))
-    call check_complex_close('ctor cx csp', z, &
+    z = complex64x2((2.5_dp, -8.0_dp))
+    call check_complex_close('ctor cdd cdp', z, cmplx(2.5_qp, -8.0_qp, qp), failures)
+    z = complex64x2((1.25_sp, 4.0_sp))
+    call check_complex_close('ctor cdd csp', z, &
         cmplx(real(1.25_sp, qp), real(4.0_sp, qp), qp), failures)
 
-    ! complex128x2(re, im) — matching-kind two-arg forms.
-    z = complex128x2(float64x2(1.5_dp), float64x2(-2.5_dp))
-    call check_complex_close('ctor cx mf,mf', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
-    z = complex128x2(1.5_dp, -2.5_dp)
-    call check_complex_close('ctor cx dp,dp', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
-    z = complex128x2(1.5_sp, -2.5_sp)
-    call check_complex_close('ctor cx sp,sp', z, &
+    ! complex64x2(re, im) — matching-kind two-arg forms.
+    z = complex64x2(float64x2(1.5_dp), float64x2(-2.5_dp))
+    call check_complex_close('ctor cdd dd,dd', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
+    z = complex64x2(1.5_dp, -2.5_dp)
+    call check_complex_close('ctor cdd dp,dp', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
+    z = complex64x2(1.5_sp, -2.5_sp)
+    call check_complex_close('ctor cdd sp,sp', z, &
         cmplx(real(1.5_sp, qp), real(-2.5_sp, qp), qp), failures)
-    z = complex128x2(10, 20)
-    call check_complex_close('ctor cx int,int', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
-    z = complex128x2(1_int8, 2_int8)
-    call check_complex_close('ctor cx i8,i8', z, cmplx(1.0_qp, 2.0_qp, qp), failures)
-    z = complex128x2(100_int16, 200_int16)
-    call check_complex_close('ctor cx i16,i16', z, cmplx(100.0_qp, 200.0_qp, qp), failures)
-    z = complex128x2(10_int64, 20_int64)
-    call check_complex_close('ctor cx i64,i64', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
+    z = complex64x2(10, 20)
+    call check_complex_close('ctor cdd int,int', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
+    z = complex64x2(1_int8, 2_int8)
+    call check_complex_close('ctor cdd i8,i8', z, cmplx(1.0_qp, 2.0_qp, qp), failures)
+    z = complex64x2(100_int16, 200_int16)
+    call check_complex_close('ctor cdd i16,i16', z, cmplx(100.0_qp, 200.0_qp, qp), failures)
+    z = complex64x2(10_int64, 20_int64)
+    call check_complex_close('ctor cdd i64,i64', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
 
-    ! complex128x2 mixed-kind two-arg forms.
-    z = complex128x2(float64x2(1.5_dp), 2.5_dp)
-    call check_complex_close('ctor cx mf,dp', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
-    z = complex128x2(1.5_dp, float64x2(2.5_dp))
-    call check_complex_close('ctor cx dp,mf', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
+    ! complex64x2 mixed-kind two-arg forms.
+    z = complex64x2(float64x2(1.5_dp), 2.5_dp)
+    call check_complex_close('ctor cdd dd,dp', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
+    z = complex64x2(1.5_dp, float64x2(2.5_dp))
+    call check_complex_close('ctor cdd dp,dd', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
   end subroutine
 
-  subroutine test_assignments_from_cx(failures)
+  subroutine test_assignments_from_cdd(failures)
     integer, intent(inout) :: failures
-    type(complex128x2) :: z
+    type(complex64x2) :: z
     real(dp) :: d
     real(sp) :: s
     integer :: i
@@ -741,22 +741,22 @@ contains
 
     z = (2.75_dp, -1.5_dp)
     d = z
-    call check_true('dp <- cx', d == z%re%limbs(1), failures)
+    call check_true('dp <- cdd', d == z%re%limbs(1), failures)
     s = z
-    call check_true('sp <- cx', s == real(z%re%limbs(1), sp), failures)
+    call check_true('sp <- cdd', s == real(z%re%limbs(1), sp), failures)
     cd = z
-    call check_true('cdp <- cx re', real(cd, dp) == z%re%limbs(1), failures)
-    call check_true('cdp <- cx im', aimag(cd) == z%im%limbs(1), failures)
+    call check_true('cdp <- cdd re', real(cd, dp) == z%re%limbs(1), failures)
+    call check_true('cdp <- cdd im', aimag(cd) == z%im%limbs(1), failures)
     cs = z
-    call check_true('csp <- cx re', real(cs, sp) == real(z%re%limbs(1), sp), failures)
-    call check_true('csp <- cx im', aimag(cs) == real(z%im%limbs(1), sp), failures)
+    call check_true('csp <- cdd re', real(cs, sp) == real(z%re%limbs(1), sp), failures)
+    call check_true('csp <- cdd im', aimag(cs) == real(z%im%limbs(1), sp), failures)
 
     z = (10.99_dp, 0.0_dp)
     i = z; j8 = z; j16 = z; j64 = z
-    call check_true('int  <- cx 10.99', i == 10, failures)
-    call check_true('int8 <- cx 10.99', j8 == 10_int8, failures)
-    call check_true('int16<- cx 10.99', j16 == 10_int16, failures)
-    call check_true('int64<- cx 10.99', j64 == 10_int64, failures)
+    call check_true('int  <- cdd 10.99', i == 10, failures)
+    call check_true('int8 <- cdd 10.99', j8 == 10_int8, failures)
+    call check_true('int16<- cdd 10.99', j16 == 10_int16, failures)
+    call check_true('int64<- cdd 10.99', j64 == 10_int64, failures)
   end subroutine
 
   subroutine test_loc_back(failures)

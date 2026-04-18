@@ -7,7 +7,7 @@ Double-double arithmetic for Fortran and C++.
 | Type             | Storage             | Precision        |
 | ---------------- | ------------------- | ---------------- |
 | `float64x2`      | 2 × `real(dp)`      | ~106 bits (~32 decimal digits) |
-| `complex128x2`   | 2 × `float64x2`     | ~106 bits per component |
+| `complex64x2`   | 2 × `float64x2`     | ~106 bits per component |
 
 implemented natively from error-free transformations on regular IEEE
 doubles. There are no quad-precision (`real(16)` / `__float128`) temporaries
@@ -23,16 +23,16 @@ algorithmic surface so the same kernels can be used from either language.
 
 ### Fortran (`fsrc/multifloats.fypp` → `multifloats` module)
 
-- **Types** — `float64x2` and `complex128x2`. Both carry the `SEQUENCE`
+- **Types** — `float64x2` and `complex64x2`. Both carry the `SEQUENCE`
   attribute so they can appear in `EQUIVALENCE` statements (required by
   some LAPACK routines such as `wlaln2` / `DLALN2`).
 - **Operators** — `+`, `-`, `*`, `/`, `**`, `==`, `/=`, `<`, `>`, `<=`,
-  `>=` between every combination of {`float64x2`, `complex128x2`,
+  `>=` between every combination of {`float64x2`, `complex64x2`,
   `real(dp)`, `real(sp)`, `integer`, `complex(dp)`, `complex(sp)`}.
 - **Constructors and assignment** — every supported numeric kind, in
   both directions, including the non-default integer kinds
   `integer(int8)`, `integer(int16)`, `integer(int64)`. Identity
-  constructors `float64x2(float64x2)` and `complex128x2(complex128x2)`
+  constructors `float64x2(float64x2)` and `complex64x2(complex64x2)`
   let generic code call the constructor regardless of input type.
 - **`<cmath>`-style intrinsics** — `abs`, `sqrt`, `cbrt`, `exp`, `exp2`,
   `expm1`, `log`, `log2`, `log10`, `log1p`, `sin`, `cos`, `tan`, `asin`,
@@ -46,7 +46,7 @@ algorithmic surface so the same kernels can be used from either language.
   `maxexponent`, `storage_size`.
 - **Reductions** — `sum`, `product`, `maxval`, `minval`, `maxloc`,
   `minloc`, `findloc`, `dot_product`, `norm2`, `matmul` for both
-  `float64x2` and `complex128x2`, supporting all rank-1..7 forms with
+  `float64x2` and `complex64x2`, supporting all rank-1..7 forms with
   `dim=`, `mask=`, and `back=` arguments.
 - **Other** — `random_number` (rank 0..7), defined formatted I/O for
   both types, and inquiry functions matching `real(dp)` semantics on the
@@ -97,7 +97,7 @@ multiple of one DD ulp, mean error around 1/100 of a DD ulp.
 
 | Op | max_rel | mean_rel |
 | --- | --- | --- |
-| `+` (mf±mf, mf±dp, etc.) | 1.5e-32 | 3.0e-34 |
+| `+` (dd±dd, dd±dp, etc.) | 1.5e-32 | 3.0e-34 |
 | `-` | 6.2e-33 | 1.8e-34 |
 | `*` | 3.5e-32 | 6.5e-34 |
 | `/` | 5.3e-32 | 1.8e-33 |
@@ -108,7 +108,7 @@ multiple of one DD ulp, mean error around 1/100 of a DD ulp.
 | `hypot` (with overflow-safe scaling) | 7.8e-32 | 5.2e-33 |
 | `exp` (14-term polynomial in 1/8th-reduced range, cubed) | 3.2e-30 | 2.2e-32 |
 | `log`, `log10` (32-entry table + narrow polynomial) | 3.5e-32 | 3.3e-33 |
-| `pow` (mf**mf, mf**dp, dp**mf via `exp(b·log(a))`) | 2.1e-30 | 5.3e-32 |
+| `pow` (dd**dd, dd**dp, dp**dd via `exp(b·log(a))`) | 2.1e-30 | 5.3e-32 |
 | `pow` (integer exponent, repeated multiplication) | 2.2e-32 | 1.3e-33 |
 | `sinh` (Taylor for `|x|<0.1`, otherwise `(eˣ-e⁻ˣ)/2`) | 4.7e-30 | 4.1e-32 |
 | `cosh` (`(eˣ+e⁻ˣ)/2`, well-conditioned) | 4.7e-30 | 4.8e-32 |
@@ -121,13 +121,13 @@ multiple of one DD ulp, mean error around 1/100 of a DD ulp.
 | Complex `*` real part | 0 | 0 |
 | Complex `*` imag part | 1.9e-32 | 1.5e-33 |
 | Complex `/` real part | 4.5e-32 | 2.5e-33 |
-| `cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh` (real and imag parts) | 1.0e-29 | 7e-32 |
-| `cx_tan`, `cx_tanh` real / imag parts | 4e-30 | 3e-32 |
-| `cx_log` real and imag (overflow-safe formula) | 1.6e-31 | 2.7e-33 |
-| `cx_sqrt` real and imag (Kahan-style algorithm) | 6.6e-32 | 5.5e-33 |
-| `cx_atan`, `cx_acos`, `cx_acosh` (real and imag) | 4.3e-32 | 1.0e-32 |
-| `cx_asin_im`, `cx_asinh_im` | 7.4e-32 | 1.8e-32 |
-| `cx_conjg`, `cx_abs`, `cx_aimag` | 6.7e-32 | 5.4e-33 |
+| `cdd_sin`, `cdd_cos`, `cdd_sinh`, `cdd_cosh` (real and imag parts) | 1.0e-29 | 7e-32 |
+| `cdd_tan`, `cdd_tanh` real / imag parts | 4e-30 | 3e-32 |
+| `cdd_log` real and imag (overflow-safe formula) | 1.6e-31 | 2.7e-33 |
+| `cdd_sqrt` real and imag (Kahan-style algorithm) | 6.6e-32 | 5.5e-33 |
+| `cdd_atan`, `cdd_acos`, `cdd_acosh` (real and imag) | 4.3e-32 | 1.0e-32 |
+| `cdd_asin_im`, `cdd_asinh_im` | 7.4e-32 | 1.8e-32 |
+| `cdd_conjg`, `cdd_abs`, `cdd_aimag` | 6.7e-32 | 5.4e-33 |
 
 ### Near-DD precision (~1e-22 max, ~1e-25 mean)
 
@@ -147,12 +147,12 @@ promotions / truncations. The fuzz reports `max_rel = mean_rel = 0` over
 
 - **Unary**: `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`,
   `scale`, `set_exponent`
-- **Mixed-mode arithmetic where one side is dp**: `mf + dp` (`add_fd`)
+- **Mixed-mode arithmetic where one side is dp**: `dd + dp` (`add_fd`)
   reports 0 because the lo-limb error is in the dp ulp range
-- **Every constructor**: `float64x2(...)` and `complex128x2(...)` for
+- **Every constructor**: `float64x2(...)` and `complex64x2(...)` for
   every supported numeric kind
-- **Every assignment**: `mf ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
-  and `cx ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
+- **Every assignment**: `dd ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
+  and `cdd ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
 - **Complex `*` real part**: bit-exact because the real part is computed
   as a single fma-style chain with no cancellation between terms
 
@@ -205,10 +205,10 @@ be a few orders looser.
 | `bessel_y0` | 2.3e-15 | 8.3e-17 | |
 | `bessel_y1` | 7.9e-16 | 8.3e-17 | |
 | `bessel_yn` (n=3 sample) | 1.4e-13 | 2.1e-16 | |
-| `cx_exp`, `cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh` (real and imag) | ~5e-29 max | ~1e-31 mean | full DD on average; near full DD worst-case (limited by `sin`/`cos` reduction) |
-| `cx_tan`, `cx_tanh` (real and imag) | full DD | full DD | derived from `cx_sin`/`cx_cos` ratios |
-| `cx_div` imag part | 1.3e-16 | 5.0e-19 | fundamental cancellation in complex division (no fix) |
-| `cx_asin_re`, `cx_asinh_re` | ~2e-24 max | ~3e-26 mean | bottlenecked by `atan2`'s precision floor (≈1e-22) |
+| `cdd_exp`, `cdd_sin`, `cdd_cos`, `cdd_sinh`, `cdd_cosh` (real and imag) | ~5e-29 max | ~1e-31 mean | full DD on average; near full DD worst-case (limited by `sin`/`cos` reduction) |
+| `cdd_tan`, `cdd_tanh` (real and imag) | full DD | full DD | derived from `cdd_sin`/`cdd_cos` ratios |
+| `cdd_div` imag part | 1.3e-16 | 5.0e-19 | fundamental cancellation in complex division (no fix) |
+| `cdd_asin_re`, `cdd_asinh_re` | ~2e-24 max | ~3e-26 mean | bottlenecked by `atan2`'s precision floor (≈1e-22) |
 
 ### Array reductions (small-array fuzz, n = 8)
 
@@ -258,10 +258,10 @@ The full-DD kernels (~1e-32) are:
   `atan(y/x)` or `±π/2 - atan(x/y)` form to keep `|argument| ≤ 1`.
 - **Complex `+`, `-`, `*`, `/`, `conjg`, `abs`, `aimag`** — built from
   real DD ops directly, no transcendental dependencies.
-- **`cx_log`** real part — uses the overflow-safe formula
+- **`cdd_log`** real part — uses the overflow-safe formula
   `log(max(|a|,|b|)) + ½ log(1 + (min/max)²)` so that `|z| > huge`
   inputs don't overflow the intermediate `hypot`.
-- **`cx_sin`, `cx_cos`, `cx_sinh`, `cx_cosh`, `cx_tan`, `cx_tanh`** —
+- **`cdd_sin`, `cdd_cos`, `cdd_sinh`, `cdd_cosh`, `cdd_tan`, `cdd_tanh`** —
   built from the new full-DD `sinh`/`cosh` and the near-DD
   `sin`/`cos`, so the leading-limb error of each component is
   ~1e-30.

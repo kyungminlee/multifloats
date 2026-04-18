@@ -96,7 +96,7 @@ contains
     end if
   end subroutine
 
-  function to_mf(q) result(f)
+  function to_dd(q) result(f)
     real(qp), intent(in) :: q
     type(float64x2) :: f
     real(dp) :: h, l, s, b
@@ -111,7 +111,7 @@ contains
     character(*), intent(in) :: label
     real(qp), intent(in), optional :: tol
     type(float64x2) :: xf, yf
-    xf = to_mf(xq); yf = to_mf(yq)
+    xf = to_dd(xq); yf = to_dd(yq)
     call check("mod", mod(xf, yf), mod(xq, yq), label, tol)
   end subroutine
 
@@ -120,7 +120,7 @@ contains
     character(*), intent(in) :: label
     real(qp), intent(in), optional :: tol
     type(float64x2) :: xf, yf
-    xf = to_mf(xq); yf = to_mf(yq)
+    xf = to_dd(xq); yf = to_dd(yq)
     call check("modulo", modulo(xf, yf), modulo(xq, yq), label, tol)
   end subroutine
 
