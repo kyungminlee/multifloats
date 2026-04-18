@@ -143,26 +143,34 @@ already; these are the ones that needed explicit review.
 
 ## API / ABI
 
-- [ ] **A1. No ABI version macro.**
-      Add `#define MULTIFLOATS_ABI_VERSION 1` in
-      `src/multifloats_c.h`, or set `SOVERSION` via CMake.
+- [x] **A1. No ABI version macro.**
+      Fixed: `#define MULTIFLOATS_ABI_VERSION 1` added near the top of
+      `src/multifloats_c.h`; `VERSION 1.0.0` / `SOVERSION 1` set on the
+      library target so future `BUILD_SHARED_LIBS=ON` builds record the
+      soname automatically.
 
-- [ ] **A2. `VISIBILITY_INLINES_HIDDEN` not set.**
-      `src/CMakeLists.txt:11`. Add `VISIBILITY_INLINES_HIDDEN ON` to
-      reduce reliance on the post-build symbol scrub.
+- [x] **A2. `VISIBILITY_INLINES_HIDDEN` not set.**
+      Fixed: `VISIBILITY_INLINES_HIDDEN ON` is now on the library
+      target's property list alongside `CXX_VISIBILITY_PRESET hidden`.
 
-- [ ] **A3. `localize_symbols.sh.in` Darwin/Linux asymmetry.**
-      Linux path uses `objcopy --localize-hidden` (only touches
-      already-hidden symbols); Darwin uses `nmedit -s` with explicit
-      preserve list. Mirror Darwin behavior on Linux (explicit keep list
-      built from `nm -g | grep '^dd_'`).
+- [x] **A3. `localize_symbols.sh.in` Darwin/Linux asymmetry.**
+      Fixed: both platforms now build an explicit keep-list by scanning
+      `nm -g` for `T _dd_*` / `T dd_*` and feeding it to `nmedit -s`
+      (Darwin) / `objcopy --keep-global-symbols` (Linux). Previously
+      Linux used `objcopy --localize-hidden` which only touches
+      already-hidden symbols — a regression vector when a newly
+      introduced helper ever leaked as default-visibility.
 
-- [ ] **A4. `DD_API` macro leaks.**
-      `src/multifloats_c.h:17-21`. `#undef DD_API` at end of header, or
-      rename to project-scoped `MULTIFLOATS_API`.
+- [x] **A4. `DD_API` macro leaks.**
+      Fixed: renamed to `MULTIFLOATS_API` (project-scoped) AND
+      `#undef`ed at the end of the header so consumers never see the
+      identifier.
 
-- [ ] **A5. Add `_Static_assert(sizeof(dd_t) == 16)`.**
-      `src/multifloats_c.h`. Cheap defensive catch for surprise padding.
+- [x] **A5. Add `_Static_assert(sizeof(dd_t) == 16)`.**
+      Fixed: added `static_assert` (C++) / `_Static_assert` (C)
+      branches immediately after the `dd_t` typedef. Asserts
+      `sizeof(dd_t) == 2 * sizeof(double)` so the check is portable
+      to any hypothetical non-IEEE double platform.
 
 ## Minor / nits (batch when convenient)
 

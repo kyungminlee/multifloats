@@ -1,17 +1,29 @@
 #!/bin/bash
-# Clean up a static archive so that only the extern "C" dd_* API
-# functions are visible. Two steps:
-#   1. Localize non-dd_* global symbols (nmedit/objcopy)
-#   2. Strip local symbol names (strip -x) for a clean nm output
+# Clean up a static archive so that only the extern "C" dd_* API functions
+# remain globally visible. Both platforms build the keep-list from an
+# `nm -g` scan of the current archive (`T dd_*`), then localize every
+# other global, then strip local symbol names.
+#
+# This is identical on Darwin and Linux by intent: CXX_VISIBILITY_PRESET +
+# VISIBILITY_INLINES_HIDDEN already mark most C++ inline copies hidden, but
+# this script is the authoritative cut — an unexpected leak (e.g. a newly
+# added static helper that accidentally escapes) gets localized here.
 set -e
 LIB="$1"
-if [ "$(uname)" = "Darwin" ]; then
-    EXPORTS=$(mktemp)
-    nm -g "$LIB" | grep ' T _dd_' | awk '{print $3}' > "$EXPORTS"
+EXPORTS=$(mktemp)
+trap 'rm -f "$EXPORTS"' EXIT
+
+case "$(uname)" in
+  Darwin)
+    # Mach-O nm lists symbols with a leading underscore.
+    nm -g "$LIB" | awk '$2 == "T" && $3 ~ /^_dd_/ {print $3}' > "$EXPORTS"
     nmedit -s "$EXPORTS" "$LIB"
-    rm "$EXPORTS"
     strip -x "$LIB"
-elif [ "$(uname)" = "Linux" ]; then
-    objcopy --localize-hidden "$LIB"
+    ;;
+  Linux)
+    # ELF nm lists symbols without a leading underscore.
+    nm -g "$LIB" | awk '$2 == "T" && $3 ~ /^dd_/ {print $3}' > "$EXPORTS"
+    objcopy --keep-global-symbols="$EXPORTS" "$LIB"
     strip --strip-unneeded "$LIB"
-fi
+    ;;
+esac

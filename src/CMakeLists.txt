@@ -7,8 +7,15 @@ target_include_directories(multifloats
     PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-# Hide all C++ symbols; only extern "C" dd_* functions are exported.
-set_target_properties(multifloats PROPERTIES CXX_VISIBILITY_PRESET hidden)
+# ABI bookkeeping — kept in sync with MULTIFLOATS_ABI_VERSION in multifloats_c.h.
+# SOVERSION is only honored on shared libraries; it is set anyway so a future
+# `BUILD_SHARED_LIBS=ON` build records the right soname without further edits.
+set_target_properties(multifloats PROPERTIES
+    VERSION   1.0.0
+    SOVERSION 1
+    # Hide all C++ symbols; only extern "C" dd_* functions are exported.
+    CXX_VISIBILITY_PRESET    hidden
+    VISIBILITY_INLINES_HIDDEN ON)
 
 # Strip leaked inline-copy C++ symbols from the static archive.
 # The compiler may emit out-of-line copies of inline header functions
