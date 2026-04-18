@@ -18,19 +18,19 @@ program bench_abi
 
   ! C wrapper interfaces (from multifloats_c.cc)
   interface
-    type(dd_c) function c_dd_add(a, b) bind(c, name='dd_add')
+    type(dd_c) function c_dd_add(a, b) bind(c, name='adddd')
       import :: dd_c; type(dd_c), value :: a, b
     end function
-    type(dd_c) function c_dd_sub(a, b) bind(c, name='dd_sub')
+    type(dd_c) function c_dd_sub(a, b) bind(c, name='subdd')
       import :: dd_c; type(dd_c), value :: a, b
     end function
-    type(dd_c) function c_dd_mul(a, b) bind(c, name='dd_mul')
+    type(dd_c) function c_dd_mul(a, b) bind(c, name='muldd')
       import :: dd_c; type(dd_c), value :: a, b
     end function
-    type(dd_c) function c_dd_div(a, b) bind(c, name='dd_div')
+    type(dd_c) function c_dd_div(a, b) bind(c, name='divdd')
       import :: dd_c; type(dd_c), value :: a, b
     end function
-    type(dd_c) function c_dd_sqrt(a) bind(c, name='dd_sqrt')
+    type(dd_c) function c_dd_sqrt(a) bind(c, name='sqrtdd')
       import :: dd_c; type(dd_c), value :: a
     end function
   end interface

@@ -1540,8 +1540,8 @@ static void dd_bessel_yn_range_full(int n1, int n2, MFD2 x, MFD2 *out) {
 namespace {
 namespace mf = multifloats;
 using MF2 = mf::MultiFloat<double, 2>;
-static inline MF2 from(dd_t x) { MF2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
-static inline dd_t to(MF2 const &x) { return {x._limbs[0], x._limbs[1]}; }
+static inline MF2 from(float64x2_t x) { MF2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
+static inline float64x2_t to(MF2 const &x) { return {x._limbs[0], x._limbs[1]}; }
 
 // Inline matmul micro-ops used by the dispatched panel templates below.
 // `always_inline` is a hint: the panel templates rely on both ends of
@@ -1577,7 +1577,7 @@ static inline void dd_renorm_inl(double &s_hi, double &s_lo) {
 }
 
 __attribute__((always_inline))
-static inline dd_t dd_finalize_inl(double s_hi, double s_lo) {
+static inline float64x2_t dd_finalize_inl(double s_hi, double s_lo) {
   dd_renorm_inl(s_hi, s_lo);
   return {s_hi, s_lo};
 }
@@ -1589,9 +1589,9 @@ static inline dd_t dd_finalize_inl(double s_hi, double s_lo) {
 // accumulator pair every `renorm_interval` reductions (keeps s_lo
 // bounded and precision ~DD for large k, matching dot_product).
 template <int MR>
-static inline void dd_gaxpy_mv_panel(const dd_t *__restrict__ a,
-                                     const dd_t *__restrict__ x,
-                                     dd_t *__restrict__ y, int64_t lda,
+static inline void dd_gaxpy_mv_panel(const float64x2_t *__restrict__ a,
+                                     const float64x2_t *__restrict__ x,
+                                     float64x2_t *__restrict__ y, int64_t lda,
                                      int64_t k, int64_t renorm_interval) {
   double s_hi[MR] = {}, s_lo[MR] = {};
   // Fast path: if no intermediate renorm is needed, drop the chunking
@@ -1600,7 +1600,7 @@ static inline void dd_gaxpy_mv_panel(const dd_t *__restrict__ a,
     for (int64_t p = 0; p < k; ++p) {
       const double xh = x[p].hi;
       const double xl = x[p].lo;
-      const dd_t *__restrict__ acol = a + p * lda;
+      const float64x2_t *__restrict__ acol = a + p * lda;
       for (int i = 0; i < MR; ++i) {
         dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
       }
@@ -1618,7 +1618,7 @@ static inline void dd_gaxpy_mv_panel(const dd_t *__restrict__ a,
     for (int64_t p = p0; p < pend; ++p) {
       const double xh = x[p].hi;
       const double xl = x[p].lo;
-      const dd_t *__restrict__ acol = a + p * lda;
+      const float64x2_t *__restrict__ acol = a + p * lda;
       for (int i = 0; i < MR; ++i) {
         dd_mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
       }
@@ -1633,12 +1633,12 @@ static inline void dd_gaxpy_mv_panel(const dd_t *__restrict__ a,
 
 // Cold tail handler: 1..7 leftover rows. Kept out-of-line so the hot
 // dispatcher stays small enough for the compiler to inline panel<8>
-// into dd_matmul_mv — otherwise the 7 extra template instantiations
+// into matmul_mvdd — otherwise the 7 extra template instantiations
 // would bloat the caller and push the accumulators out of registers.
 __attribute__((noinline))
-static void dd_gaxpy_mv_tail(const dd_t *__restrict__ a,
-                             const dd_t *__restrict__ x,
-                             dd_t *__restrict__ y, int tail,
+static void dd_gaxpy_mv_tail(const float64x2_t *__restrict__ a,
+                             const float64x2_t *__restrict__ x,
+                             float64x2_t *__restrict__ y, int tail,
                              int64_t lda, int64_t k,
                              int64_t renorm_interval) {
   switch (tail) {
@@ -1654,9 +1654,9 @@ static void dd_gaxpy_mv_tail(const dd_t *__restrict__ a,
 
 // Tile any m into MR=8 row panels plus a 1..7 tail. Keep this small so
 // the hot panel<8> body inlines — accumulators need to stay in registers.
-static inline void dd_gaxpy_mv_dispatch(const dd_t *__restrict__ a,
-                                        const dd_t *__restrict__ x,
-                                        dd_t *__restrict__ y, int64_t m,
+static inline void dd_gaxpy_mv_dispatch(const float64x2_t *__restrict__ a,
+                                        const float64x2_t *__restrict__ x,
+                                        float64x2_t *__restrict__ y, int64_t m,
                                         int64_t k, int64_t lda,
                                         int64_t renorm_interval) {
   constexpr int MR = 8;
@@ -1674,15 +1674,15 @@ static inline void dd_gaxpy_mv_dispatch(const dd_t *__restrict__ a,
 // machines with < 32 FP regs, but the spill cost is paid once per p
 // and dwarfed by the DD-mac FLOPs).
 template <int MR, int NR>
-static inline void dd_gemm_panel(const dd_t *__restrict__ a,
-                                 const dd_t *__restrict__ b,
-                                 dd_t *__restrict__ c,
+static inline void dd_gemm_panel(const float64x2_t *__restrict__ a,
+                                 const float64x2_t *__restrict__ b,
+                                 float64x2_t *__restrict__ c,
                                  int64_t lda, int64_t ldb, int64_t ldc,
                                  int64_t k, int64_t renorm_interval) {
   double s_hi[MR][NR] = {}, s_lo[MR][NR] = {};
   auto kernel_block = [&](int64_t p0, int64_t pend) {
     for (int64_t p = p0; p < pend; ++p) {
-      const dd_t *__restrict__ acol = a + p * lda;
+      const float64x2_t *__restrict__ acol = a + p * lda;
       double ah[MR], al[MR];
       for (int i = 0; i < MR; ++i) { ah[i] = acol[i].hi; al[i] = acol[i].lo; }
       for (int jj = 0; jj < NR; ++jj) {
@@ -1720,80 +1720,80 @@ static inline void dd_gemm_panel(const dd_t *__restrict__ a,
 extern "C" {
 
 // Arithmetic
-dd_t dd_add(dd_t a, dd_t b) { return to(from(a) + from(b)); }
-dd_t dd_sub(dd_t a, dd_t b) { return to(from(a) - from(b)); }
-dd_t dd_mul(dd_t a, dd_t b) { return to(from(a) * from(b)); }
-dd_t dd_div(dd_t a, dd_t b) { return to(from(a) / from(b)); }
-dd_t dd_neg(dd_t a)  { return to(-from(a)); }
-dd_t dd_abs(dd_t a)  { return to(multifloats::abs(from(a))); }
-dd_t dd_sqrt(dd_t a) { return to(multifloats::sqrt(from(a))); }
+float64x2_t adddd(float64x2_t a, float64x2_t b) { return to(from(a) + from(b)); }
+float64x2_t subdd(float64x2_t a, float64x2_t b) { return to(from(a) - from(b)); }
+float64x2_t muldd(float64x2_t a, float64x2_t b) { return to(from(a) * from(b)); }
+float64x2_t divdd(float64x2_t a, float64x2_t b) { return to(from(a) / from(b)); }
+float64x2_t negdd(float64x2_t a)  { return to(-from(a)); }
+float64x2_t fabsdd(float64x2_t a)  { return to(multifloats::abs(from(a))); }
+float64x2_t sqrtdd(float64x2_t a) { return to(multifloats::sqrt(from(a))); }
 
 // Rounding (Fortran AINT / ANINT delegate here)
-dd_t dd_trunc(dd_t a) { return to(multifloats::trunc(from(a))); }
-dd_t dd_round(dd_t a) { return to(multifloats::round(from(a))); }
+float64x2_t truncdd(float64x2_t a) { return to(multifloats::trunc(from(a))); }
+float64x2_t rounddd(float64x2_t a) { return to(multifloats::round(from(a))); }
 
 // Binary
-dd_t dd_fmin(dd_t a, dd_t b)     { return to(multifloats::fmin(from(a), from(b))); }
-dd_t dd_fmax(dd_t a, dd_t b)     { return to(multifloats::fmax(from(a), from(b))); }
-dd_t dd_hypot(dd_t a, dd_t b)    { return to(multifloats::hypot(from(a), from(b))); }
-dd_t dd_pow(dd_t a, dd_t b)      { return to(dd_pow_full(from(a), from(b))); }
-dd_t dd_fmod(dd_t a, dd_t b)     { return to(multifloats::fmod(from(a), from(b))); }
-dd_t dd_fdim(dd_t a, dd_t b)     { return to(multifloats::fdim(from(a), from(b))); }
-dd_t dd_copysign(dd_t a, dd_t b) { return to(multifloats::copysign(from(a), from(b))); }
-dd_t dd_fma(dd_t a, dd_t b, dd_t c) { return to(multifloats::fma(from(a), from(b), from(c))); }
+float64x2_t fmindd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmin(from(a), from(b))); }
+float64x2_t fmaxdd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmax(from(a), from(b))); }
+float64x2_t hypotdd(float64x2_t a, float64x2_t b)    { return to(multifloats::hypot(from(a), from(b))); }
+float64x2_t powdd(float64x2_t a, float64x2_t b)      { return to(dd_pow_full(from(a), from(b))); }
+float64x2_t fmoddd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmod(from(a), from(b))); }
+float64x2_t fdimdd(float64x2_t a, float64x2_t b)     { return to(multifloats::fdim(from(a), from(b))); }
+float64x2_t copysigndd(float64x2_t a, float64x2_t b) { return to(multifloats::copysign(from(a), from(b))); }
+float64x2_t fmadd(float64x2_t a, float64x2_t b, float64x2_t c) { return to(multifloats::fma(from(a), from(b), from(c))); }
 
 // Exponential / logarithmic
-dd_t dd_exp(dd_t a)   { return to(dd_exp_full(from(a))); }
-dd_t dd_exp2(dd_t a)  { return to(dd_exp2_full(from(a))); }
-dd_t dd_log(dd_t a)   { return to(dd_log_full(from(a))); }
-dd_t dd_log2(dd_t a)  { return to(dd_log2_full(from(a))); }
-dd_t dd_log10(dd_t a) { return to(dd_log10_full(from(a))); }
+float64x2_t expdd(float64x2_t a)   { return to(dd_exp_full(from(a))); }
+float64x2_t exp2dd(float64x2_t a)  { return to(dd_exp2_full(from(a))); }
+float64x2_t logdd(float64x2_t a)   { return to(dd_log_full(from(a))); }
+float64x2_t log2dd(float64x2_t a)  { return to(dd_log2_full(from(a))); }
+float64x2_t log10dd(float64x2_t a) { return to(dd_log10_full(from(a))); }
 
 // Trigonometric
-dd_t dd_sin(dd_t a)   { return to(dd_sin_full(from(a))); }
-dd_t dd_cos(dd_t a)   { return to(dd_cos_full(from(a))); }
-dd_t dd_tan(dd_t a)   { return to(dd_tan_full(from(a))); }
-dd_t dd_asin(dd_t a)  { return to(dd_asin_full(from(a))); }
-dd_t dd_acos(dd_t a)  { return to(dd_acos_full(from(a))); }
-dd_t dd_atan(dd_t a)  { return to(dd_atan_full(from(a))); }
-dd_t dd_atan2(dd_t a, dd_t b) { return to(dd_atan2_full(from(a), from(b))); }
+float64x2_t sindd(float64x2_t a)   { return to(dd_sin_full(from(a))); }
+float64x2_t cosdd(float64x2_t a)   { return to(dd_cos_full(from(a))); }
+float64x2_t tandd(float64x2_t a)   { return to(dd_tan_full(from(a))); }
+float64x2_t asindd(float64x2_t a)  { return to(dd_asin_full(from(a))); }
+float64x2_t acosdd(float64x2_t a)  { return to(dd_acos_full(from(a))); }
+float64x2_t atandd(float64x2_t a)  { return to(dd_atan_full(from(a))); }
+float64x2_t atan2dd(float64x2_t a, float64x2_t b) { return to(dd_atan2_full(from(a), from(b))); }
 
 // π-scaled trig: fn_pi(x) = fn(π·x) or fn(x)/π.
-dd_t dd_sinpi(dd_t a)  { return to(dd_sinpi_full(from(a))); }
-dd_t dd_cospi(dd_t a)  { return to(dd_cospi_full(from(a))); }
-dd_t dd_tanpi(dd_t a)  { return to(dd_tanpi_full(from(a))); }
-dd_t dd_asinpi(dd_t a) { return to(dd_asinpi_full(from(a))); }
-dd_t dd_acospi(dd_t a) { return to(dd_acospi_full(from(a))); }
-dd_t dd_atanpi(dd_t a) { return to(dd_atanpi_full(from(a))); }
-dd_t dd_atan2pi(dd_t a, dd_t b) { return to(dd_atan2pi_full(from(a), from(b))); }
+float64x2_t sinpidd(float64x2_t a)  { return to(dd_sinpi_full(from(a))); }
+float64x2_t cospidd(float64x2_t a)  { return to(dd_cospi_full(from(a))); }
+float64x2_t tanpidd(float64x2_t a)  { return to(dd_tanpi_full(from(a))); }
+float64x2_t asinpidd(float64x2_t a) { return to(dd_asinpi_full(from(a))); }
+float64x2_t acospidd(float64x2_t a) { return to(dd_acospi_full(from(a))); }
+float64x2_t atanpidd(float64x2_t a) { return to(dd_atanpi_full(from(a))); }
+float64x2_t atan2pidd(float64x2_t a, float64x2_t b) { return to(dd_atan2pi_full(from(a), from(b))); }
 
 // Hyperbolic
-dd_t dd_sinh(dd_t a)  { return to(dd_sinh_full(from(a))); }
-dd_t dd_cosh(dd_t a)  { return to(dd_cosh_full(from(a))); }
-dd_t dd_tanh(dd_t a)  { return to(dd_tanh_full(from(a))); }
-dd_t dd_asinh(dd_t a) { return to(dd_asinh_full(from(a))); }
-dd_t dd_acosh(dd_t a) { return to(dd_acosh_full(from(a))); }
-dd_t dd_atanh(dd_t a) { return to(dd_atanh_full(from(a))); }
+float64x2_t sinhdd(float64x2_t a)  { return to(dd_sinh_full(from(a))); }
+float64x2_t coshdd(float64x2_t a)  { return to(dd_cosh_full(from(a))); }
+float64x2_t tanhdd(float64x2_t a)  { return to(dd_tanh_full(from(a))); }
+float64x2_t asinhdd(float64x2_t a) { return to(dd_asinh_full(from(a))); }
+float64x2_t acoshdd(float64x2_t a) { return to(dd_acosh_full(from(a))); }
+float64x2_t atanhdd(float64x2_t a) { return to(dd_atanh_full(from(a))); }
 
 // Error functions
-dd_t dd_erf(dd_t a)   { return to(dd_erf_full(from(a))); }
-dd_t dd_erfc(dd_t a)  { return to(dd_erfc_full(from(a))); }
-dd_t dd_erfcx(dd_t a) { return to(dd_erfc_scaled_full(from(a))); }
+float64x2_t erfdd(float64x2_t a)   { return to(dd_erf_full(from(a))); }
+float64x2_t erfcdd(float64x2_t a)  { return to(dd_erfc_full(from(a))); }
+float64x2_t erfcxdd(float64x2_t a) { return to(dd_erfc_scaled_full(from(a))); }
 
 // Gamma functions
-dd_t dd_tgamma(dd_t a) { return to(dd_tgamma_full(from(a))); }
-dd_t dd_lgamma(dd_t a) { return to(dd_lgamma_full(from(a))); }
+float64x2_t tgammadd(float64x2_t a) { return to(dd_tgamma_full(from(a))); }
+float64x2_t lgammadd(float64x2_t a) { return to(dd_lgamma_full(from(a))); }
 
 // Bessel functions (math.h naming: j0, j1, y0, y1)
-dd_t dd_j0(dd_t a) { return to(dd_bessel_j0_full(from(a))); }
-dd_t dd_j1(dd_t a) { return to(dd_bessel_j1_full(from(a))); }
-dd_t dd_y0(dd_t a) { return to(dd_bessel_y0_full(from(a))); }
-dd_t dd_y1(dd_t a) { return to(dd_bessel_y1_full(from(a))); }
+float64x2_t j0dd(float64x2_t a) { return to(dd_bessel_j0_full(from(a))); }
+float64x2_t j1dd(float64x2_t a) { return to(dd_bessel_j1_full(from(a))); }
+float64x2_t y0dd(float64x2_t a) { return to(dd_bessel_y0_full(from(a))); }
+float64x2_t y1dd(float64x2_t a) { return to(dd_bessel_y1_full(from(a))); }
 
 // Integer-order Bessel functions (recurrence from j0/j1, y0/y1).
-dd_t dd_jn(int n, dd_t a) { return to(dd_bessel_jn_full(n, from(a))); }
-dd_t dd_yn(int n, dd_t a) { return to(dd_bessel_yn_full(n, from(a))); }
-void dd_yn_range(int n1, int n2, dd_t a, dd_t *out) {
+float64x2_t jndd(int n, float64x2_t a) { return to(dd_bessel_jn_full(n, from(a))); }
+float64x2_t yndd(int n, float64x2_t a) { return to(dd_bessel_yn_full(n, from(a))); }
+void yn_rangedd(int n1, int n2, float64x2_t a, float64x2_t *out) {
   int size = n2 - n1 + 1;
   if (size <= 0) return;
   std::vector<MF2> buf(size);
@@ -1802,14 +1802,14 @@ void dd_yn_range(int n1, int n2, dd_t a, dd_t *out) {
 }
 
 // Fused sincos / sinhcosh. Out-pointer style (C has no multi-value return).
-void dd_sincos(dd_t a, dd_t *s, dd_t *c) {
+void sincosdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
   MF2 ss, cc;
   dd_sincos_full(from(a), ss, cc);
   *s = to(ss);
   *c = to(cc);
 }
 
-void dd_sinhcosh(dd_t a, dd_t *s, dd_t *c) {
+void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
   MF2 ss, cc;
   dd_sinhcosh_full(from(a), ss, cc);
   *s = to(ss);
@@ -1829,7 +1829,7 @@ void dd_sinhcosh(dd_t a, dd_t *s, dd_t *c) {
 // against libstdc++'s generic <complex> template path (see commit notes).
 
 // exp(a+bi) = e^a · (cos b + i·sin b). 2 transcendentals (exp + sincos).
-cdd_t dd_cx_exp(cdd_t z) {
+complex64x2_t cexpdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 ea = dd_exp_full(a);
   MF2 s, c;
@@ -1843,7 +1843,7 @@ cdd_t dd_cx_exp(cdd_t z) {
 // overflow that hypot(a,b) suffers when |z| exceeds DBL_MAX even
 // though log(|z|) itself is finite. atan2 handles the negative-real-
 // axis branch cut (including signed-zero propagation).
-cdd_t dd_cx_log(cdd_t z) {
+complex64x2_t clogdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 ax = multifloats::abs(a);
   MF2 ay = multifloats::abs(b);
@@ -1864,27 +1864,27 @@ cdd_t dd_cx_log(cdd_t z) {
 }
 
 // log10(z) = log(z) · (1/ln 10).
-cdd_t dd_cx_log10(cdd_t z) {
+complex64x2_t clog10dd(complex64x2_t z) {
   static const MF2 inv_ln10 = dd_pair(0x1.bcb7b1526e50ep-2,
                                       0x1.95355baaafad3p-57);
-  cdd_t l = dd_cx_log(z);
+  complex64x2_t l = clogdd(z);
   return { to(from(l.re) * inv_ln10), to(from(l.im) * inv_ln10) };
 }
 
 // pow(z, w) = exp(w · log(z)). C99 G.6.4.1; 0^w folds to 0.
-cdd_t dd_cx_pow(cdd_t z, cdd_t w) {
+complex64x2_t cpowdd(complex64x2_t z, complex64x2_t w) {
   if (z.re.hi == 0.0 && z.im.hi == 0.0) return { {0.0, 0.0}, {0.0, 0.0} };
-  cdd_t l = dd_cx_log(z);
+  complex64x2_t l = clogdd(z);
   MF2 lr = from(l.re), li = from(l.im);
   MF2 wr = from(w.re), wi = from(w.im);
   // w * log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr)
-  cdd_t p = { to(wr * lr - wi * li), to(wr * li + wi * lr) };
-  return dd_cx_exp(p);
+  complex64x2_t p = { to(wr * lr - wi * li), to(wr * li + wi * lr) };
+  return cexpdd(p);
 }
 
 // sqrt(z). Principal branch; cut on negative real axis, continuous above.
 // Uses Moshier's 2·Re·Im = Im identity to avoid cancellation in mod ± a.
-cdd_t dd_cx_sqrt(cdd_t z) {
+complex64x2_t csqrtdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   if (a._limbs[0] == 0.0 && b._limbs[0] == 0.0)
     return { to(MF2(0.0)), z.im };  // preserves signed zero of imag
@@ -1903,7 +1903,7 @@ cdd_t dd_cx_sqrt(cdd_t z) {
 }
 
 // sin(a+bi) = sin(a)·cosh(b) + i·cos(a)·sinh(b). 2 fused transcendentals.
-cdd_t dd_cx_sin(cdd_t z) {
+complex64x2_t csindd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
   dd_sincos_full(a, sa, ca);
@@ -1912,7 +1912,7 @@ cdd_t dd_cx_sin(cdd_t z) {
 }
 
 // cos(a+bi) = cos(a)·cosh(b) − i·sin(a)·sinh(b). 2 fused transcendentals.
-cdd_t dd_cx_cos(cdd_t z) {
+complex64x2_t ccosdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
   dd_sincos_full(a, sa, ca);
@@ -1923,7 +1923,7 @@ cdd_t dd_cx_cos(cdd_t z) {
 // tan(a+bi) = (sin(a)·cos(a) + i·sinh(b)·cosh(b)) / (cos(a)² + sinh(b)²).
 // libquadmath ctanq formula; 2 fused transcendentals + real div
 // (vs 8 for generic sin(z)/cos(z)).
-cdd_t dd_cx_tan(cdd_t z) {
+complex64x2_t ctandd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
   dd_sincos_full(a, sa, ca);
@@ -1933,15 +1933,15 @@ cdd_t dd_cx_tan(cdd_t z) {
 }
 
 // asin(z) = −i · log(i·z + sqrt(1 − z²)). Cuts on real axis for |a|>1.
-cdd_t dd_cx_asin(cdd_t z) {
+complex64x2_t casindd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   // 1 − z² : Re = 1 − a² + b², Im = −2ab
-  cdd_t one_mz2 = { to(MF2(1.0) - a * a + b * b), to(-(a * b + a * b)) };
-  cdd_t root = dd_cx_sqrt(one_mz2);
+  complex64x2_t one_mz2 = { to(MF2(1.0) - a * a + b * b), to(-(a * b + a * b)) };
+  complex64x2_t root = csqrtdd(one_mz2);
   MF2 rr = from(root.re), ri = from(root.im);
   // i·z + root : (−b + rr) + i·(a + ri)
-  cdd_t arg = { to(-b + rr), to(a + ri) };
-  cdd_t l = dd_cx_log(arg);
+  complex64x2_t arg = { to(-b + rr), to(a + ri) };
+  complex64x2_t l = clogdd(arg);
   // −i · (lr + i·li) = li − i·lr
   return { l.im, to(-from(l.re)) };
 }
@@ -1949,10 +1949,10 @@ cdd_t dd_cx_asin(cdd_t z) {
 // acos(z) = π/2 − asin(z). Uses DD-precision π/2; the generic <complex>
 // template truncates `(_Tp)1.5707963…L` to double on arm64-macOS, losing
 // the DD low limb — specializing here fixes that correctness bug.
-cdd_t dd_cx_acos(cdd_t z) {
+complex64x2_t cacosdd(complex64x2_t z) {
   static const MF2 half_pi = dd_pair(0x1.921fb54442d18p+0,
                                      0x1.1a62633145c07p-54);
-  cdd_t s = dd_cx_asin(z);
+  complex64x2_t s = casindd(z);
   return { to(half_pi - from(s.re)), to(-from(s.im)) };
 }
 
@@ -1960,7 +1960,7 @@ cdd_t dd_cx_acos(cdd_t z) {
 //   Re = 0.5 · atan2(2a, 1 − a² − b²)
 //   Im = 0.25 · log((a² + (b+1)²) / (a² + (b−1)²))
 // Single log-ratio rather than the naive (i/2)(log(1−iz) − log(1+iz)).
-cdd_t dd_cx_atan(cdd_t z) {
+complex64x2_t catandd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 a2 = a * a;
   MF2 x = MF2(1.0) - a2 - b * b;
@@ -1973,7 +1973,7 @@ cdd_t dd_cx_atan(cdd_t z) {
 }
 
 // sinh(a+bi) = sinh(a)·cos(b) + i·cosh(a)·sin(b). 2 fused transcendentals.
-cdd_t dd_cx_sinh(cdd_t z) {
+complex64x2_t csinhdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
   dd_sinhcosh_full(a, sa, ca);
@@ -1982,7 +1982,7 @@ cdd_t dd_cx_sinh(cdd_t z) {
 }
 
 // cosh(a+bi) = cosh(a)·cos(b) + i·sinh(a)·sin(b). 2 fused transcendentals.
-cdd_t dd_cx_cosh(cdd_t z) {
+complex64x2_t ccoshdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
   dd_sinhcosh_full(a, sa, ca);
@@ -1992,7 +1992,7 @@ cdd_t dd_cx_cosh(cdd_t z) {
 
 // tanh(a+bi) = (sinh(a)·cosh(a) + i·sin(b)·cos(b)) / (sinh(a)² + cos(b)²).
 // libquadmath ctanhq formula.
-cdd_t dd_cx_tanh(cdd_t z) {
+complex64x2_t ctanhdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 sa, ca, sb, cb;
   dd_sinhcosh_full(a, sa, ca);
@@ -2002,34 +2002,34 @@ cdd_t dd_cx_tanh(cdd_t z) {
 }
 
 // asinh(z) = log(z + sqrt(z² + 1)). Textbook; matches libstdc++ generic.
-cdd_t dd_cx_asinh(cdd_t z) {
+complex64x2_t casinhdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   // 1 + z² : Re = 1 + a² − b², Im = 2ab
-  cdd_t one_pz2 = { to(MF2(1.0) + a * a - b * b), to(a * b + a * b) };
-  cdd_t root = dd_cx_sqrt(one_pz2);
-  cdd_t arg = { to(a + from(root.re)), to(b + from(root.im)) };
-  return dd_cx_log(arg);
+  complex64x2_t one_pz2 = { to(MF2(1.0) + a * a - b * b), to(a * b + a * b) };
+  complex64x2_t root = csqrtdd(one_pz2);
+  complex64x2_t arg = { to(a + from(root.re)), to(b + from(root.im)) };
+  return clogdd(arg);
 }
 
 // acosh(z). Kahan's formula: 2·log(sqrt((z+1)/2) + sqrt((z−1)/2)).
 // More stable near z≈1 than the naive log(z + sqrt(z²−1)) which suffers
 // cancellation in z²−1.
-cdd_t dd_cx_acosh(cdd_t z) {
+complex64x2_t cacoshdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 half = dd_pair(0.5, 0.0);
-  cdd_t zp = { to((a + MF2(1.0)) * half), to(b * half) };
-  cdd_t zm = { to((a - MF2(1.0)) * half), to(b * half) };
-  cdd_t s1 = dd_cx_sqrt(zp);
-  cdd_t s2 = dd_cx_sqrt(zm);
-  cdd_t sum = { to(from(s1.re) + from(s2.re)), to(from(s1.im) + from(s2.im)) };
-  cdd_t l = dd_cx_log(sum);
+  complex64x2_t zp = { to((a + MF2(1.0)) * half), to(b * half) };
+  complex64x2_t zm = { to((a - MF2(1.0)) * half), to(b * half) };
+  complex64x2_t s1 = csqrtdd(zp);
+  complex64x2_t s2 = csqrtdd(zm);
+  complex64x2_t sum = { to(from(s1.re) + from(s2.re)), to(from(s1.im) + from(s2.im)) };
+  complex64x2_t l = clogdd(sum);
   return { to(from(l.re) + from(l.re)), to(from(l.im) + from(l.im)) };
 }
 
 // atanh(z). libstdc++ generic form (atan with a, b swapped):
 //   Re = 0.25 · log((1+a)² + b²)/((1−a)² + b²))
 //   Im = 0.5 · atan2(2b, 1 − a² − b²)
-cdd_t dd_cx_atanh(cdd_t z) {
+complex64x2_t catanhdd(complex64x2_t z) {
   MF2 a = from(z.re), b = from(z.im);
   MF2 b2 = b * b;
   MF2 x = MF2(1.0) - b2 - a * a;
@@ -2058,8 +2058,8 @@ cdd_t dd_cx_atanh(cdd_t z) {
 // MR panels + a 1..7 tail. mm calls the same mv dispatch per output
 // column.
 
-void dd_matmul_mm(const dd_t *__restrict__ a, const dd_t *__restrict__ b,
-                  dd_t *__restrict__ c, int64_t m, int64_t k, int64_t n,
+void matmul_mmdd(const float64x2_t *__restrict__ a, const float64x2_t *__restrict__ b,
+                  float64x2_t *__restrict__ c, int64_t m, int64_t k, int64_t n,
                   int64_t renorm_interval) {
   // NR-blocked mm: the MR-row × NR-col tile loads A[:,p] once per p and
   // reuses it across NR output columns, halving A-bandwidth vs a per-
@@ -2087,21 +2087,21 @@ void dd_matmul_mm(const dd_t *__restrict__ a, const dd_t *__restrict__ b,
   }
 }
 
-void dd_matmul_mv(const dd_t *__restrict__ a, const dd_t *__restrict__ x,
-                  dd_t *__restrict__ y, int64_t m, int64_t k,
+void matmul_mvdd(const float64x2_t *__restrict__ a, const float64x2_t *__restrict__ x,
+                  float64x2_t *__restrict__ y, int64_t m, int64_t k,
                   int64_t renorm_interval) {
   dd_gaxpy_mv_dispatch(a, x, y, m, k, m, renorm_interval);
 }
 
 // vm: y[j] = sum_p x[p] * B[p, j]. Column-major B makes B[:, j]
 // contiguous at fixed j, so one scalar accumulator per output is optimal.
-void dd_matmul_vm(const dd_t *__restrict__ x, const dd_t *__restrict__ b,
-                  dd_t *__restrict__ y, int64_t k, int64_t n,
+void matmul_vmdd(const float64x2_t *__restrict__ x, const float64x2_t *__restrict__ b,
+                  float64x2_t *__restrict__ y, int64_t k, int64_t n,
                   int64_t renorm_interval) {
   const bool simple = (renorm_interval <= 0) || (k <= renorm_interval);
   for (int64_t j = 0; j < n; ++j) {
     double s_hi = 0.0, s_lo = 0.0;
-    const dd_t *__restrict__ bcol = b + j * k;
+    const float64x2_t *__restrict__ bcol = b + j * k;
     if (simple) {
       for (int64_t p = 0; p < k; ++p) {
         dd_mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
@@ -2124,11 +2124,11 @@ void dd_matmul_vm(const dd_t *__restrict__ x, const dd_t *__restrict__ b,
 }
 
 // Comparison
-int dd_eq(dd_t a, dd_t b) { return from(a) == from(b) ? 1 : 0; }
-int dd_ne(dd_t a, dd_t b) { return from(a) != from(b) ? 1 : 0; }
-int dd_lt(dd_t a, dd_t b) { return from(a) <  from(b) ? 1 : 0; }
-int dd_le(dd_t a, dd_t b) { return from(a) <= from(b) ? 1 : 0; }
-int dd_gt(dd_t a, dd_t b) { return from(a) >  from(b) ? 1 : 0; }
-int dd_ge(dd_t a, dd_t b) { return from(a) >= from(b) ? 1 : 0; }
+int eqdd(float64x2_t a, float64x2_t b) { return from(a) == from(b) ? 1 : 0; }
+int nedd(float64x2_t a, float64x2_t b) { return from(a) != from(b) ? 1 : 0; }
+int ltdd(float64x2_t a, float64x2_t b) { return from(a) <  from(b) ? 1 : 0; }
+int ledd(float64x2_t a, float64x2_t b) { return from(a) <= from(b) ? 1 : 0; }
+int gtdd(float64x2_t a, float64x2_t b) { return from(a) >  from(b) ? 1 : 0; }
+int gedd(float64x2_t a, float64x2_t b) { return from(a) >= from(b) ? 1 : 0; }
 
 } // extern "C"

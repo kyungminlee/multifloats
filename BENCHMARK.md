@@ -345,7 +345,7 @@ independent measurements on that system.
   Stirling kernel. `lgamma` evaluates the 13-term Stirling asymptotic
   `(x−½)·log x − x + ½·log(2π) + Σ B_{2k}/(2k(2k−1)·x^{2k−1})` in DD,
   after shifting the argument up to x ≥ 25 via a product accumulator so a
-  single `dd_log(prod)` absorbs the recurrence. Small arguments (x < 0.5)
+  single `logdd(prod)` absorbs the recurrence. Small arguments (x < 0.5)
   use the reflection `log Γ(x) = log π − log|sin(πx)| − log Γ(1−x)`.
   `tgamma` / `gamma` derives from `exp(lgamma)`, with `π/(sin(πx)·Γ(1−x))`
   for negative x. Both deliver full DD precision (max\_rel ~9e-30 / ~5e-28
@@ -382,7 +382,7 @@ independent measurements on that system.
   contiguous columns and the m output accumulators are independent. The
   kernel register-blocks any `m` via a strided panel template
   `dd_gaxpy_mv_panel<MR>` at `MR=8` plus a 1..7-row tail handler (kept
-  `noinline` so the hot path inlines `panel<8>` into `dd_matmul_mv` and
+  `noinline` so the hot path inlines `panel<8>` into `matmul_mvdd` and
   the accumulators stay in registers); matrix-matrix calls the same
   dispatcher per output column. Periodic renormalization — mirroring
   `mf_set_fma_renorm_interval` and passed through the C ABI — chunks

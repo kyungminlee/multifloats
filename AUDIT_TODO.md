@@ -14,7 +14,7 @@ already; these are the ones that needed explicit review.
 - [x] **C2. Matmul periodic renorm uses unsafe `fast_two_sum`.**
       Fixed: introduced `dd_renorm_inl` (a full two_sum) in
       `src/multifloats_math.cc`; `dd_finalize_inl`, the periodic renorm
-      in `dd_gaxpy_mv_panel`, and the periodic renorm in `dd_matmul_vm`
+      in `dd_gaxpy_mv_panel`, and the periodic renorm in `matmul_vmdd`
       all route through it. Removed duplicated fast_two_sum open-code.
       Fuzz suite + benchmarks unchanged (tiny constant overhead on renorm
       boundary only).
@@ -62,7 +62,7 @@ already; these are the ones that needed explicit review.
 
 ## Speed
 
-- [x] **S1. `dd_matmul_mm` re-streams A per B column.**
+- [x] **S1. `matmul_mmdd` re-streams A per B column.**
       Fixed: introduced `dd_gemm_panel<MR=8, NR=2>` in
       `src/multifloats_math.cc`; each p-step loads A[:,p] once into
       registers and reuses across the 2-wide B tile. Row / column tails
@@ -98,7 +98,7 @@ already; these are the ones that needed explicit review.
       ~20). Dropped the isfinite and zero-zero guards: the x-argument
       has already been checked for non-finite in the callers, and the
       accumulator cannot hit the zero-zero branch. Measured +5% on
-      `dd_sin`/`dd_cos` and +3% on `dd_tan`; Bessel asymptotic gains
+      `sindd`/`cosdd` and +3% on `tandd`; Bessel asymptotic gains
       a further ~1-2% on top of S3. Full fuzz suite (C++ + Fortran)
       passes without tolerance adjustment.
 
@@ -133,7 +133,7 @@ already; these are the ones that needed explicit review.
       All tests pass.
 
 - [~] **M4. 8-way erfc dispatch duplicated.** **Obsolete:** erfc now
-      lives in C++ only; the Fortran side picked up `dd_erfc`/`dd_erfcx`
+      lives in C++ only; the Fortran side picked up `erfcdd`/`erfcxdd`
       through `C_DELEGATE_UNARY_MAP` (see M3 refactor). No Fortran
       dispatch remains to deduplicate.
 
@@ -172,10 +172,10 @@ already; these are the ones that needed explicit review.
       `#undef`ed at the end of the header so consumers never see the
       identifier.
 
-- [x] **A5. Add `_Static_assert(sizeof(dd_t) == 16)`.**
+- [x] **A5. Add `_Static_assert(sizeof(float64x2_t) == 16)`.**
       Fixed: added `static_assert` (C++) / `_Static_assert` (C)
-      branches immediately after the `dd_t` typedef. Asserts
-      `sizeof(dd_t) == 2 * sizeof(double)` so the check is portable
+      branches immediately after the `float64x2_t` typedef. Asserts
+      `sizeof(float64x2_t) == 2 * sizeof(double)` so the check is portable
       to any hypothetical non-IEEE double platform.
 
 ## Minor / nits (batch when convenient)
@@ -188,7 +188,7 @@ already; these are the ones that needed explicit review.
 - [x] `src/multifloats_math.cc` — Cody-Waite comment no longer cites "~161
       bits" (was confusing against the "~106 bits preserved" sentence right
       after); now describes the constant as "three back-to-back doubles".
-- [x] `fsrc/multifloats.fypp` — `dd_t` bind(c) type uses `real(c_double)`
+- [x] `fsrc/multifloats.fypp` — `float64x2_t` bind(c) type uses `real(c_double)`
       instead of `real(dp)`.
 - [~] `fsrc/multifloats.fypp:638-664` — dead `c_dd_tgamma`/`c_dd_lgamma`
       bind(C) declarations. **Obsolete:** gone after the M3 refactor

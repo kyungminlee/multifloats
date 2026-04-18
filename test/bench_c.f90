@@ -2,7 +2,7 @@ program bench_c_wrappers
   ! Three-way benchmark: quad precision (qp) vs Fortran multifloats (mf)
   ! vs C-ABI wrappers around C++ multifloats (cmf).
   !
-  ! The C wrappers return dd_t (16 bytes) by value via the platform C
+  ! The C wrappers return float64x2_t (16 bytes) by value via the platform C
   ! ABI, which on ARM64 uses d0/d1 registers — no hidden pointer. This
   ! isolates the cost of gfortran's derived-type ABI vs the C register-
   ! return convention for the same underlying DD arithmetic.
@@ -14,159 +14,159 @@ program bench_c_wrappers
   integer, parameter :: qp = 16
   integer, parameter :: dp = 8
 
-  ! C-interoperable mirror of dd_t.
-  type, bind(c) :: dd_t
+  ! C-interoperable mirror of float64x2_t.
+  type, bind(c) :: float64x2_t
     real(c_double) :: hi, lo
-  end type dd_t
+  end type float64x2_t
 
   ! ================================================================
   ! C wrapper interfaces (pass & return by value)
   ! ================================================================
   interface
     ! Arithmetic
-    type(dd_t) function c_dd_add(a, b) bind(c, name='dd_add')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_add(a, b) bind(c, name='adddd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_sub(a, b) bind(c, name='dd_sub')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_sub(a, b) bind(c, name='subdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_mul(a, b) bind(c, name='dd_mul')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_mul(a, b) bind(c, name='muldd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_div(a, b) bind(c, name='dd_div')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_div(a, b) bind(c, name='divdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
     ! Unary
-    type(dd_t) function c_dd_neg(a) bind(c, name='dd_neg')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_neg(a) bind(c, name='negdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_abs(a) bind(c, name='dd_abs')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_abs(a) bind(c, name='fabsdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_sqrt(a) bind(c, name='dd_sqrt')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_sqrt(a) bind(c, name='sqrtdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
     ! Binary
-    type(dd_t) function c_dd_fmin(a, b) bind(c, name='dd_fmin')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_fmin(a, b) bind(c, name='fmindd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_fmax(a, b) bind(c, name='dd_fmax')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_fmax(a, b) bind(c, name='fmaxdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_hypot(a, b) bind(c, name='dd_hypot')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_hypot(a, b) bind(c, name='hypotdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_fdim(a, b) bind(c, name='dd_fdim')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_fdim(a, b) bind(c, name='fdimdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_fmod(a, b) bind(c, name='dd_fmod')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_fmod(a, b) bind(c, name='fmoddd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_copysign(a, b) bind(c, name='dd_copysign')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_copysign(a, b) bind(c, name='copysigndd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
     ! Transcendental
-    type(dd_t) function c_dd_exp(a) bind(c, name='dd_exp')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_exp(a) bind(c, name='expdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_log(a) bind(c, name='dd_log')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_log(a) bind(c, name='logdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_log10(a) bind(c, name='dd_log10')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_log10(a) bind(c, name='log10dd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_pow(a, b) bind(c, name='dd_pow')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_pow(a, b) bind(c, name='powdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_sin(a) bind(c, name='dd_sin')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_sin(a) bind(c, name='sindd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_cos(a) bind(c, name='dd_cos')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_cos(a) bind(c, name='cosdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_tan(a) bind(c, name='dd_tan')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_tan(a) bind(c, name='tandd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_asin(a) bind(c, name='dd_asin')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_asin(a) bind(c, name='asindd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_acos(a) bind(c, name='dd_acos')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_acos(a) bind(c, name='acosdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_atan(a) bind(c, name='dd_atan')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_atan(a) bind(c, name='atandd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_atan2(a, b) bind(c, name='dd_atan2')
-      import :: dd_t
-      type(dd_t), value :: a, b
+    type(float64x2_t) function c_dd_atan2(a, b) bind(c, name='atan2dd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a, b
     end function
-    type(dd_t) function c_dd_sinh(a) bind(c, name='dd_sinh')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_sinh(a) bind(c, name='sinhdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_cosh(a) bind(c, name='dd_cosh')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_cosh(a) bind(c, name='coshdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_tanh(a) bind(c, name='dd_tanh')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_tanh(a) bind(c, name='tanhdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_asinh(a) bind(c, name='dd_asinh')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_asinh(a) bind(c, name='asinhdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_acosh(a) bind(c, name='dd_acosh')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_acosh(a) bind(c, name='acoshdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_atanh(a) bind(c, name='dd_atanh')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_atanh(a) bind(c, name='atanhdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_erf(a) bind(c, name='dd_erf')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_erf(a) bind(c, name='erfdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
-    type(dd_t) function c_dd_erfc(a) bind(c, name='dd_erfc')
-      import :: dd_t
-      type(dd_t), value :: a
+    type(float64x2_t) function c_dd_erfc(a) bind(c, name='erfcdd')
+      import :: float64x2_t
+      type(float64x2_t), value :: a
     end function
     ! Comparison
-    integer(c_int) function c_dd_lt(a, b) bind(c, name='dd_lt')
-      import :: dd_t, c_int
-      type(dd_t), value :: a, b
+    integer(c_int) function c_dd_lt(a, b) bind(c, name='ltdd')
+      import :: float64x2_t, c_int
+      type(float64x2_t), value :: a, b
     end function
-    integer(c_int) function c_dd_le(a, b) bind(c, name='dd_le')
-      import :: dd_t, c_int
-      type(dd_t), value :: a, b
+    integer(c_int) function c_dd_le(a, b) bind(c, name='ledd')
+      import :: float64x2_t, c_int
+      type(float64x2_t), value :: a, b
     end function
-    integer(c_int) function c_dd_eq(a, b) bind(c, name='dd_eq')
-      import :: dd_t, c_int
-      type(dd_t), value :: a, b
+    integer(c_int) function c_dd_eq(a, b) bind(c, name='eqdd')
+      import :: float64x2_t, c_int
+      type(float64x2_t), value :: a, b
     end function
   end interface
 
@@ -180,7 +180,7 @@ program bench_c_wrappers
 
   real(qp), allocatable :: q1(:), q2(:), qpos(:), qsmall(:), qbnd(:), qres(:)
   type(float64x2), allocatable :: f1(:), f2(:), fpos(:), fsmall(:), fbnd(:), fres(:)
-  type(dd_t), allocatable :: c1(:), c2(:), cpos(:), csmall(:), cbnd(:), cres(:)
+  type(float64x2_t), allocatable :: c1(:), c2(:), cpos(:), csmall(:), cbnd(:), cres(:)
 
   real(qp) :: q_sink = 0.0_qp
   real(dp) :: f_sink = 0.0_dp
@@ -230,7 +230,7 @@ contains
     to_f64x2%limbs(2) = l - b
   end function
 
-  type(dd_t) function mf_to_dd(f)
+  type(float64x2_t) function mf_to_dd(f)
     type(float64x2), intent(in) :: f
     mf_to_dd%hi = f%limbs(1)
     mf_to_dd%lo = f%limbs(2)
@@ -301,7 +301,7 @@ contains
 
   subroutine cfeed(c_in)
     !GCC$ ATTRIBUTES NOINLINE :: cfeed
-    type(dd_t), intent(inout) :: c_in(:)
+    type(float64x2_t), intent(inout) :: c_in(:)
     real(dp) :: s
     integer :: i
     s = 0.0_dp
@@ -695,7 +695,7 @@ contains
     tf = elapsed(t0)
     call tick(t0)
     do r=1,REPS_TRIG; do i=1,N
-      block; type(dd_t) :: one; one%hi=1.0_dp; one%lo=0.0_dp
+      block; type(float64x2_t) :: one; one%hi=1.0_dp; one%lo=0.0_dp
         cres(i)=c_dd_acosh(c_dd_add(one,cpos(i))); end block
     end do; call cfeed(cpos); end do
     tc = elapsed(t0)

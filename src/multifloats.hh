@@ -846,8 +846,8 @@ inline MFD2 dd_deval(MFD2 const &x, double const *hi, double const *lo,
 namespace multifloats {
 
 namespace detail {
-inline dd_t to_dd(MFD2 const &x) { return {x._limbs[0], x._limbs[1]}; }
-inline MFD2 from_dd(dd_t x) { MFD2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
+inline float64x2_t to_f64x2(MFD2 const &x) { return {x._limbs[0], x._limbs[1]}; }
+inline MFD2 from_f64x2(float64x2_t x) { MFD2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
 } // namespace detail
 
 // =============================================================================
@@ -945,7 +945,7 @@ MultiFloat<T, N> exp(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::exp(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_exp(detail::to_dd(x)));
+    return detail::from_f64x2(::expdd(detail::to_f64x2(x)));
   } else {
     T e = std::exp(x._limbs[0]);
     MultiFloat<T, N> e_dd(e);
@@ -960,7 +960,7 @@ MultiFloat<T, N> exp2(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::exp2(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_exp2(detail::to_dd(x)));
+    return detail::from_f64x2(::exp2dd(detail::to_f64x2(x)));
   } else {
     T e = std::exp2(x._limbs[0]);
     const T ln2 = std::log(T(2));
@@ -987,7 +987,7 @@ MultiFloat<T, N> log(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::log(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_log(detail::to_dd(x)));
+    return detail::from_f64x2(::logdd(detail::to_f64x2(x)));
   } else {
     T l = std::log(x._limbs[0]);
     return MultiFloat<T, N>(l) +
@@ -1002,7 +1002,7 @@ MultiFloat<T, N> log10(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::log10(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_log10(detail::to_dd(x)));
+    return detail::from_f64x2(::log10dd(detail::to_f64x2(x)));
   } else {
     const T inv_ln10 = T(1) / std::log(T(10));
     return log(x) * MultiFloat<T, N>(inv_ln10);
@@ -1016,7 +1016,7 @@ MultiFloat<T, N> log2(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::log2(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_log2(detail::to_dd(x)));
+    return detail::from_f64x2(::log2dd(detail::to_f64x2(x)));
   } else {
     const T inv_ln2 = T(1) / std::log(T(2));
     return log(x) * MultiFloat<T, N>(inv_ln2);
@@ -1041,7 +1041,7 @@ MultiFloat<T, N> pow(MultiFloat<T, N> const &x, MultiFloat<T, N> const &y) {
     r._limbs[0] = std::pow(x._limbs[0], y._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_pow(detail::to_dd(x), detail::to_dd(y)));
+    return detail::from_f64x2(::powdd(detail::to_f64x2(x), detail::to_f64x2(y)));
   } else {
     if (x._limbs[0] == T(0) && y._limbs[0] == T(0)) {
       return MultiFloat<T, N>(T(1));
@@ -1061,7 +1061,7 @@ MultiFloat<T, N> sin(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::sin(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_sin(detail::to_dd(x)));
+    return detail::from_f64x2(::sindd(detail::to_f64x2(x)));
   } else {
     T s = std::sin(x._limbs[0]);
     T c = std::cos(x._limbs[0]);
@@ -1077,7 +1077,7 @@ MultiFloat<T, N> cos(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::cos(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_cos(detail::to_dd(x)));
+    return detail::from_f64x2(::cosdd(detail::to_f64x2(x)));
   } else {
     T s = std::sin(x._limbs[0]);
     T c = std::cos(x._limbs[0]);
@@ -1093,7 +1093,7 @@ MultiFloat<T, N> tan(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::tan(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_tan(detail::to_dd(x)));
+    return detail::from_f64x2(::tandd(detail::to_f64x2(x)));
   } else {
     return sin(x) / cos(x);
   }
@@ -1106,7 +1106,7 @@ MultiFloat<T, N> asin(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::asin(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_asin(detail::to_dd(x)));
+    return detail::from_f64x2(::asindd(detail::to_f64x2(x)));
   } else {
     T a = std::asin(x._limbs[0]);
     MultiFloat<T, N> denom = sqrt(MultiFloat<T, N>(T(1)) - x * x);
@@ -1121,7 +1121,7 @@ MultiFloat<T, N> acos(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::acos(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_acos(detail::to_dd(x)));
+    return detail::from_f64x2(::acosdd(detail::to_f64x2(x)));
   } else {
     T a = std::acos(x._limbs[0]);
     MultiFloat<T, N> denom = sqrt(MultiFloat<T, N>(T(1)) - x * x);
@@ -1136,7 +1136,7 @@ MultiFloat<T, N> atan(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::atan(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_atan(detail::to_dd(x)));
+    return detail::from_f64x2(::atandd(detail::to_f64x2(x)));
   } else {
     T a = std::atan(x._limbs[0]);
     MultiFloat<T, N> denom = MultiFloat<T, N>(T(1)) + x * x;
@@ -1151,7 +1151,7 @@ MultiFloat<T, N> atan2(MultiFloat<T, N> const &y, MultiFloat<T, N> const &x) {
     r._limbs[0] = std::atan2(y._limbs[0], x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_atan2(detail::to_dd(y), detail::to_dd(x)));
+    return detail::from_f64x2(::atan2dd(detail::to_f64x2(y), detail::to_f64x2(x)));
   } else {
     T a = std::atan2(y._limbs[0], x._limbs[0]);
     MultiFloat<T, N> num = x * MultiFloat<T, N>(y._limbs[1]) -
@@ -1172,7 +1172,7 @@ MultiFloat<T, N> sinh(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::sinh(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_sinh(detail::to_dd(x)));
+    return detail::from_f64x2(::sinhdd(detail::to_f64x2(x)));
   } else {
     T s = std::sinh(x._limbs[0]);
     T c = std::cosh(x._limbs[0]);
@@ -1188,7 +1188,7 @@ MultiFloat<T, N> cosh(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::cosh(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_cosh(detail::to_dd(x)));
+    return detail::from_f64x2(::coshdd(detail::to_f64x2(x)));
   } else {
     T s = std::sinh(x._limbs[0]);
     T c = std::cosh(x._limbs[0]);
@@ -1204,7 +1204,7 @@ MultiFloat<T, N> tanh(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::tanh(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_tanh(detail::to_dd(x)));
+    return detail::from_f64x2(::tanhdd(detail::to_f64x2(x)));
   } else {
     return sinh(x) / cosh(x);
   }
@@ -1217,7 +1217,7 @@ MultiFloat<T, N> asinh(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::asinh(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_asinh(detail::to_dd(x)));
+    return detail::from_f64x2(::asinhdd(detail::to_f64x2(x)));
   } else {
     // d/dx asinh(x) = 1/sqrt(1 + x^2)
     T a = std::asinh(x._limbs[0]);
@@ -1233,7 +1233,7 @@ MultiFloat<T, N> acosh(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::acosh(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_acosh(detail::to_dd(x)));
+    return detail::from_f64x2(::acoshdd(detail::to_f64x2(x)));
   } else {
     // d/dx acosh(x) = 1/sqrt(x^2 - 1)
     T a = std::acosh(x._limbs[0]);
@@ -1249,7 +1249,7 @@ MultiFloat<T, N> atanh(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::atanh(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_atanh(detail::to_dd(x)));
+    return detail::from_f64x2(::atanhdd(detail::to_f64x2(x)));
   } else {
     // d/dx atanh(x) = 1/(1 - x^2)
     T a = std::atanh(x._limbs[0]);
@@ -1269,7 +1269,7 @@ MultiFloat<T, N> erf(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::erf(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_erf(detail::to_dd(x)));
+    return detail::from_f64x2(::erfdd(detail::to_f64x2(x)));
   } else {
     // d/dx erf(x) = 2/sqrt(pi) * exp(-x^2)
     const T two_over_sqrt_pi = T(2) / std::sqrt(std::acos(T(-1)));
@@ -1287,7 +1287,7 @@ MultiFloat<T, N> erfc(MultiFloat<T, N> const &x) {
     r._limbs[0] = std::erfc(x._limbs[0]);
     return r;
   } else if constexpr (std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_erfc(detail::to_dd(x)));
+    return detail::from_f64x2(::erfcdd(detail::to_f64x2(x)));
   } else {
     const T two_over_sqrt_pi = T(2) / std::sqrt(std::acos(T(-1)));
     T e = std::erfc(x._limbs[0]);
@@ -1300,7 +1300,7 @@ MultiFloat<T, N> erfc(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> tgamma(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_tgamma(detail::to_dd(x)));
+    return detail::from_f64x2(::tgammadd(detail::to_f64x2(x)));
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = std::tgamma(x._limbs[0]);
@@ -1311,7 +1311,7 @@ MultiFloat<T, N> tgamma(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> lgamma(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_lgamma(detail::to_dd(x)));
+    return detail::from_f64x2(::lgammadd(detail::to_f64x2(x)));
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = std::lgamma(x._limbs[0]);
@@ -1326,7 +1326,7 @@ MultiFloat<T, N> lgamma(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> bessel_j0(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_j0(detail::to_dd(x)));
+    return detail::from_f64x2(::j0dd(detail::to_f64x2(x)));
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = ::j0(x._limbs[0]);
@@ -1337,7 +1337,7 @@ MultiFloat<T, N> bessel_j0(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> bessel_j1(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_j1(detail::to_dd(x)));
+    return detail::from_f64x2(::j1dd(detail::to_f64x2(x)));
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = ::j1(x._limbs[0]);
@@ -1348,7 +1348,7 @@ MultiFloat<T, N> bessel_j1(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> bessel_y0(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_y0(detail::to_dd(x)));
+    return detail::from_f64x2(::y0dd(detail::to_f64x2(x)));
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = ::y0(x._limbs[0]);
@@ -1359,7 +1359,7 @@ MultiFloat<T, N> bessel_y0(MultiFloat<T, N> const &x) {
 template <typename T, std::size_t N>
 MultiFloat<T, N> bessel_y1(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
-    return detail::from_dd(::dd_y1(detail::to_dd(x)));
+    return detail::from_f64x2(::y1dd(detail::to_f64x2(x)));
   } else {
     MultiFloat<T, N> r;
     r._limbs[0] = ::y1(x._limbs[0]);
@@ -1424,12 +1424,12 @@ using float64x2 = MultiFloat<double, 2>;
 // incorrect at DD precision on platforms where `long double == double`
 // (libstdc++'s `(_Tp)1.5707963…L` truncates the π/2 low limb).
 //
-// These specializations delegate to the `dd_cx_*` symbols in
+// These specializations delegate to the `c*dd` symbols in
 // multifloats_math.cc, which use the fused dd_sincos_full /
 // dd_sinhcosh_full kernels and hard-code the DD π/2 constant.
 //
 // The remaining eight functions (log, log10, pow, sqrt, asin, atan,
-// asinh, acosh) are also exported via dd_cx_* for Fortran / C callers,
+// asinh, acosh) are also exported via c*dd for Fortran / C callers,
 // but we leave `std::log(complex<MF>)` etc. on the generic template:
 // those paths offer no speedup and no correctness advantage here.
 #include <complex>
@@ -1440,12 +1440,12 @@ namespace std {
   template <>                                                                \
   inline complex<multifloats::MultiFloat<double, 2>>                         \
   fn(complex<multifloats::MultiFloat<double, 2>> const &z) {                 \
-    ::cdd_t in = {multifloats::detail::to_dd(z.real()),                      \
-                  multifloats::detail::to_dd(z.imag())};                     \
-    ::cdd_t out = ::dd_cx_##fn(in);                                          \
+    ::complex64x2_t in = {multifloats::detail::to_f64x2(z.real()),           \
+                          multifloats::detail::to_f64x2(z.imag())};          \
+    ::complex64x2_t out = ::c##fn##dd(in);                                   \
     return complex<multifloats::MultiFloat<double, 2>>(                      \
-        multifloats::detail::from_dd(out.re),                                \
-        multifloats::detail::from_dd(out.im));                               \
+        multifloats::detail::from_f64x2(out.re),                             \
+        multifloats::detail::from_f64x2(out.im));                            \
   }
 
 MULTIFLOATS_CX_SPECIALIZE(exp)

@@ -98,7 +98,7 @@ the Fortran split (`fortran_fuzz` / `fortran_bench`):
 
 - **tgamma / lgamma** (both C++ and Fortran) use a native double-double
   Stirling kernel shifting the argument up to x ≥ 25 via a product
-  accumulator so a single `dd_log(prod)` absorbs the recurrence. Small
+  accumulator so a single `logdd(prod)` absorbs the recurrence. Small
   arguments (x < 0.5) use the reflection identity.
 
 - **Inverse trigonometric** functions (asin, acos, atan, atan2) use
