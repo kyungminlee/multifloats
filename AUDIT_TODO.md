@@ -205,9 +205,15 @@ Deferred (flag for user review before applying):
 - [ ] `src/multifloats_math.cc` atan cutover `|x|≥10.25` — puts
       `|t|=1/|x|` past the rational's 0.09375 validity edge; shift to
       `|x|≥10+2/3`. Needs a fuzz re-sweep to confirm no new worst-case.
-- [ ] `fsrc/multifloats.fypp` many sites — `ax%limbs = -ax%limbs` may
-      allocate a temp; split to explicit per-limb negation where it's in
-      a hot path. Grep finds ~20 sites; worth a targeted sweep.
+- [~] `fsrc/multifloats.fypp` `ax%limbs = -ax%limbs` sites. **Unfounded:**
+      checked the generated assembly for both whole-array and per-limb
+      forms on gfortran-15 arm64 at both `-O2` and `-O3`. Both emit
+      identical code: a single 128-bit `ldr q31` + `fneg v31.2d, v31.2d`
+      + `str q31`. The fixed-size 2-element array is recognized and
+      vectorized with no temp allocation. Additionally, the hotter bessel
+      sites at 1895 / 1901 fire once at function entry, not in an inner
+      loop. Leave as-is — splitting to per-limb would just hurt
+      readability without changing codegen.
 - [x] `fsrc/multifloats.fypp` `mf_dot_product` — hoisted the `ri > 0`
       test out of the hot loop: the `ri <= 0` path is one tight FMA
       pass; the periodic-renorm path is a nested block loop with the
