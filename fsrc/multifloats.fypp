@@ -2623,28 +2623,49 @@ $:mf_minmax_body(func, n)
         ! Every MF_FMA_RENORM_INTERVAL iterations (default 8) we
         ! fast_two_sum the accumulator to keep s_lo bounded. Set the
         ! interval to 0 to renormalize only at the end.
+        ! Hoist the `ri > 0` test out of the inner loop: the `ri <= 0`
+        ! path is a single tight FMA pass; the periodic-renorm path is
+        ! a nested block loop with the fast_two_sum between blocks. This
+        ! eliminates the `mod(k, ri)` check from the hot per-element body.
         real(dp) :: s_hi, s_lo, ah, al, bh, bl
         real(dp) :: p, e, cross, t, bp, ap, aerr, berr
-        integer :: k, ri
+        integer :: k, kk, ke, n, ri
         ri = MF_FMA_RENORM_INTERVAL
+        n = size(a)
         s_hi = 0.0_dp
         s_lo = 0.0_dp
-        do k = 1, size(a)
-            ah = a(k)%limbs(1); al = a(k)%limbs(2)
-            bh = b(k)%limbs(1); bl = b(k)%limbs(2)
-            p = ah * bh
-            e = c_fma(ah, bh, -p)
-            cross = ah * bl + al * bh
-            t = s_hi + p
-            bp = t - s_hi; ap = t - bp
-            aerr = s_hi - ap; berr = p - bp
-            s_lo = s_lo + (e + cross + aerr + berr)
-            s_hi = t
-            if (ri > 0 .and. mod(k, ri) == 0) then
+        if (ri <= 0) then
+            do k = 1, n
+                ah = a(k)%limbs(1); al = a(k)%limbs(2)
+                bh = b(k)%limbs(1); bl = b(k)%limbs(2)
+                p = ah * bh
+                e = c_fma(ah, bh, -p)
+                cross = ah * bl + al * bh
+                t = s_hi + p
+                bp = t - s_hi; ap = t - bp
+                aerr = s_hi - ap; berr = p - bp
+                s_lo = s_lo + (e + cross + aerr + berr)
+                s_hi = t
+            end do
+        else
+            do kk = 1, n, ri
+                ke = min(kk + ri - 1, n)
+                do k = kk, ke
+                    ah = a(k)%limbs(1); al = a(k)%limbs(2)
+                    bh = b(k)%limbs(1); bl = b(k)%limbs(2)
+                    p = ah * bh
+                    e = c_fma(ah, bh, -p)
+                    cross = ah * bl + al * bh
+                    t = s_hi + p
+                    bp = t - s_hi; ap = t - bp
+                    aerr = s_hi - ap; berr = p - bp
+                    s_lo = s_lo + (e + cross + aerr + berr)
+                    s_hi = t
+                end do
                 t = s_hi + s_lo; bp = t - s_hi
                 s_hi = t; s_lo = s_lo - bp
-            end if
-        end do
+            end do
+        end if
         t = s_hi + s_lo
         bp = t - s_hi
         res%limbs(1) = t

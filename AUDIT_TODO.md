@@ -208,6 +208,9 @@ Deferred (flag for user review before applying):
 - [ ] `fsrc/multifloats.fypp` many sites — `ax%limbs = -ax%limbs` may
       allocate a temp; split to explicit per-limb negation where it's in
       a hot path. Grep finds ~20 sites; worth a targeted sweep.
-- [ ] `fsrc/multifloats.fypp:2632` (`mf_dot_product`) — `if (ri > 0 .and.
-      mod(k, ri) == 0)` inside hot loop; restructure as nested loops with
-      `ri` as outer stride. Needs bench to confirm perf win.
+- [x] `fsrc/multifloats.fypp` `mf_dot_product` — hoisted the `ri > 0`
+      test out of the hot loop: the `ri <= 0` path is one tight FMA
+      pass; the periodic-renorm path is a nested block loop with the
+      fast_two_sum between blocks. Measured ~15% throughput gain across
+      N=8/64/1024/16384 (3.02→2.57 ns per FMA at N=1024, gfortran-15
+      arm64 M1 Max), no regression at any size. Tests pass.
