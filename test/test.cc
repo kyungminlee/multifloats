@@ -287,6 +287,115 @@ static void test_division(Stats &stats) {
   }
 }
 
+// Bessel J_n(x) via Miller's backward recurrence is used when n > x. The
+// CF start-depth is chosen so the truncated J_{n+k}/J_n is below the DD
+// precision floor; before tightening the threshold (1e17 → 1e32) the DD
+// answer only matched libquadmath to about double precision. Check that
+// a Miller-path case now reaches full DD precision.
+static void test_bessel_jn_miller_precision(Stats &stats) {
+  struct Case { int n; double x; };
+  Case const cases[] = {
+      {10, 1.0}, {15, 2.0}, {20, 1.0}, {25, 5.0}, {40, 10.0},
+  };
+  for (Case c : cases) {
+    float64x2_t xdd = {c.x, 0.0};
+    float64x2_t got = jndd(c.n, xdd);
+    mf::float64x2 g;
+    g._limbs[0] = got.hi;
+    g._limbs[1] = got.lo;
+    q_t expected = jnq(c.n, (q_t)c.x);
+    // 2e-31 ≈ 2^-102, a few ulps of DD.
+    check_q("bessel_jn_miller", g, expected, 2e-31, stats);
+  }
+}
+
+// C99 G.6.4.2: csqrt(±0 + ±0·i) returns +0 + ±0·i — the real part is always
+// +0 regardless of the sign of the input real component, and the imaginary
+// sign is preserved. Regression/guard test so a future "preserve sign of a"
+// change (the audit's false-positive finding) doesn't silently violate C99.
+static void test_csqrt_zero_branch() {
+  auto make_z = [](double rh, double rl, double ih, double il) {
+    complex64x2_t z;
+    z.re.hi = rh; z.re.lo = rl;
+    z.im.hi = ih; z.im.lo = il;
+    return z;
+  };
+  double const pz = +0.0, nz = -0.0;
+
+  complex64x2_t r;
+  // csqrt(+0 + 0i) = +0 + 0i.
+  r = csqrtdd(make_z(pz, 0.0, pz, 0.0));
+  REQUIRE(!std::signbit(r.re.hi));
+  REQUIRE(!std::signbit(r.im.hi));
+  // csqrt(-0 + 0i) = +0 + 0i (NOT -0 + 0i).
+  r = csqrtdd(make_z(nz, 0.0, pz, 0.0));
+  REQUIRE(!std::signbit(r.re.hi));
+  REQUIRE(!std::signbit(r.im.hi));
+  // csqrt(-0 - 0i) = +0 - 0i (conjugate symmetry).
+  r = csqrtdd(make_z(nz, 0.0, nz, 0.0));
+  REQUIRE(!std::signbit(r.re.hi));
+  REQUIRE(std::signbit(r.im.hi));
+  // csqrt(+0 - 0i) = +0 - 0i.
+  r = csqrtdd(make_z(pz, 0.0, nz, 0.0));
+  REQUIRE(!std::signbit(r.re.hi));
+  REQUIRE(std::signbit(r.im.hi));
+}
+
+// atan2 on zero-hi DDs must consult lo for the sign. If y = (+0, -subnormal)
+// the effective value is slightly negative, so atan2 should return a negative
+// quadrant, not +0. Regression for a bug where hi=0 caused libm atan2 to be
+// called with raw +0 arguments, losing the lo-limb sign.
+static void test_atan2_signed_zero() {
+  auto make_dd = [](double hi, double lo) {
+    mf::float64x2 r;
+    r._limbs[0] = hi;
+    r._limbs[1] = lo;
+    return r;
+  };
+  double const pos_sub = 1e-320;
+  double const neg_sub = -1e-320;
+  mf::float64x2 y_neg = make_dd(0.0, neg_sub);
+  mf::float64x2 y_pos = make_dd(0.0, pos_sub);
+  mf::float64x2 x_neg = make_dd(0.0, neg_sub);
+  mf::float64x2 x_pos = make_dd(0.0, pos_sub);
+
+  // y<0, x>0 → answer in (−π/2, 0), specifically ≈ −π/4 for equal magnitudes.
+  REQUIRE(mf::atan2(y_neg, x_pos)._limbs[0] < 0.0);
+  // y>0, x<0 → answer in (π/2, π), specifically ≈ 3π/4.
+  REQUIRE(mf::atan2(y_pos, x_neg)._limbs[0] > 1.5);
+  // y<0, x<0 → answer in (−π, −π/2), specifically ≈ −3π/4.
+  REQUIRE(mf::atan2(y_neg, x_neg)._limbs[0] < -1.5);
+}
+
+// Non-finite division must produce a DD where BOTH limbs are non-finite, so
+// an `isnan(lo)` check on the result reports the same classification as the
+// hi limb. Regression for a bug where NaN-producing division left lo == 0.
+static void test_division_nonfinite() {
+  double inf = std::numeric_limits<double>::infinity();
+  mf::float64x2 one(1.0);
+  mf::float64x2 zero(0.0);
+  mf::float64x2 pinf(inf);
+
+  mf::float64x2 nan_result = zero / zero;
+  REQUIRE(std::isnan(nan_result._limbs[0]));
+  REQUIRE(std::isnan(nan_result._limbs[1]));
+
+  mf::float64x2 inf_result = one / zero;
+  REQUIRE(std::isinf(inf_result._limbs[0]));
+  REQUIRE(std::isinf(inf_result._limbs[1]));
+  REQUIRE(inf_result._limbs[0] > 0 && inf_result._limbs[1] > 0);
+
+  mf::float64x2 neg_inf = (mf::float64x2(-1.0)) / zero;
+  REQUIRE(std::isinf(neg_inf._limbs[0]));
+  REQUIRE(std::isinf(neg_inf._limbs[1]));
+  REQUIRE(neg_inf._limbs[0] < 0 && neg_inf._limbs[1] < 0);
+
+  // Finite / Inf is legitimately 0; default-init of lo=0 is correct.
+  mf::float64x2 zero_result = one / pinf;
+  REQUIRE(zero_result._limbs[0] == 0.0);
+  REQUIRE(zero_result._limbs[1] == 0.0);
+}
+
 // =============================================================================
 // cmath-style wrappers
 // =============================================================================
@@ -749,18 +858,22 @@ int main() {
   test_classification();
   test_nextafter_symmetry();
 
-  Stats add, sub, mul, div, una, abs_fmm, csgn, ldx, atn, lrp, cxa;
+  Stats add, sub, mul, div, una, abs_fmm, csgn, ldx, atn, lrp, cxa, bjn;
   test_unary(una);
   test_addition(add);
   test_subtraction(sub);
   test_multiplication(mul);
   test_division(div);
+  test_division_nonfinite();
+  test_atan2_signed_zero();
+  test_csqrt_zero_branch();
   test_abs_fmin_fmax(abs_fmm);
   test_copysign(csgn);
   test_ldexp_scalbn_ilogb(ldx);
   test_atan_cutover(atn);
   test_lerp(lrp);
   test_complex_accessors(cxa);
+  test_bessel_jn_miller_precision(bjn);
 
   std::printf("[multifloats_test] %d checks, %d failures\n", g_checks,
               g_failures);
@@ -777,6 +890,7 @@ int main() {
   print_stats("atan cutover", atn);
   print_stats("lerp", lrp);
   print_stats("cx accessors", cxa);
+  print_stats("bessel jn (Miller)", bjn);
 
   return g_failures == 0 ? 0 : 1;
 }

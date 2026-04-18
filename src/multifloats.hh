@@ -224,11 +224,17 @@ template <typename T, std::size_t N> struct MultiFloat {
     } else { // N == 2 — Dekker-style: q1 = hi/rhs.hi, refine once.
       T q1 = _limbs[0] / rhs._limbs[0];
       if (!std::isfinite(q1)) {
+        // Mirror q1 into the lo limb so a non-finite result propagates
+        // through both limbs. Otherwise isnan/isinf checks against the lo
+        // limb would spuriously report "finite" on a NaN/Inf DD.
         MultiFloat out;
         out._limbs[0] = q1;
+        out._limbs[1] = q1;
         return out;
       }
       if (!std::isfinite(rhs._limbs[0])) {
+        // Finite / ±Inf — q1 is ±0; the correct DD is {±0, 0}, which
+        // default-initialization already gives us.
         MultiFloat out;
         out._limbs[0] = q1;
         return out;

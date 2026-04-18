@@ -703,8 +703,11 @@ float64x2 atan2_full(float64x2 const &y, float64x2 const &x) {
     return r;
   }
   if (x._limbs[0] == 0.0 && y._limbs[0] == 0.0) {
+    // When a DD has hi == 0 the effective sign (including ±0 and signed
+    // subnormals) lives entirely in lo. Pass lo to libm's atan2 so the
+    // IEEE signed-zero quadrant rules still produce the right answer.
     float64x2 r;
-    r._limbs[0] = std::atan2(y._limbs[0], x._limbs[0]);
+    r._limbs[0] = std::atan2(y._limbs[1], x._limbs[1]);
     r._limbs[1] = 0.0;
     return r;
   }
@@ -1496,15 +1499,18 @@ static float64x2 bessel_jn_full(int n, float64x2 x) {
     }
     result = b;
   } else {
-    // Continued-fraction start: iterate until q1 crosses 1e17. The index k at
-    // which that happens is the safe extra depth for Miller's backward sweep.
+    // Continued-fraction start: iterate until q1 exceeds the precision
+    // target so J_{n+k}/J_n is small enough to truncate. For DD we need
+    // ~2^106 ≈ 8e31 (vs ~2^56 ≈ 1e17 for plain double). The upper cap on k
+    // prevents a runaway on pathological inputs (q1 always grows faster
+    // than geometric with rate ≥ 2/x, so 1000 iterations is a vast margin).
     float64x2 w = float64x2(static_cast<double>(2 * n) / xx);
     float64x2 h = float64x2(2.0 / xx);
     float64x2 q0 = w;
     float64x2 z = w + h;
     float64x2 q1 = w * z - float64x2(1.0);
     int k = 1;
-    while (q1._limbs[0] < 1e17) {
+    while (q1._limbs[0] < 1e32 && k < 1000) {
       ++k;
       z = z + h;
       float64x2 tmp = z * q1 - q0;
