@@ -63,6 +63,11 @@ MULTIFLOATS_API dd_t dd_neg(dd_t a);
 MULTIFLOATS_API dd_t dd_abs(dd_t a);
 MULTIFLOATS_API dd_t dd_sqrt(dd_t a);
 
+/* Rounding. dd_trunc matches C trunc / Fortran AINT (toward zero).
+ * dd_round matches C round / Fortran ANINT (to nearest, halfway away). */
+MULTIFLOATS_API dd_t dd_trunc(dd_t a);
+MULTIFLOATS_API dd_t dd_round(dd_t a);
+
 /* Binary */
 MULTIFLOATS_API dd_t dd_fmin(dd_t a, dd_t b);
 MULTIFLOATS_API dd_t dd_fmax(dd_t a, dd_t b);

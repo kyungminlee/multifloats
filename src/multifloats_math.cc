@@ -1586,6 +1586,10 @@ dd_t dd_neg(dd_t a)  { return to(-from(a)); }
 dd_t dd_abs(dd_t a)  { return to(multifloats::abs(from(a))); }
 dd_t dd_sqrt(dd_t a) { return to(multifloats::sqrt(from(a))); }
 
+// Rounding (Fortran AINT / ANINT delegate here)
+dd_t dd_trunc(dd_t a) { return to(multifloats::trunc(from(a))); }
+dd_t dd_round(dd_t a) { return to(multifloats::round(from(a))); }
+
 // Binary
 dd_t dd_fmin(dd_t a, dd_t b)     { return to(multifloats::fmin(from(a), from(b))); }
 dd_t dd_fmax(dd_t a, dd_t b)     { return to(multifloats::fmax(from(a), from(b))); }
@@ -1680,11 +1684,28 @@ cdd_t dd_cx_exp(cdd_t z) {
   return { to(ea * c), to(ea * s) };
 }
 
-// log(a+bi) = log(hypot(a,b)) + i·atan2(b, a). atan2 handles the
-// negative-real-axis branch cut (including signed-zero propagation).
+// log(a+bi) = log(|z|) + i·atan2(b, a). Compute log(|z|) as
+//   log(big) + 0.5·log(1 + (small/big)^2)
+// with big = max(|a|,|b|), small = min(|a|,|b|). This avoids the
+// overflow that hypot(a,b) suffers when |z| exceeds DBL_MAX even
+// though log(|z|) itself is finite. atan2 handles the negative-real-
+// axis branch cut (including signed-zero propagation).
 cdd_t dd_cx_log(cdd_t z) {
   MF2 a = from(z.re), b = from(z.im);
-  MF2 r = dd_log_full(multifloats::hypot(a, b));
+  MF2 ax = multifloats::abs(a);
+  MF2 ay = multifloats::abs(b);
+  MF2 big   = (ax > ay) ? ax : ay;
+  MF2 small = (ax > ay) ? ay : ax;
+  MF2 r;
+  if (big._limbs[0] == 0.0) {
+    r._limbs[0] = -std::numeric_limits<double>::infinity();
+    r._limbs[1] = 0.0;
+  } else {
+    MF2 ratio = small / big;
+    MF2 one = dd_pair(1.0, 0.0);
+    MF2 half = dd_pair(0.5, 0.0);
+    r = dd_log_full(big) + half * dd_log_full(one + ratio * ratio);
+  }
   MF2 phi = dd_atan2_full(b, a);
   return { to(r), to(phi) };
 }
