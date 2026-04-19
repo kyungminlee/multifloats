@@ -273,11 +273,17 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   `lgamma_stirling(x+N)`, subtract `log_full(prod)`. Result:
   `lgamma` 1.5e3 → ~2.3 ulp_dd, `tgamma` 3.8e4 → ~160 ulp_dd.
   Bench essentially unchanged (12.57× → 12.55× tgamma; 4.79× → 4.82× lgamma).
-  `tgamma`'s remaining ~160 ulp_dd floor is inherent: `tgamma = exp(lgamma)`
-  amplifies lgamma's absolute error by `|tgamma|`, so at x=70 where
-  `lgamma ≈ 229` even a 1.3-ulp_dd lgamma produces ~300 ulp_dd on tgamma.
-  Closing this would require a direct-tgamma asymptotic path (separate
-  kernel rather than exp-of-lgamma); deferred.
+  `tgamma`'s remaining ~160 ulp_dd floor is inherent to our
+  `tgamma = exp(lgamma)` strategy: lgamma's absolute error gets amplified
+  by `|tgamma|`, so at x=70 where `lgamma ≈ 229` even a 1.3-ulp_dd lgamma
+  produces ~300 ulp_dd on tgamma.
+  **Cross-check vs libquadmath** (seed 0xdead, 100k samples, x ∈ (0, 100),
+  512-bit MPFR reference): `lgammaq` ≤ 1.77 ulp_q, `tgammaq` ≤ 3.04 ulp_q
+  across the full range (including x=99 where tgamma ≈ 9.3e155). That
+  means libquadmath isn't going through `exp(lgamma)` — it evaluates
+  tgamma directly and dodges the amplification. Matching that would
+  require a direct-tgamma asymptotic kernel (shift + Stirling form of
+  tgamma, not exp-of-lgamma_stirling); deferred until a caller needs it.
 - [x] **P9 — `atanh_full` ~40-ulp tail.** *(Fixed 2026-04-19.)*
   `0.5·log((1+x)/(1-x))` loses bits when the ratio ≈ 1 (|x| small but
   above the 0.01 Taylor threshold). Replaced with `0.5·log1p(2x/(1-x))`
