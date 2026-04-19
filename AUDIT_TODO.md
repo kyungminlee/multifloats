@@ -26,10 +26,16 @@ fixes land. File:line references are snapshots taken at the time of the audit.
 - [ ] **C5 — `log1p` subnormal fall-through.** `src/multifloats_math_exp_log.inc:171`.
   When `(1+x).hi == 0` but `lo ≠ 0`, control drops to `log_full(0) → −∞`
   instead of a large-negative finite value. Severity: **medium**.
-- [ ] **C6 — FMA assumed but not asserted.** `src/multifloats.hh:41`, trig.inc:97, special.inc:101.
+- [x] **C6 — FMA assumed but not asserted.** `src/multifloats.hh:41`, trig.inc:97, special.inc:101.
   If `FP_FAST_FMA` is false, `two_prod` silently loses the error term and every
   DD operation degrades to double. Add `static_assert(FP_FAST_FMA)` or a runtime
   fallback. Severity: **medium** (silent correctness regression risk).
+  _Resolved — narrower scope than originally framed:_ C99/C++ `std::fma`
+  is always correctly rounded (even when emulated in software), so a
+  hardware-FMA assert would reject valid conforming builds. The real
+  silent-correctness risk is `-ffast-math`, which lets the compiler
+  rewrite fma into a non-IEEE sequence. Added `#error` at the top of
+  `src/multifloats.hh` when `__FAST_MATH__` is defined.
 
 ## Precision
 

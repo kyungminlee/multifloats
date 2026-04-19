@@ -8,6 +8,20 @@
 #include <string>
 #include <type_traits>
 
+// Every error-free transformation here (two_prod, reduce_pi_half, erfc x-split,
+// matmul mac_inl, ...) depends on std::fma being IEEE-compliant: a single
+// multiply-add with one rounding. C99/C++ guarantees this for conforming
+// implementations — including the software fallback when the target lacks
+// a hardware FMA instruction. The one common way to break that guarantee is
+// -ffast-math, which lets the compiler rewrite fma into a non-rounded sequence
+// or fold it with surrounding expressions. Refuse to build in that mode: the
+// DD arithmetic would silently collapse to plain double precision.
+#if defined(__FAST_MATH__)
+#  error "multifloats cannot be built with -ffast-math: it breaks the IEEE " \
+         "semantics of std::fma that every error-free transformation relies " \
+         "on. Drop -ffast-math (and -funsafe-math-optimizations) and rebuild."
+#endif
+
 namespace multifloats {
 
 namespace detail {
