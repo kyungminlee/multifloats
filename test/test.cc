@@ -432,6 +432,36 @@ static void test_io_to_string_and_stream() {
   REQUIRE(r == "1.00e+00");
 }
 
+// Complex multiply must keep the 4-mul form (Re = ac − bd, Im = ad + bc).
+// A naive Karatsuba rewrite (3 muls, 5 adds) would replace Im with
+//   r − p − q  where r = (a+b)(c+d), p = ac, q = bd
+// which catastrophically loses precision when the true Im has internal
+// cancellation. For the classic witness a = (1, ε), b = (-1, ε) the
+// true imaginary part is 0 exactly; 4-mul returns 0, Karatsuba returns
+// −ε². See /tmp/tier3/karatsuba_probe.cc and AUDIT_TODO.md #10 for the
+// full A/B study.
+static void test_complex_mul_cancellation() {
+  mf::float64x2 const one(1.0), neg_one(-1.0);
+  mf::float64x2 eps;
+  eps._limbs[0] = 1e-18;
+  eps._limbs[1] = 0.0;
+
+  std::complex<mf::float64x2> a(one, eps);
+  std::complex<mf::float64x2> b(neg_one, eps);
+  std::complex<mf::float64x2> prod = a * b;
+
+  // Im(a·b) = 1·ε + ε·(−1) = 0 exactly. Both limbs must be +0.
+  REQUIRE(prod.imag()._limbs[0] == 0.0);
+  REQUIRE(prod.imag()._limbs[1] == 0.0);
+  REQUIRE(!std::signbit(prod.imag()._limbs[0]));
+
+  // Re(a·b) = (1)(−1) − ε·ε = −1 − ε² (full DD precision).
+  q_t ref_re = (q_t)(-1.0) - (q_t)1e-18 * (q_t)1e-18;
+  q_t got_re = to_q(prod.real());
+  q_t err = fabsq(got_re - ref_re) / fabsq(ref_re);
+  REQUIRE((double)err < 1e-31);
+}
+
 // Non-finite division must produce a DD where BOTH limbs are non-finite, so
 // an `isnan(lo)` check on the result reports the same classification as the
 // hi limb. Regression for a bug where NaN-producing division left lo == 0.
@@ -1054,6 +1084,7 @@ int main() {
   test_division_nonfinite();
   test_atan2_signed_zero();
   test_csqrt_zero_branch();
+  test_complex_mul_cancellation();
   test_io_to_string_and_stream();
   test_abs_fmin_fmax(abs_fmm);
   test_copysign(csgn);

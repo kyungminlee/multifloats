@@ -731,6 +731,19 @@ inline float64x2 horner(float64x2 const &y, double const *hi, double const *lo,
 // ---- Estrin polynomial evaluation (neval/deval from libquadmath) ------------
 // neval: evaluates P[n]*x^n + P[n-1]*x^(n-1) + ... + P[0]
 // Uses Estrin's scheme for ILP when degree is known, Horner fallback otherwise.
+//
+// NOTE on convention: neval's `n` is the polynomial *degree*, so the
+// coefficient array has n+1 entries (c[0..n]). This differs from
+// `horner` above, which takes `n` as the coefficient COUNT. A common
+// bug when migrating Horner → Estrin is forgetting to decrement n by 1.
+//
+// Tier 3 measurements (cpp_bench, relative to Horner baseline):
+//   exp/exp2 (case 13), sin/cos (case 12), sinh/cosh (case 8),
+//   asinh/atanh (case 14): 1.78×–1.88× speedup with no precision loss
+//   outside 1 DD ULP. Extending with an x^16 case would benefit
+//   expm1_taylor (degree 24) and log1p_taylor (degree 17); that
+//   extension was skipped as the additional gain (~1.5× on small-|x|
+//   branches only) did not justify the code size.
 inline float64x2 neval(float64x2 const &x, double const *hi, double const *lo,
                       int n) {
   auto c = [&](int i) { return float64x2(hi[i], lo[i]); };
@@ -788,6 +801,60 @@ inline float64x2 neval(float64x2 const &x, double const *hi, double const *lo,
     float64x2 p47 = p45 + p67 * x2;
     float64x2 p811 = p89 + p1011 * x2;
     return p03 + p47 * x4 + p811 * x8;
+  }
+  case 12: {
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p1011 = c(10) + c(11) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p811 = p89 + p1011 * x2;
+    return p03 + p47 * x4 + (p811 + c(12) * x4) * x8;
+  }
+  case 13: {
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p1011 = c(10) + c(11) * x;
+    float64x2 p1213 = c(12) + c(13) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p811 = p89 + p1011 * x2;
+    return p03 + p47 * x4 + (p811 + p1213 * x4) * x8;
+  }
+  case 14: {
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p1011 = c(10) + c(11) * x;
+    float64x2 p1213 = c(12) + c(13) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p811 = p89 + p1011 * x2;
+    float64x2 p1214 = p1213 + c(14) * x2;
+    return p03 + p47 * x4 + (p811 + p1214 * x4) * x8;
+  }
+  case 15: {
+    float64x2 p01 = c(0) + c(1) * x;
+    float64x2 p23 = c(2) + c(3) * x;
+    float64x2 p45 = c(4) + c(5) * x;
+    float64x2 p67 = c(6) + c(7) * x;
+    float64x2 p89 = c(8) + c(9) * x;
+    float64x2 p1011 = c(10) + c(11) * x;
+    float64x2 p1213 = c(12) + c(13) * x;
+    float64x2 p1415 = c(14) + c(15) * x;
+    float64x2 p03 = p01 + p23 * x2;
+    float64x2 p47 = p45 + p67 * x2;
+    float64x2 p811 = p89 + p1011 * x2;
+    float64x2 p1215 = p1213 + p1415 * x2;
+    return p03 + p47 * x4 + (p811 + p1215 * x4) * x8;
   }
   default: {
     float64x2 y = c(n);

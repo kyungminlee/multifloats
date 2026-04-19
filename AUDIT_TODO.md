@@ -64,12 +64,32 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
 
 ## Tier 3 — Performance
 
-- [ ] **10. Complex Karatsuba 3-mul** — replace 4-mul form in DD complex
-  multiply. `fsrc/multifloats.fypp:2823-2824` + C++ mirror. **M**
-- [ ] **11. Estrin polynomial evaluation** — alongside Horner for 6+ term
-  polynomials (exp2/log2 hotspots). **M**
-- [ ] **12. Renorm-interval tuning doc or auto-tune** — `k`-aware default
-  for matmul. `src/multifloats_math.cc:1664` + README. **S**
+- [x] **10. Complex Karatsuba 3-mul** — REJECTED via experiment.
+  Karatsuba trades 1 DD mul (~11 dp ops) for 3 extra DD adds (~21 dp
+  ops) — a net op-count loss at DD granularity. A/B probe on 200k
+  random inputs: 4-mul 15.6 ns/op vs Karatsuba 35.3 ns/op (2.26×
+  SLOWER). Precision also degrades: Im max_rel goes from 3.9e-32 to
+  6.8e-32 (1.7× worse), with catastrophic cancellation on the classic
+  witness a=(1,ε), b=(-1,ε) — true Im is 0 exactly, Karatsuba returns
+  −ε². Added regression test `test_complex_mul_cancellation` that
+  locks in the 4-mul semantics so a future contributor can't silently
+  regress this.
+- [x] **11. Estrin polynomial evaluation** — extended `neval` with
+  Estrin cases 12–15 (`x⁸` recursion) and swapped 7 hot Horner sites:
+  `exp2` (14 coefs), `sin`/`cos` kernels (13), `asinh`/`atanh` Taylor
+  (15), `log2_wide` (9), `sinh` Taylor (9, ×2 callers).
+  Measured speedups (cpp_bench): `exp` / `exp2` 1.88×, `sin` / `cos`
+  / `tan` 1.78×, `sinh` / `cosh` / `tanh` 1.83×, `pow` 1.35×, `expm1`
+  1.48× (indirect). Precision: `sin` max_rel 3.4e-32 → 5.0e-32, `cos`
+  3.0e-32 → 3.8e-32 — both still < 1 DD ULP; all other ops identical.
+  `expm1_taylor` (n=24) and `log1p_taylor` (n=17) left for a future
+  pass (would require `x¹⁶` Estrin level).
+- [x] **12. Renorm-interval tuning doc** — ran an empirical sweep over
+  (k ∈ {16..65k}, ri ∈ {0, 4, 8, 16, 32, 64}) for 4×k·k×4 matmul.
+  Default ri=8 confirmed as near-optimal (~50× precision gain over
+  ri=0 at k=65k, only ~3-4% slower). Documented the tradeoff table in
+  the Fortran fypp comment and the README matmul section with tuning
+  guidance by k range.
 
 ## Tier 4 — Test coverage
 

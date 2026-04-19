@@ -37,8 +37,9 @@ float64x2 exp2_kernel(float64x2 const &x) {
   float64x2 y = x + float64x2(-n_float, 0.0);
   y._limbs[0] = std::ldexp(y._limbs[0], -3);
   y._limbs[1] = std::ldexp(y._limbs[1], -3);
-  // poly(y) then cube via three squarings (to undo the /8)
-  float64x2 p = horner(y, exp2_coefs_hi, exp2_coefs_lo, 14);
+  // poly(y) then cube via three squarings (to undo the /8).
+  // 14 coefs → degree 13 → Estrin case in neval.
+  float64x2 p = neval(y, exp2_coefs_hi, exp2_coefs_lo, 13);
   p = p * p;
   p = p * p;
   p = p * p;
@@ -83,7 +84,8 @@ float64x2 log2_kernel(float64x2 const &x) {
     float64x2 den = x + float64x2(1.0);
     float64x2 t = num / den;
     float64x2 t_sq = t * t;
-    float64x2 p = horner(t_sq, log2_wide_hi, log2_wide_lo, 9);
+    // 9 coefs → degree 8 → Estrin case in neval.
+    float64x2 p = neval(t_sq, log2_wide_hi, log2_wide_lo, 8);
     return t * p;
   }
   // table path
@@ -338,11 +340,13 @@ void reduce_pi_half(float64x2 const &x, float64x2 &r, int &n_mod4) {
 // limb of x is preserved losslessly.
 float64x2 sin_kernel(float64x2 const &x) {
   float64x2 x2 = x * x;
-  return horner(x2, sin_taylor_hi, sin_taylor_lo, 13) * x;
+  // 13 coefs → degree 12 → Estrin case in neval.
+  return neval(x2, sin_taylor_hi, sin_taylor_lo, 12) * x;
 }
 float64x2 cos_kernel(float64x2 const &x) {
   float64x2 x2 = x * x;
-  return horner(x2, cos_taylor_hi, cos_taylor_lo, 13);
+  // 13 coefs → degree 12 → Estrin case in neval.
+  return neval(x2, cos_taylor_hi, cos_taylor_lo, 12);
 }
 
 // Evaluate sin(r)/cos(r) for |r| ≤ π/4. For |r| > π/8 shift by π/4 and use
@@ -485,8 +489,9 @@ float64x2 sinh_full(float64x2 const &x) {
     return r;
   }
   if (std::abs(x._limbs[0]) < 0.1) {
-    // 9-term Taylor: x * (1 + x²/6 + x⁴/120 + ...)
-    return x * horner(x * x, sinh_taylor_hi, sinh_taylor_lo, 9);
+    // 9-term Taylor: x * (1 + x²/6 + x⁴/120 + ...).
+    // 9 coefs → degree 8 → Estrin case in neval.
+    return x * neval(x * x, sinh_taylor_hi, sinh_taylor_lo, 8);
   }
   float64x2 e = exp_full(x);
   float64x2 ei = exp_full(-x);
@@ -518,7 +523,8 @@ void sinhcosh_full(float64x2 const &x, float64x2 &s, float64x2 &c) {
     // Small-|x| Taylor: sinh via shared coefficients, cosh via 1 + x²·Q(x²).
     // The cosh Taylor here mirrors the structure of sinh_full's path.
     float64x2 x2 = x * x;
-    s = x * horner(x2, sinh_taylor_hi, sinh_taylor_lo, 9);
+    // 9 coefs → degree 8 → Estrin case in neval.
+    s = x * neval(x2, sinh_taylor_hi, sinh_taylor_lo, 8);
     // cosh(x) = 1 + x²/2 + x⁴/24 + … — reuse separate kernel to keep code small.
     c = cosh_full(x);
     return;
@@ -766,7 +772,8 @@ float64x2 asinh_full(float64x2 const &x) {
     return r;
   }
   if (std::abs(x._limbs[0]) < 0.01) {
-    return x * horner(x * x, asinh_taylor_hi, asinh_taylor_lo, 15);
+    // 15 coefs → degree 14 → Estrin case in neval.
+    return x * neval(x * x, asinh_taylor_hi, asinh_taylor_lo, 14);
   }
   bool sign = x._limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
@@ -814,7 +821,8 @@ float64x2 atanh_full(float64x2 const &x) {
     return r;
   }
   if (std::abs(x._limbs[0]) < 0.01) {
-    return x * horner(x * x, atanh_taylor_hi, atanh_taylor_lo, 15);
+    // 15 coefs → degree 14 → Estrin case in neval.
+    return x * neval(x * x, atanh_taylor_hi, atanh_taylor_lo, 14);
   }
   float64x2 num = float64x2(1.0) + x;
   float64x2 den = float64x2(1.0) - x;

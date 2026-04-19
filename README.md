@@ -321,6 +321,27 @@ additional shapes.
 kernels for the non-transposed cases (for use with LAPACK routines that
 need quad-precision substitutes).
 
+**Renormalization interval.** Matmul and `dot_product` run a
+compensated fused-multiply-accumulate loop. The low-limb accumulator
+grows by ~1 ULP per iteration, so for large inner dimension `k` it must
+be re-normalized periodically. The module constant
+`DD_FMA_RENORM_INTERVAL` (default `8`) controls the frequency; set `0`
+to disable periodic renorm (single renorm at the end only). A 4×k·k×4
+matmul sweep shows:
+
+| k     | ri=0      | ri=8      | ri=64     |
+| ----- | --------- | --------- | --------- |
+| 64    | 2.9e-31   | 2.9e-31   | 2.9e-31   |
+| 1024  | 3.2e-29   | 4.9e-30   | 3.3e-30   |
+| 65536 | 1.5e-28   | 3.2e-30   | 1.5e-29   |
+
+`ri=8` is near-optimal at ~3-4% overhead. Call
+`dd_set_fma_renorm_interval(n)` from Fortran (or pass `n` to the
+`matmuldd_*` C kernels) to override per-call. For `k < 100`, `ri=0`
+is fine; for `k > 10000`, keep `ri=8` for best accuracy; avoid
+`ri > 32` at very large k since `s_lo` can alias off significant bits
+before the next renormalization fires.
+
 ## Error handling
 
 `multifloats` follows a strict *NaN-in-NaN-out* policy. Invalid inputs

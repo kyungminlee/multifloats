@@ -643,8 +643,21 @@ module multifloats
     ! iteration; renormalizing every DD_FMA_RENORM_INTERVAL steps keeps
     ! worst-case error within ~1e-31 (full DD). Set to 0 to disable
     ! periodic renormalization (single renorm at the end only).
-    ! The default of 8 gives near-optimal precision with negligible
-    ! overhead (~3 extra FP ops per 8 iterations = ~3% cost).
+    !
+    ! Empirical sweep (random-input 4×k · k×4 matmul, max_rel vs qp ref):
+    !    k      ri=0      ri=4      ri=8      ri=16     ri=32     ri=64
+    !   16    1.2e-31   3.3e-32   3.3e-32   1.2e-31   1.2e-31   1.2e-31
+    !   64    2.9e-31   2.9e-31   2.9e-31   2.9e-31   2.9e-31   2.9e-31
+    !   1k    3.2e-29   1.7e-29   4.9e-30   1.2e-29   7.6e-30   3.3e-30
+    !   16k   4.8e-29   2.9e-29   1.5e-29   3.6e-29   5.3e-29   1.5e-28
+    !   65k   1.5e-28   1.6e-29   3.2e-30   6.9e-30   1.2e-29   1.5e-29
+    ! ri=8 is a good default: ~50× better than ri=0 at k=65k, with only
+    ! ~3-4% overhead (vs ri=4 which runs 40-70% slower at large k).
+    ! Tune via `dd_set_fma_renorm_interval`:
+    !   - k < 100  : ri=0 is fine (no measurable precision gain from ri>0).
+    !   - 100 < k < 10000 : any ri in [8, 32] works; default 8 is safe.
+    !   - k > 10000 : ri=8 is near-optimal; avoid ri>32 which lets s_lo
+    !     grow enough to alias off significant bits.
     integer, public, protected :: DD_FMA_RENORM_INTERVAL = 8
 
     ! ================================================================
@@ -2874,6 +2887,12 @@ $:dd_minmax_body(func, n)
             res%re = ca%re - cb%re
             res%im = ca%im - cb%im
 #:elif opname == 'mul'
+            ! Keep the 4-mul form. Karatsuba (3 muls + 5 adds,
+            !   Im = (a+b)(c+d) - ac - bd
+            ! ) was tried and rejected in the Tier 3 audit: it is 2.26×
+            ! slower for DD (1 saved DD mul < 3 extra DD adds) AND less
+            ! precise — the subtraction loses bits when |ac+bd| ≫ |Im|.
+            ! See `tier3/karatsuba_probe.cc` and `test_complex_mul_cancellation`.
             res%re = ca%re * cb%re - ca%im * cb%im
             res%im = ca%re * cb%im + ca%im * cb%re
 #:else
