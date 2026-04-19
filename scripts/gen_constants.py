@@ -176,7 +176,19 @@ def collect_all():
         groups.append(dict(kind='dp_array', name=name,
                            values=values, comment=comment))
 
+    def section(name, source, notes=''):
+        """Separator + provenance block emitted inline + collected for the TOC.
+
+        `source`  — canonical citation (e.g. 'libquadmath erfq.c', 'mpmath Taylor').
+        `notes`   — one-line fit interval / scheme note shown in the TOC.
+        """
+        groups.append(dict(kind='section', name=name,
+                           source=source, notes=notes))
+
     # --- Conversion constants ---
+    section('CONVERSION',
+            'mpmath (60 dp precision)',
+            'log2(e), ln(2), pi, 1/pi, pi/2 Cody-Waite 3-part, ...')
     scalar('log2_e',       1 / log(mpf(2)),        'log2(e)')
     scalar('ln_2',         log(mpf(2)),            'ln(2)')
     scalar('log10_2',      log10(mpf(2)),          'log10(2)')
@@ -194,6 +206,9 @@ def collect_all():
                        v1=cw1, v2=cw2, v3=cw3,
                        comment='pi/2 Cody-Waite 3-part (~161 bits)'))
 
+    section('ERF_RATIONAL',
+            'libquadmath erfq.c (GCC, LGPL)',
+            'erf(x) near 0 and near 1 via two distinct rational fits')
     # erf efx
     scalar('erf_efx', 2 / sqrt(pi) - 1, '2/sqrt(pi) - 1')
     # erf(1) — this is intentionally just a hi part (rounded to exact dp)
@@ -250,6 +265,9 @@ def collect_all():
         ' 1.178502892490738445655468927408440847480E1',
     ]], 'erf denominator, |x| near 1')
 
+    section('ERFC_SUBINTERVAL',
+            'libquadmath erfq.c',
+            '8 rational fits on [0.25, 1.125], step 0.125')
     # erfc sub-interval center points (exact dp)
     dp_array('erfc_x0', [0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0, 1.125],
              'erfc sub-interval centers')
@@ -445,6 +463,9 @@ def collect_all():
         ' 4.430131663290563523933419966185230513168E0',
     ]], 'erfc denominator at x0=1.125')
 
+    section('ERFC_ASYMPTOTIC',
+            'libquadmath erfq.c',
+            'erfc(1/x) = (1/x)*exp(-1/x^2 - 0.5625 + R(1/x^2)), 8 subintervals')
     # erfc asymptotic: erfc(1/x) = (1/x)*exp(-1/x^2 - 0.5625 + R(1/x^2))
     # 8 sub-intervals in 1/x, ordered by i = int(8/x): 0=RNr1, ..., 7=RNr8
     array('erfc_AN1', [mpf(s) for s in [
@@ -647,17 +668,26 @@ def collect_all():
         ' 6.147019596150394577984175188032707343615E1',
     ]], 'erfc asym denominator, 7/8 <= 1/x < 1')
 
+    section('EXP2',
+            'in-house Taylor',
+            'exp2 coefficients (ln2)^k/k!, k=0..13; input clamps')
     # --- exp2 ---
     array('exp2_coefs', gen_exp2_coefs(14), 'exp2: c[k] = (ln2)^k / k!')
     groups.append(dict(kind='exp2_clamp', comment='exp2 input clamps',
                        min=-1022.0, max=1023.9999999999998))
 
+    section('LOG2',
+            'in-house Taylor (atanh-of-u)',
+            'narrow/wide c[k]=2/((2k+1) ln2) + 32-entry value table')
     # --- log2 ---
     array('log2_narrow', gen_log2_coefs(7),
           'log2 narrow: c[k] = 2/((2k+1)*ln2)')
     array('log2_wide', gen_log2_coefs(9),
           'log2 wide: c[k] = 2/((2k+1)*ln2)')
 
+    section('EXPM1_LOG1P',
+            'in-house Taylor',
+            'Taylor-direct series for |x| below the cancellation-free region')
     # --- expm1 / log1p (Taylor-direct, for |x| below the threshold where
     #     exp(x)-1 / log(1+x) would cancel) ---
     array('expm1_taylor', gen_expm1_taylor(25),
@@ -670,12 +700,18 @@ def collect_all():
     dp_array('log2_centers', centers, 'log2 lookup centers')
     array('log2_values', values, 'log2 lookup values')
 
+    section('TRIG',
+            'in-house Taylor',
+            'sin/cos kernel Taylor coefficients for reduced |r| < pi/4')
     # --- trig ---
     array('sin_taylor', gen_sin_taylor(13),
           'sin(x)/x Taylor: c[k] = (-1)^k / (2k+1)!')
     array('cos_taylor', gen_cos_taylor(13),
           'cos(x) Taylor: c[k] = (-1)^k / (2k)!')
 
+    section('HYPERBOLIC',
+            'in-house Taylor',
+            'sinh / asinh / atanh Taylor series for small |x|')
     # --- hyperbolic ---
     array('sinh_taylor', gen_sinh_taylor(9),
           'sinh(x)/x Taylor: c[k] = 1/(2k+1)!')
@@ -684,6 +720,9 @@ def collect_all():
     array('atanh_taylor', gen_atanh_taylor(15),
           'atanh(x)/x Taylor: c[k] = 1/(2k+1)')
 
+    section('ATAN',
+            'libquadmath atanq.c (table) + mpmath (entries)',
+            '87-entry arctan(k/8) table + Remez rational for |t| <= 3/32')
     # --- atan: table lookup + rational polynomial (from libquadmath atanq.c) ---
     # arctan(k/8), k = 0..85, plus pi/2 at index 86.
     # Cutover to the `t = -1/|x|` branch is at |x| = 32/3 so that worst-case
@@ -709,6 +748,9 @@ def collect_all():
         ' 2.173623741810414221251136181221172551416E1',
     ]], 'atan Q(t^2) denominator (monic), 5 coefficients')
 
+    section('ASIN',
+            'libquadmath asinq.c',
+            'two rational fits: |x|<0.5 and |x-0.5625|<0.0625')
     # --- asin: piecewise rational (from libquadmath asinq.c) ---
     # asin(x) = x + x*x^2*pS(x^2)/qS(x^2),  |x| < 0.5
     array('asin_pS', [mpf(s) for s in [
@@ -764,10 +806,16 @@ def collect_all():
         '-7.821597334910963922204235247786840828217E-2',
     ]], 'asin S(t) centered at 0.5625 (monic), 10 coefficients')
 
+    section('GAMMA_STIRLING',
+            'in-house (mpmath Bernoulli numbers)',
+            'Stirling asymptotic expansion for large-x tgamma/lgamma')
     # --- gamma ---
     array('stirling_coefs', gen_stirling_coefs(13),
           'Stirling: c[k] = B_{2k}/(2k*(2k-1)), k=1..13')
 
+    section('LGAMMA_PIECEWISE',
+            'libquadmath lgammaq.c + mpmath (reference values)',
+            '14 rational pieces covering [0.875, 13.5] + minimum x0')
     # --- lgamma piecewise rational approximation (from libquadmath lgammaq.c) ---
     # lgamma minimum: x0 where digamma(x0)=0, y0 = lgamma(x0)
     x0 = findroot(digamma, mpf('1.46'))
@@ -1206,6 +1254,9 @@ def collect_all():
         ' 7.989298844938119228411117593338850892311E2',
     ]], 'lgamma Q(x) for [12.5, 13.5]')
 
+    section('BESSEL',
+            'libquadmath j0q.c / j1q.c (arrays) + mpmath (scalars)',
+            'J0 / Y0 / J1 / Y1 rational fits + asymptotic phase constants')
     # --- Bessel functions (from libquadmath j0q.c / j1q.c) ---
     scalar('inv_sqrt2', 1 / sqrt(mpf(2)), '1/sqrt(2)')
     scalar('two_over_pi', 2 / pi, '2/pi')
@@ -1245,8 +1296,28 @@ def write_cpp(groups, f):
     f.write("// ==========================================================================\n")
     f.write("#pragma once\n\n")
 
+    # --- Table of contents -------------------------------------------------
+    sections = [g for g in groups if g['kind'] == 'section']
+    if sections:
+        f.write("// ==========================================================================\n")
+        f.write("// Section index (search for `=== SECTION: <NAME> ===` to jump)\n")
+        f.write("// --------------------------------------------------------------------------\n")
+        name_w = max(len(s['name']) for s in sections)
+        src_w = max(len(s['source']) for s in sections)
+        for s in sections:
+            f.write(f"//   {s['name']:<{name_w}}  {s['source']:<{src_w}}  {s['notes']}\n")
+        f.write("// ==========================================================================\n\n")
+
     for g in groups:
         kind = g['kind']
+        if kind == 'section':
+            f.write("// ==========================================================================\n")
+            f.write(f"// === SECTION: {g['name']} ===\n")
+            f.write(f"// Source:  {g['source']}\n")
+            if g['notes']:
+                f.write(f"// Notes:   {g['notes']}\n")
+            f.write("// ==========================================================================\n\n")
+            continue
         if kind == 'scalar':
             f.write(f"// {g['comment']}\n")
             f.write(f"inline constexpr double {g['name']}_hi = {g['hi']:23.17e};\n")

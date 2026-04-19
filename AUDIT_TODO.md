@@ -155,8 +155,14 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
   `test/test_common.hh` (namespace `multifloats_test`). `test.cc`,
   `fuzz.cc`, `bench.cc` now include the shared header; `to_mf2`
   renamed to `from_q` for consistency. All 8 ctest targets pass.
-- [ ] **22. `dd_constants.hh` TOC + per-block provenance** (Taylor / Remez /
-  libquadmath citations) via `scripts/gen_constants.py`. **S**
+- [x] **22. `dd_constants.hh` TOC + per-block provenance** — added
+  `section(name, source, notes)` helper to
+  `scripts/gen_constants.py`. Generated header now opens with a
+  13-entry TOC and each block is framed by
+  `=== SECTION: <NAME> ===` with explicit source citation
+  (libquadmath erfq.c / atanq.c / asinq.c / lgammaq.c / j0q.c /
+  j1q.c; in-house Taylor / Remez; mpmath for reference values).
+  1736 constants verified at max conv err 5.8e-33.
 - [ ] **23. Inline provenance comments** for polynomial evals in
   `multifloats_math.cc` (atan_P/Q, erf rationals). **S**
 - [ ] **24. README minimal examples** — 5-line Fortran, C, C++ snippets. **S**

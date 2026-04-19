@@ -4,6 +4,31 @@
 // ==========================================================================
 #pragma once
 
+// ==========================================================================
+// Section index (search for `=== SECTION: <NAME> ===` to jump)
+// --------------------------------------------------------------------------
+//   CONVERSION        mpmath (60 dp precision)                               log2(e), ln(2), pi, 1/pi, pi/2 Cody-Waite 3-part, ...
+//   ERF_RATIONAL      libquadmath erfq.c (GCC, LGPL)                         erf(x) near 0 and near 1 via two distinct rational fits
+//   ERFC_SUBINTERVAL  libquadmath erfq.c                                     8 rational fits on [0.25, 1.125], step 0.125
+//   ERFC_ASYMPTOTIC   libquadmath erfq.c                                     erfc(1/x) = (1/x)*exp(-1/x^2 - 0.5625 + R(1/x^2)), 8 subintervals
+//   EXP2              in-house Taylor                                        exp2 coefficients (ln2)^k/k!, k=0..13; input clamps
+//   LOG2              in-house Taylor (atanh-of-u)                           narrow/wide c[k]=2/((2k+1) ln2) + 32-entry value table
+//   EXPM1_LOG1P       in-house Taylor                                        Taylor-direct series for |x| below the cancellation-free region
+//   TRIG              in-house Taylor                                        sin/cos kernel Taylor coefficients for reduced |r| < pi/4
+//   HYPERBOLIC        in-house Taylor                                        sinh / asinh / atanh Taylor series for small |x|
+//   ATAN              libquadmath atanq.c (table) + mpmath (entries)         87-entry arctan(k/8) table + Remez rational for |t| <= 3/32
+//   ASIN              libquadmath asinq.c                                    two rational fits: |x|<0.5 and |x-0.5625|<0.0625
+//   GAMMA_STIRLING    in-house (mpmath Bernoulli numbers)                    Stirling asymptotic expansion for large-x tgamma/lgamma
+//   LGAMMA_PIECEWISE  libquadmath lgammaq.c + mpmath (reference values)      14 rational pieces covering [0.875, 13.5] + minimum x0
+//   BESSEL            libquadmath j0q.c / j1q.c (arrays) + mpmath (scalars)  J0 / Y0 / J1 / Y1 rational fits + asymptotic phase constants
+// ==========================================================================
+
+// ==========================================================================
+// === SECTION: CONVERSION ===
+// Source:  mpmath (60 dp precision)
+// Notes:   log2(e), ln(2), pi, 1/pi, pi/2 Cody-Waite 3-part, ...
+// ==========================================================================
+
 // log2(e)
 inline constexpr double log2_e_hi = 1.44269504088896339e+00;
 inline constexpr double log2_e_lo = 2.03552737409310331e-17;
@@ -36,6 +61,12 @@ inline constexpr double log_pi_lo = 1.02659511627078264e-17;
 inline constexpr double pi_half_cw1 = 1.57079632679489656e+00;
 inline constexpr double pi_half_cw2 = 6.12323399573676604e-17;
 inline constexpr double pi_half_cw3 = -1.49738490485916983e-33;
+
+// ==========================================================================
+// === SECTION: ERF_RATIONAL ===
+// Source:  libquadmath erfq.c (GCC, LGPL)
+// Notes:   erf(x) near 0 and near 1 via two distinct rational fits
+// ==========================================================================
 
 // 2/sqrt(pi) - 1
 inline constexpr double erf_efx_hi = 1.28379167095512586e-01;
@@ -100,6 +131,12 @@ inline constexpr double erf_TD2_lo[9] = {
     2.11778387732466364e-13, 3.62967502970887454e-14,
     -2.30556601665613794e-14, -1.73219446212744016e-15,
     -5.05229684170886269e-16};
+
+// ==========================================================================
+// === SECTION: ERFC_SUBINTERVAL ===
+// Source:  libquadmath erfq.c
+// Notes:   8 rational fits on [0.25, 1.125], step 0.125
+// ==========================================================================
 
 // erfc sub-interval centers
 inline constexpr double erfc_x0[8] = {
@@ -337,6 +374,12 @@ inline constexpr double erfc_RD20_lo[8] = {
     9.74245121093219961e-14, -1.71409027222368703e-14,
     4.77566742819381640e-15, -4.36958420122609607e-15,
     5.06296566118261205e-16, 3.41888485601218207e-16};
+
+// ==========================================================================
+// === SECTION: ERFC_ASYMPTOTIC ===
+// Source:  libquadmath erfq.c
+// Notes:   erfc(1/x) = (1/x)*exp(-1/x^2 - 0.5625 + R(1/x^2)), 8 subintervals
+// ==========================================================================
 
 // erfc asym numerator, 1/128 <= 1/x < 1/8
 inline constexpr double erfc_AN1_hi[10] = {
@@ -576,6 +619,12 @@ inline constexpr double erfc_AD8_lo[9] = {
     -3.21111445525845257e-13, 3.86620976418577837e-14,
     -1.26652535042228389e-15};
 
+// ==========================================================================
+// === SECTION: EXP2 ===
+// Source:  in-house Taylor
+// Notes:   exp2 coefficients (ln2)^k/k!, k=0..13; input clamps
+// ==========================================================================
+
 // exp2: c[k] = (ln2)^k / k!
 inline constexpr double exp2_coefs_hi[14] = {
     1.00000000000000000e+00, 6.93147180559945286e-01,
@@ -597,6 +646,12 @@ inline constexpr double exp2_coefs_lo[14] = {
 // exp2 input clamps
 inline constexpr double exp2_min = -1022.0;
 inline constexpr double exp2_max = 1023.9999999999998;
+
+// ==========================================================================
+// === SECTION: LOG2 ===
+// Source:  in-house Taylor (atanh-of-u)
+// Notes:   narrow/wide c[k]=2/((2k+1) ln2) + 32-entry value table
+// ==========================================================================
 
 // log2 narrow: c[k] = 2/((2k+1)*ln2)
 inline constexpr double log2_narrow_hi[7] = {
@@ -623,6 +678,12 @@ inline constexpr double log2_wide_lo[9] = {
     -1.64451152771064035e-18, 8.74742715573817183e-18,
     3.13158057552785095e-18, -9.86706916626384246e-19,
     7.29278084286757614e-18};
+
+// ==========================================================================
+// === SECTION: EXPM1_LOG1P ===
+// Source:  in-house Taylor
+// Notes:   Taylor-direct series for |x| below the cancellation-free region
+// ==========================================================================
 
 // expm1(x)/x Taylor: c[k] = 1/(k+1)!
 inline constexpr double expm1_taylor_hi[25] = {
@@ -723,6 +784,12 @@ inline constexpr double log2_values_lo[32] = {
     -7.61071677188994100e-19, 1.37603308463149467e-17,
     5.43960452420150227e-17, 4.27489827128158717e-17};
 
+// ==========================================================================
+// === SECTION: TRIG ===
+// Source:  in-house Taylor
+// Notes:   sin/cos kernel Taylor coefficients for reduced |r| < pi/4
+// ==========================================================================
+
 // sin(x)/x Taylor: c[k] = (-1)^k / (2k+1)!
 inline constexpr double sin_taylor_hi[13] = {
     1.00000000000000000e+00, -1.66666666666666657e-01,
@@ -758,6 +825,12 @@ inline constexpr double cos_taylor_lo[13] = {
     4.39920548583408126e-31, -1.19106796602737540e-32,
     1.44129733786595271e-36, 7.91140261487237622e-38,
     -3.68465735645097660e-41};
+
+// ==========================================================================
+// === SECTION: HYPERBOLIC ===
+// Source:  in-house Taylor
+// Notes:   sinh / asinh / atanh Taylor series for small |x|
+// ==========================================================================
 
 // sinh(x)/x Taylor: c[k] = 1/(2k+1)!
 inline constexpr double sinh_taylor_hi[9] = {
@@ -812,6 +885,12 @@ inline constexpr double atanh_taylor_lo[15] = {
     2.64338815386942019e-18, 1.20676415720125708e-18,
     -8.32667268468867375e-19, 2.05596856412066015e-18,
     4.78544407166015744e-19};
+
+// ==========================================================================
+// === SECTION: ATAN ===
+// Source:  libquadmath atanq.c (table) + mpmath (entries)
+// Notes:   87-entry arctan(k/8) table + Remez rational for |t| <= 3/32
+// ==========================================================================
 
 // arctan(k/8), k=0..85, plus pi/2 (87 entries)
 inline constexpr double atan_table_hi[87] = {
@@ -925,6 +1004,12 @@ inline constexpr double atan_Q_lo[5] = {
     -1.24536706556054044e-14, 1.05507378941916301e-15,
     -2.36726408239483694e-16};
 
+// ==========================================================================
+// === SECTION: ASIN ===
+// Source:  libquadmath asinq.c
+// Notes:   two rational fits: |x|<0.5 and |x-0.5625|<0.0625
+// ==========================================================================
+
 // asin P(x^2) for |x|<0.5, 10 coefficients
 inline constexpr double asin_pS_hi[10] = {
     -8.35809901247068069e+02, 3.67497395768961951e+03,
@@ -987,6 +1072,12 @@ inline constexpr double asin_sS_lo[10] = {
     2.84625000091232676e-15, -8.79804744589358014e-16,
     -1.60535297139724188e-15, -1.05347868954791327e-18};
 
+// ==========================================================================
+// === SECTION: GAMMA_STIRLING ===
+// Source:  in-house (mpmath Bernoulli numbers)
+// Notes:   Stirling asymptotic expansion for large-x tgamma/lgamma
+// ==========================================================================
+
 // Stirling: c[k] = B_{2k}/(2k*(2k-1)), k=1..13
 inline constexpr double stirling_coefs_hi[13] = {
     8.33333333333333287e-02, -2.77777777777777788e-03,
@@ -1004,6 +1095,12 @@ inline constexpr double stirling_coefs_lo[13] = {
     -6.40160048271094580e-19, 1.58370569892303027e-17,
     -6.15411410199396641e-16, 9.39182314171538895e-15,
     -1.33392556260029476e-13};
+
+// ==========================================================================
+// === SECTION: LGAMMA_PIECEWISE ===
+// Source:  libquadmath lgammaq.c + mpmath (reference values)
+// Notes:   14 rational pieces covering [0.875, 13.5] + minimum x0
+// ==========================================================================
 
 // lgamma minimum location x0
 inline constexpr double lgam_x0_hi = 1.46163214496836225e+00;
@@ -1546,6 +1643,12 @@ inline constexpr double lgam_RD13_lo[7] = {
     -1.74982969256512353e-07, 1.97070083934018070e-08,
     -1.76170210875958318e-10, 3.66513847288255193e-12,
     5.37349727029493232e-14};
+
+// ==========================================================================
+// === SECTION: BESSEL ===
+// Source:  libquadmath j0q.c / j1q.c (arrays) + mpmath (scalars)
+// Notes:   J0 / Y0 / J1 / Y1 rational fits + asymptotic phase constants
+// ==========================================================================
 
 // 1/sqrt(2)
 inline constexpr double inv_sqrt2_hi = 7.07106781186547573e-01;
