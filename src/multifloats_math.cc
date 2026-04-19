@@ -2102,7 +2102,19 @@ complex64x2_t casindd(complex64x2_t z) {
   complex64x2_t arg = { to(-b + rr), to(a + ri) };
   complex64x2_t l = clogdd(arg);
   // −i · (lr + i·li) = li − i·lr
-  return { l.im, to(-from(l.re)) };
+  complex64x2_t r = { l.im, to(-from(l.re)) };
+  // Branch-cut fixup for real-axis inputs with |Re z| > 1 (C99 G.6.2.2):
+  // the sign of Im(result) must mirror the sign of Im(input), including
+  // ±0. DD multiply doesn't preserve signed zero (2 * -0 → +0), so the
+  // sign is lost through the (a*b + a*b) chain. If the hi limb ended up
+  // with the wrong sign, negate the WHOLE DD (both limbs) — a simple
+  // copysign-per-limb would corrupt the pair because a typical DD lo
+  // has the opposite sign from hi (representing the rounding residual).
+  if (std::signbit(r.im.hi) != std::signbit(b._limbs[0])) {
+    r.im.hi = -r.im.hi;
+    r.im.lo = -r.im.lo;
+  }
+  return r;
 }
 
 // acos(z) = π/2 − asin(z). Uses DD-precision π/2; the generic <complex>
@@ -2190,6 +2202,22 @@ complex64x2_t cacoshdd(complex64x2_t z) {
 //   Im = 0.5 · atan2(2b, 1 − a² − b²)
 complex64x2_t catanhdd(complex64x2_t z) {
   float64x2 a = from(z.re), b = from(z.im);
+  // Branch-point singularities at z = ±1 + 0i: C99 G.6.2.4 specifies
+  //   catanh(+1 + 0i) = +∞ + 0i
+  //   catanh(−1 + 0i) = −∞ + 0i
+  // Without the short-circuit, num/den = 4/0 = inf in DD; the subsequent
+  // 0.25 * inf DD multiply emits fma(0.25, inf, -inf) = NaN, producing
+  // a wrong NaN-result at this exact branch point.
+  if (b._limbs[0] == 0.0 && b._limbs[1] == 0.0 &&
+      std::abs(a._limbs[0]) == 1.0 && a._limbs[1] == 0.0) {
+    double inf = std::numeric_limits<double>::infinity();
+    complex64x2_t r;
+    r.re.hi = std::copysign(inf, a._limbs[0]);
+    r.re.lo = 0.0;
+    r.im.hi = 0.0;
+    r.im.lo = 0.0;
+    return r;
+  }
   float64x2 b2 = b * b;
   float64x2 x = float64x2(1.0) - b2 - a * a;
   float64x2 ap1 = a + float64x2(1.0), am1 = a - float64x2(1.0);

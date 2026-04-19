@@ -111,14 +111,24 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
   short-fat, tall-skinny, column-scalar, k-dominant. All against qp
   reference at full DD tolerance.
 - [x] **16. Complex branch cuts** — `test_complex_branch_cuts` in
-  `test/test.cc`. Fixed two real bugs found in the process:
-  `atan2_full` used `y._limbs[0] >= 0.0` which is true for `-0.0`, so
-  `clog(x + -0i)` for x<0 returned +π instead of -π; `csqrtdd` had the
-  same `b._limbs[0] < 0.0` idiom for the imag-sign pick. Both switched
-  to `std::signbit(...)`. Test now covers clog / csqrt on the negative
-  real axis × {+0, -0} imag sign. `casin`/`cacos`/`catanh` branch cuts
-  deferred — they chain through clog+csqrt and have their own
-  signed-zero propagation bugs in the composition. Follow-up item.
+  `test/test.cc`. Fixed four real bugs found in the process:
+  1. `atan2_full` used `y._limbs[0] >= 0.0` which is true for `-0.0`, so
+     `clog(x + -0i)` for x<0 returned +π instead of -π; switched to
+     `std::signbit(...)`.
+  2. `csqrtdd` had the same `b._limbs[0] < 0.0` idiom for the imag-sign
+     pick; same fix.
+  3. `catanhdd(±1 + 0i)` returned NaN because the downstream DD multiply
+     `0.25 · log(4/0) = 0.25 · ∞` emits `fma(0.25, ∞, −∞) = NaN` in
+     the compensated-error term. Added explicit short-circuit at the
+     branch-point singularity.
+  4. `casindd` / `cacosdd` lost the signed-zero imag input because DD
+     multiply (`2 · -0 → +0`) doesn't preserve the sign through the
+     `−2ab` computation. Added a post-pass: if the computed Im(result)
+     hi sign disagrees with Im(z) sign, negate the whole DD pair (both
+     limbs — a limb-wise copysign would corrupt the pair since lo is
+     typically the opposite sign of hi). Fuzz precision on random
+     inputs is byte-identical before/after (the fix is idempotent for
+     nonzero Im). Reproducers and measurements in `tier4/`.
 - [x] **17. Huge-argument trig** — `test_huge_argument_trig` in
   `test/test.cc` checks sin(2π·k) for k=2^N (N=0..40), sin(π/2+2π·k),
   exact-zero / ±1 at integer arguments of sinpi/cospi.

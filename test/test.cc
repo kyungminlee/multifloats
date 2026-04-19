@@ -591,15 +591,30 @@ static void test_complex_branch_cuts(Stats &stats) {
     check_sign("csqrt(-x, -0) imag<0", csqrtdd(zn).im.hi, -1);
   }
 
-  // NOTE: casin / cacos / catanh branch-cut tests on |Re z| > 1 / Re = ±1
-  // revealed additional signed-zero propagation bugs in the composed
-  // kernels (casin = −i·log(iz+√(1−z²)) — the sqrt branch chooses +imag
-  // when it should mirror the incoming imaginary sign, but the lift into
-  // log loses it). Fixing those requires reworking the composition so
-  // the imaginary sign flows through. Deferred — currently verified on
-  // the base kernels clog and csqrt only, which are the root algorithms
-  // that all others chain through. See AUDIT_TODO.md #16 for the
-  // remaining work.
+  // casin / cacos on the real axis with |Re z| > 1 have branch cuts at
+  // the imag sign. C99 G.6.2.2:
+  //   casin(x + 0i) for x > 1 = π/2 + i·log(x+√(x²−1))
+  //   casin(x − 0i) for x > 1 = π/2 − i·log(x+√(x²−1))
+  //   cacos(z) = π/2 − casin(z), so imag sign is the OPPOSITE of input.
+  for (double x : {2.0, 5.0, -2.0, -5.0}) {
+    complex64x2_t zp = to_cmf_dp(x, pz);
+    complex64x2_t zn = to_cmf_dp(x, nz);
+    cq_t ref_p = (cq_t)x; __imag__ ref_p = pz;
+    cq_t ref_n = (cq_t)x; __imag__ ref_n = nz;
+    check_c("casin(|x|>1,+0)", casindd(zp), casinq(ref_p), (q_t)1e-28);
+    check_c("casin(|x|>1,-0)", casindd(zn), casinq(ref_n), (q_t)1e-28);
+    check_c("cacos(|x|>1,+0)", cacosdd(zp), cacosq(ref_p), (q_t)1e-28);
+    check_c("cacos(|x|>1,-0)", cacosdd(zn), cacosq(ref_n), (q_t)1e-28);
+  }
+
+  // catanh branch-point singularities at z = ±1 + 0i (C99 G.6.2.4).
+  //   catanh(+1 + 0i) = +∞ + 0i
+  //   catanh(−1 + 0i) = −∞ + 0i
+  complex64x2_t r_p = catanhdd(to_cmf_dp(+1.0, pz));
+  complex64x2_t r_n = catanhdd(to_cmf_dp(-1.0, pz));
+  REQUIRE(std::isinf(r_p.re.hi) && r_p.re.hi > 0);
+  REQUIRE(std::isinf(r_n.re.hi) && r_n.re.hi < 0);
+  REQUIRE(r_p.im.hi == 0.0 && r_n.im.hi == 0.0);
 }
 
 // Huge-argument trig range-reduction sanity. sin(2π·k) is 0 exactly for
@@ -1387,7 +1402,7 @@ int main() {
       {"cx new transc", &cxn,     1.2e-31},
       {"log/root edges",&lre,     2.2e-30},
       {"huge arg trig", &htr,     6.0e-33},
-      {"cx branch cuts",&cbr,     7.0e-33},
+      {"cx branch cuts",&cbr,     1.5e-31},
       {"bessel Miller", &bjn,     1.0e-31},
   };
   std::printf("[multifloats_test] tolerance-ratchet (expected ± 20×):\n");

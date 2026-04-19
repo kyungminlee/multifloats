@@ -1,0 +1,65 @@
+=== AFTER fixes (commit c46dad0+dirty) ===
+=== fortran_bench complex ===
+                cdd_add       409600     0.0088     0.0028      3.20x
+                cdd_sub       409600     0.0091     0.0030      3.05x
+                cdd_mul       409600     0.0279     0.0054      5.20x
+                cdd_div       409600     0.0889     0.0174      5.10x
+              cdd_conjg       409600     0.0021     0.0010      2.00x
+                cdd_abs       409600     0.2046     0.0361      5.66x
+               cdd_sqrt         4096     0.0045     0.0006      7.52x
+                cdd_exp         4096     0.0050     0.0012      4.30x
+                cdd_log         4096     0.0080     0.0017      4.64x
+                cdd_sin         4096     0.0095     0.0016      5.82x
+                cdd_cos         4096     0.0093     0.0016      5.69x
+                cdd_tan         4096     0.0096     0.0018      5.29x
+               cdd_sinh         4096     0.0099     0.0016      6.09x
+               cdd_cosh         4096     0.0099     0.0016      6.18x
+               cdd_tanh         4096     0.0103     0.0018      5.75x
+               cdd_asin         4096     0.0125     0.0025      4.98x
+               cdd_acos         4096     0.0126     0.0025      5.02x
+               cdd_atan         4096     0.0075     0.0015      5.13x
+              cdd_asinh         4096     0.0121     0.0025      4.79x
+              cdd_acosh         4096     0.0122     0.0032      3.82x
+
+=== cpp_test precision ===
+  mul          n=800    max_rel=2.041e-32  mean_rel=1.413e-33
+  div          n=760    max_rel=3.309e-32  mean_rel=2.402e-33
+  abs/fmin/fmax n=840    max_rel=0.000e+00  mean_rel=0.000e+00
+  copysign     n=400    max_rel=0.000e+00  mean_rel=0.000e+00
+  ldexp/etc    n=190    max_rel=0.000e+00  mean_rel=0.000e+00
+  atan cutover n=5453   max_rel=1.907e-32  mean_rel=3.169e-33
+  lerp         n=48     max_rel=4.917e-33  mean_rel=3.544e-34
+  cx accessors n=26     max_rel=9.720e-33  mean_rel=2.195e-33
+  cx new transc n=34     max_rel=1.115e-31  mean_rel=1.297e-32
+  log/root edges n=63     max_rel=2.136e-30  mean_rel=3.480e-32
+  huge arg trig n=16     max_rel=5.990e-33  mean_rel=4.118e-33
+  cx branch cuts n=32     max_rel=1.405e-31  mean_rel=2.241e-32
+  bessel jn (Miller) n=5      max_rel=9.110e-32  mean_rel=4.383e-32
+[multifloats_test] tolerance-ratchet (expected ± 20×):
+  add            observed=1.021e-32 expected=1.100e-32 ratio=0.93  [ok]
+  sub            observed=1.228e-32 expected=1.300e-32 ratio=0.94  [ok]
+  mul            observed=2.041e-32 expected=2.100e-32 ratio=0.97  [ok]
+  div            observed=3.309e-32 expected=3.400e-32 ratio=0.97  [ok]
+  atan cutover   observed=1.907e-32 expected=2.000e-32 ratio=0.95  [ok]
+  cx accessors   observed=9.720e-33 expected=1.000e-32 ratio=0.97  [ok]
+  cx new transc  observed=1.115e-31 expected=1.200e-31 ratio=0.93  [ok]
+  log/root edges observed=2.136e-30 expected=2.200e-30 ratio=0.97  [ok]
+  huge arg trig  observed=5.990e-33 expected=6.000e-33 ratio=1.00  [ok]
+  cx branch cuts observed=1.405e-31 expected=1.500e-31 ratio=0.94  [ok]
+  bessel Miller  observed=9.110e-32 expected=1.000e-31 ratio=0.91  [ok]
+
+=== fortran_fuzz complex ===
+  cdd_sqrt_re                3467     5.2104E-32     3.4012E-33
+  cdd_sqrt_im                3467     4.3868E-32     3.4561E-33
+  cdd_log_re                 3981     1.4213E-30     3.3262E-33
+  cdd_log_im                 3981     1.7544E-32     1.0619E-33
+  cdd_asin_re                 141     3.5197E-32     7.1258E-33
+  cdd_asin_im                 141     2.1470E-28     1.9428E-30
+  cdd_acos_re                 141     1.4137E-32     3.1564E-33
+  cdd_acos_im                 141     2.1470E-28     1.9428E-30
+  cdd_asinh_re                141     1.9667E-21     1.7770E-23
+  cdd_asinh_im                141     3.5513E-32     7.5506E-33
+  cdd_acosh_re                141     2.6565E-29     3.3373E-31
+  cdd_acosh_im                141     3.0916E-32     6.0760E-33
+  cdd_atanh_re                141     6.0053E-23     5.2346E-25
+  cdd_atanh_im                141     2.7746E-32     5.1022E-33
