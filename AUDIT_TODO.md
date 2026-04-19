@@ -176,13 +176,25 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   log path unchanged. Residual tails in `pow`, `asinh`, `atanh` are
   now cancellation issues upstream of exp/log, not the exp/log
   kernels themselves — tracked as P7/P8/P9 below.
-- [ ] **P7 — `pow_full` ~100-ulp tail.** `src/multifloats_math_exp_log.inc:193`.
+- [x] **P7 — `pow_full` ~100-ulp tail.** `src/multifloats_math_exp_log.inc:193`.
   Composition `exp(y · log(x))`: once P6 brought `log` to ~1 ulp_dd,
   the bottleneck became the DD multiply `y · log(x)` for large `|y|`.
-  At the fuzz worst case `pow` sits at 2.4e-30 (~100 ulp_dd).
-  Proper fix needs an extended-precision intermediate: evaluate
-  `log2(x)` and `y · log2(x)` with a ~triple-double-wide product, then
-  feed into `exp2`. Severity: **medium**.
+  At the fuzz worst case `pow` sat at 2.4e-30 (~100 ulp_dd). Severity:
+  **medium**.
+  _Resolved:_ rewrote `pow_full` around `x^y = 2^(y·log2(x))` with a
+  triple-double splitting trick. Factor `log2(x) = e_x + log2(m)` with
+  `e_x = ilogb(x)` (integer) and `m ∈ [1, 2)`; then `y·e_x` is exact
+  in triple-double form (`two_prod(y.hi, e_x)` + `two_prod(y.lo, e_x)`)
+  and `y·log2(m)` is a DD product whose absolute error is bounded by
+  `ulp_dd·|y|·|log2(m)| ≤ ulp_dd·|y|` regardless of |e_x|. Summing the
+  pieces with cascaded `two_sum`s preserves every residual, so the
+  fractional part fed into `exp2_kernel` has absolute error ~ulp_dd·|y|
+  instead of ulp_dd·|y·log2(x)|. Fuzz @ 200k: `pow` 2.4e-30 → 3.9e-31
+  (≈100 ulp_dd → ≈16 ulp_dd). The remaining tail is the exp2-kernel
+  floor (cube-of-eighth + Taylor poly) at ~10 ulp_dd, shared with
+  `exp_full`. Bonus: `pow` also got **faster**, 5.21× → 6.45× vs
+  libquadmath (we now share a single range-reduction with exp2 instead
+  of running log+exp back-to-back).
 - [ ] **P8 — `asinh_full` ~50-ulp tail for negative arguments.**
   asinh(x) = log(x + sqrt(x²+1)); for x very negative, `x + sqrt(x²+1)`
   cancels catastrophically. Fuzz worst case 1.2e-30 (~48 ulp_dd). Use

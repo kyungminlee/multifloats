@@ -243,7 +243,80 @@ float64x2 log1p_full(float64x2 const &x) {
 }
 
 // ---- pow -------------------------------------------------------------------
+// Composition x^y = 2^(y·log2(x)). A plain DD product y·log2(x) carries
+// relative error ~ulp_dd, which for large |y·log2(x)| becomes an absolute
+// error that exp2 amplifies (ulp_dd·|z|·ln2 → tens of ulp_dd in the
+// output). To sidestep that, factor log2(x) = e_x + log2(m) where e_x is
+// an integer (exact) and m ∈ [1,2); then y·e_x is exact in triple-double
+// form (two_prod + y.lo·e_x), and y·log2(m) is DD with absolute error
+// ≲ ulp_dd·|y|. The fractional part of the sum — which drives 2^r — is
+// thus accurate to ~ulp_dd·|y| in absolute terms regardless of |e_x|.
 float64x2 pow_full(float64x2 const &x, float64x2 const &y) {
   if (x._limbs[0] == 0.0 && y._limbs[0] == 0.0) return float64x2(1.0);
-  return exp_full(y * log_full(x));
+  if (!std::isfinite(x._limbs[0]) || !std::isfinite(y._limbs[0]) ||
+      x._limbs[0] <= 0.0) {
+    return exp_full(y * log_full(x));
+  }
+
+  // x = 2^e_x · m, m ∈ [1, 2). log2_kernel(m) is DD with |Lf| < 1.
+  int e_x = std::ilogb(x._limbs[0]);
+  float64x2 m;
+  m._limbs[0] = std::ldexp(x._limbs[0], -e_x);
+  m._limbs[1] = std::ldexp(x._limbs[1], -e_x);
+  float64x2 Lf = log2_kernel(m);
+  double e_x_d = static_cast<double>(e_x);
+
+  // y · e_x as triple-double (exact up to the y.lo·e_x cross product).
+  double AH, AM;
+  two_prod(y._limbs[0], e_x_d, AH, AM);
+  double AL_h, AL_l;
+  two_prod(y._limbs[1], e_x_d, AL_h, AL_l);
+
+  // y · Lf as DD. Residual error ≲ ulp_dd·|y·Lf| = ulp_dd·|y|·|Lf|.
+  float64x2 B = y * Lf;
+  double BH = B._limbs[0], BM = B._limbs[1];
+
+  // Accumulate A + B into (h, l): pick up every two_sum residual so the
+  // integer part survives the huge-|e_x|/small-|Lf| imbalance.
+  double h = AH, l = 0.0, t;
+  two_sum(h, BH, h, t); l += t;
+  two_sum(h, AM, h, t); l += t;
+  two_sum(h, AL_h, h, t); l += t;
+  two_sum(h, BM, h, t); l += t;
+  l += AL_l;
+  fast_two_sum(h, l, h, l);
+
+  // Split z ≈ h + l into n + r with |r| ≤ 0.5 (+ a couple ulp tolerance).
+  double n_d = std::nearbyint(h);
+  double rh, rl;
+  two_sum(h, -n_d, rh, t);
+  rl = t + l;
+  fast_two_sum(rh, rl, rh, rl);
+
+  // Overflow / underflow on the scaling exponent.
+  if (n_d > 1100.0) {
+    float64x2 r;
+    r._limbs[0] = std::numeric_limits<double>::infinity();
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  if (n_d < -1100.0) return float64x2();
+
+  // 2^r via cube-of-eighth Taylor (same as exp2_kernel).
+  rh = std::ldexp(rh, -3);
+  rl = std::ldexp(rl, -3);
+  float64x2 r_dd;
+  r_dd._limbs[0] = rh;
+  r_dd._limbs[1] = rl;
+  float64x2 p = neval(r_dd, exp2_coefs_hi, exp2_coefs_lo, 15);
+  p = p * p; p = p * p; p = p * p;
+
+  int n = static_cast<int>(n_d);
+  int half_n = n / 2;
+  float64x2 r;
+  r._limbs[0] = std::ldexp(p._limbs[0], half_n);
+  r._limbs[1] = std::ldexp(p._limbs[1], half_n);
+  r._limbs[0] = std::ldexp(r._limbs[0], n - half_n);
+  r._limbs[1] = std::ldexp(r._limbs[1], n - half_n);
+  return r;
 }
