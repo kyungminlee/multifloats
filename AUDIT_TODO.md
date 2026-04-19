@@ -37,9 +37,17 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   with NaNs. Verified via a targeted probe: `cpow((hi=0, lo=1e-300), 1)`
   now returns `(1e-300, 0)` instead of `NaN + NaN·i` (previous fix-step)
   or `0 + 0·i` (original bug).
-- [ ] **C4 — `casindd` branch-cut fixup ignores lo-limb sign.** `src/multifloats_math_abi_complex.inc:208`.
+- [x] **C4 — `casindd` branch-cut fixup ignores lo-limb sign.** `src/multifloats_math_abi_complex.inc:208`.
   `signbit(b._limbs[0])`-only; for `b=(+0,−ε)` imaginary sign flips wrong way
   on the real-axis cut. Severity: **medium**.
+  _Resolved:_ introduced a DD-aware `dd_signbit(hi, lo)` helper that
+  routes to `signbit(lo)` only when `hi == 0.0 && lo != 0.0` (so `±0`
+  with a zero lo keeps `signbit(hi)`, preserving signed zero). Applied
+  to both operands of the branch-cut comparison. Verified via a probe
+  over `{+0, −0, (+0,−ε), (−0,+ε)}` for `Im(z)` with `Re(z)=2`:
+  `Im(asin)` sign now matches the DD-level sign of the input in all
+  four cases (previously `(+0,−ε)` and `(−0,+ε)` flipped the wrong
+  way). cpp_fuzz: 0 failures, no tolerance regression.
 - [x] **C5 — `log1p` subnormal fall-through.** `src/multifloats_math_exp_log.inc:171`.
   When `(1+x).hi == 0` but `lo ≠ 0`, control drops to `log_full(0) → −∞`
   instead of a large-negative finite value. Severity: **medium**.

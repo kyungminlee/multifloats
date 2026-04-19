@@ -226,11 +226,18 @@ complex64x2_t casindd(complex64x2_t z) {
   // Branch-cut fixup for real-axis inputs with |Re z| > 1 (C99 G.6.2.2):
   // the sign of Im(result) must mirror the sign of Im(input), including
   // ±0. DD multiply doesn't preserve signed zero (2 * -0 → +0), so the
-  // sign is lost through the (a*b + a*b) chain. If the hi limb ended up
+  // sign is lost through the (a*b + a*b) chain. If the result ended up
   // with the wrong sign, negate the WHOLE DD (both limbs) — a simple
   // copysign-per-limb would corrupt the pair because a typical DD lo
   // has the opposite sign from hi (representing the rounding residual).
-  if (std::signbit(r.im.hi) != std::signbit(b._limbs[0])) {
+  // Use a DD-aware sign: for (hi=±0, lo≠0) the hi-limb signbit does not
+  // reflect the value's actual sign, so fall through to the lo limb.
+  // Route to the lo limb only when hi is an exact zero AND lo carries a
+  // nonzero value. For (hi=±0, lo=0) we keep signbit(hi) so ±0 is preserved.
+  auto dd_signbit = [](double hi, double lo) {
+    return (hi == 0.0 && lo != 0.0) ? std::signbit(lo) : std::signbit(hi);
+  };
+  if (dd_signbit(r.im.hi, r.im.lo) != dd_signbit(b._limbs[0], b._limbs[1])) {
     r.im.hi = -r.im.hi;
     r.im.lo = -r.im.lo;
   }
