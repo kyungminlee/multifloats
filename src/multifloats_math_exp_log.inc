@@ -6,8 +6,8 @@ float64x2 exp2_kernel(float64x2 const &x) {
   y._limbs[0] = std::ldexp(y._limbs[0], -3);
   y._limbs[1] = std::ldexp(y._limbs[1], -3);
   // poly(y) then cube via three squarings (to undo the /8).
-  // 14 coefs → degree 13 → Estrin case in neval.
-  float64x2 p = neval(y, exp2_coefs_hi, exp2_coefs_lo, 13);
+  // 16 coefs → degree 15 → Estrin case in neval.
+  float64x2 p = neval(y, exp2_coefs_hi, exp2_coefs_lo, 15);
   p = p * p;
   p = p * p;
   p = p * p;
@@ -52,8 +52,8 @@ float64x2 log2_kernel(float64x2 const &x) {
     float64x2 den = x + float64x2(1.0);
     float64x2 t = num / den;
     float64x2 t_sq = t * t;
-    // 9 coefs → degree 8 → Estrin case in neval.
-    float64x2 p = neval(t_sq, log2_wide_hi, log2_wide_lo, 8);
+    // 11 coefs → degree 10 → Estrin case in neval.
+    float64x2 p = neval(t_sq, log2_wide_hi, log2_wide_lo, 10);
     return t * p;
   }
   // table path

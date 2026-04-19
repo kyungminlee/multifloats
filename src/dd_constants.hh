@@ -625,23 +625,30 @@ inline constexpr double erfc_AD8_lo[9] = {
 // Notes:   exp2 coefficients (ln2)^k/k!, k=0..13; input clamps
 // ==========================================================================
 
-// exp2: c[k] = (ln2)^k / k!
-inline constexpr double exp2_coefs_hi[14] = {
+// exp2: c[k] = (ln2)^k / k!, degree 15 (16 coefs).
+// Degree was bumped from 13 to 15 to cut Taylor-truncation error at
+// the fit-interval endpoint |y|=1/16 by ~6 orders of magnitude; the
+// dominant error used to come from the three-squaring cube
+// reconstruction amplifying the poly truncation by ~8×, giving
+// ~300 ulp at exp's worst case.
+inline constexpr double exp2_coefs_hi[16] = {
     1.00000000000000000e+00, 6.93147180559945286e-01,
     2.40226506959100722e-01, 5.55041086648215831e-02,
     9.61812910762847688e-03, 1.33335581464284433e-03,
     1.54035303933816088e-04, 1.52527338040598411e-05,
     1.32154867901443095e-06, 1.01780860092396999e-07,
     7.05491162080112336e-09, 4.44553827187081162e-10,
-    2.56784359934882055e-11, 1.36914888539041281e-12};
-inline constexpr double exp2_coefs_lo[14] = {
+    2.56784359934882055e-11, 1.36914888539041281e-12,
+    6.77872635482254506e-14, 3.13243670708842866e-15};
+inline constexpr double exp2_coefs_lo[16] = {
     0.00000000000000000e+00, 2.31904681384629956e-17,
     -9.49393125318287556e-18, -3.16582229039128039e-18,
     2.83246067843809986e-19, 1.39280595631725865e-20,
     1.17836184399075622e-20, -8.02744675505587521e-22,
     -2.01627323236290234e-24, -1.94952071375672282e-24,
     -2.91104539656094055e-26, -1.27310514850609541e-26,
-    -3.69709120983025627e-28, 7.77079532866566839e-29};
+    -3.69709120983025627e-28, 7.77079532866566839e-29,
+    5.71640336211448542e-30, -3.93185581405987562e-32};
 
 // exp2 input clamps. The smallest positive subnormal double is
 // 2^-1074, so any x < -1074 yields a correctly-rounded zero via
@@ -672,19 +679,24 @@ inline constexpr double log2_narrow_lo[7] = {
     -1.64451152771064035e-18, 8.74742715573817183e-18,
     3.13158057552785095e-18};
 
-// log2 wide: c[k] = 2/((2k+1)*ln2)
-inline constexpr double log2_wide_hi[9] = {
+// log2 wide: c[k] = 2/((2k+1)*ln2), degree 10 (11 coefs).
+// Degree was bumped from 8 to 10 to cut Taylor truncation on
+// t² ≤ (1/31)² by ~2 orders of magnitude at the boundary of the
+// direct path (worst case was ~3000 ulp at x near 15/16 or 17/16).
+inline constexpr double log2_wide_hi[11] = {
     2.88539008177792677e+00, 9.61796693925975554e-01,
     5.77078016355585310e-01, 4.12198583111132388e-01,
     3.20598897975325203e-01, 2.62308189252538793e-01,
     2.21953083213686675e-01, 1.92359338785195122e-01,
-    1.69728828339878041e-01};
-inline constexpr double log2_wide_lo[9] = {
+    1.69728828339878041e-01, 1.51862635883048769e-01,
+    1.37399527703710805e-01};
+inline constexpr double log2_wide_lo[11] = {
     4.07105474818620662e-17, 5.05776166481259068e-17,
     5.25510304813786749e-17, 1.37459569590171276e-17,
     -1.64451152771064035e-18, 8.74742715573817183e-18,
     3.13158057552785095e-18, -9.86706916626384246e-19,
-    7.29278084286757614e-18};
+    7.29278084286757614e-18, 1.09075790092439767e-17,
+    -4.66987288553726197e-18};
 
 // ==========================================================================
 // === SECTION: EXPM1_LOG1P ===

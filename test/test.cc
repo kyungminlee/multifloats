@@ -1357,7 +1357,7 @@ int main() {
       {"atan cutover",  &atn,     2.0e-32},
       {"cx accessors",  &cxa,     1.0e-32},
       {"cx new transc", &cxn,     1.2e-31},
-      {"log/root edges",&lre,     2.2e-30},
+      {"log/root edges",&lre,     5.6e-32},
       {"huge arg trig", &htr,     6.0e-33},
       {"cx branch cuts",&cbr,     1.5e-31},
       {"bessel Miller", &bjn,     1.0e-31},
