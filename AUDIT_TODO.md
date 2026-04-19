@@ -163,8 +163,11 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
   (libquadmath erfq.c / atanq.c / asinq.c / lgammaq.c / j0q.c /
   j1q.c; in-house Taylor / Remez; mpmath for reference values).
   1736 constants verified at max conv err 5.8e-33.
-- [ ] **23. Inline provenance comments** for polynomial evals in
-  `multifloats_math.cc` (atan_P/Q, erf rationals). **S**
+- [x] **23. Inline provenance comments** — added formula + source
+  one-liners at the polynomial sites that lacked them: erf_TN1/TD1,
+  erf_TN2/TD2, erfc sub-interval, erfc asymptotic, bessel_j0/j1
+  power-series and Hankel asymptotic branches. atan_P/Q and asin
+  regions already had adequate inline formulas.
 - [ ] **24. README minimal examples** — 5-line Fortran, C, C++ snippets. **S**
 - [x] **25. Delete `dd_constants.f90.inc`** — was a 7-line
   empty-comment placeholder. The generator script (`F90_KEPT_NAMES =

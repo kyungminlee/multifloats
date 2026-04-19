@@ -17,12 +17,14 @@ float64x2 erf_full(float64x2 const &x) {
 
   float64x2 y;
   if (ax._limbs[0] < 0.875) {
+    // |x| < 7/8: erf(x) = x + x·P(x²)/Q(x²) — 9/9 Remez fit (erfq.c).
     if (ax._limbs[0] < 1e-18)
       return x + float64x2(erf_efx_hi, erf_efx_lo) * x;
     float64x2 z = ax * ax;
     y = ax + ax * neval(z, erf_TN1_hi, erf_TN1_lo, 8) /
                   deval(z, erf_TD1_hi, erf_TD1_lo, 8);
   } else {
+    // 7/8 ≤ |x| < 1: erf(x) = erf(1) + P(x-1)/Q(x-1) — fit centered at 1.
     float64x2 a = ax - float64x2(1.0);
     y = float64x2(erf_const_hi, erf_const_lo) +
         neval(a, erf_TN2_hi, erf_TN2_lo, 8) /
@@ -51,7 +53,9 @@ float64x2 erfc_full(float64x2 const &x) {
 
   float64x2 res;
   if (ax._limbs[0] < 1.25) {
-    // 8 sub-intervals of width 0.125 in [0.25, 1.25)
+    // Sub-interval form: erfc(x) = erfc(x0) + (x-x0)·P(x-x0)/Q(x-x0)
+    // where x0 is the nearest 1/8 center. erfc_Ca stores the exact-dp
+    // principal part and erfc_Cb the DD correction (erfq.c convention).
     int i = static_cast<int>(8.0 * ax._limbs[0]);
     float64x2 z = ax - float64x2(erfc_x0[i - 2]);
     float64x2 y;
@@ -69,7 +73,9 @@ float64x2 erfc_full(float64x2 const &x) {
     res = y * z + float64x2(erfc_Cb_hi[ci], erfc_Cb_lo[ci]) +
           float64x2(erfc_Ca_hi[ci], erfc_Ca_lo[ci]);
   } else {
-    // Asymptotic: erfc(x) = (1/x)*exp(-x^2 - 0.5625 + R(1/x^2))
+    // Asymptotic: erfc(x) = (1/x)·exp(-x² - 0.5625 + R(1/x²)), where
+    // R = erfc_AN_i / erfc_AD_i on one of 8 sub-intervals of 1/x ∈ (0,1]
+    // keyed by i = floor(8/x). The 0.5625 bias lets the fits share scale.
     if (neg && ax._limbs[0] >= 9.0) return float64x2(2.0);
 
     float64x2 x2 = ax * ax;

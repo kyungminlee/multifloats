@@ -85,12 +85,16 @@ float64x2 bessel_j0_full(float64x2 const &x) {
   if (!std::isfinite(xx)) return float64x2(0.0);
 
   if (xx <= 2.0) {
+    // Power series (j0q.c): J0(x) = 1 - x²/4 + x⁴·N(x²)/D(x²).
     float64x2 z = ax * ax;
     float64x2 r = z * z * neval(z, j0_J0_2N_hi, j0_J0_2N_lo, 6) /
                       deval(z, j0_J0_2D_hi, j0_J0_2D_lo, 6);
     return r - z * float64x2(0.25) + float64x2(1.0);
   }
 
+  // Hankel asymptotic (x > 2):
+  //   J0(x) = sqrt(2/(πx)) · (P(1/x²)·cos(x-π/4) - Q(1/x²)·sin(x-π/4))
+  // P,Q picked from 8 sub-intervals via bessel_pq0 (j0q.c fits).
   float64x2 angle = ax - float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 s, c;
   sincos_full(angle, s, c);
@@ -115,10 +119,13 @@ float64x2 bessel_j1_full(float64x2 const &x) {
 
   float64x2 res;
   if (xx <= 2.0) {
+    // Power series (j1q.c): J1(x) = x/2 + x·x²·N(x²)/D(x²).
     float64x2 z = ax * ax;
     res = ax * float64x2(0.5) + ax * z * neval(z, j1_J1_2N_hi, j1_J1_2N_lo, 6) /
                                      deval(z, j1_J1_2D_hi, j1_J1_2D_lo, 6);
   } else {
+    // Hankel asymptotic (x > 2), phase shifted by 3π/4:
+    //   J1(x) = sqrt(2/(πx)) · (P(1/x²)·cos(x-3π/4) - Q(1/x²)·sin(x-3π/4))
     float64x2 angle = ax - float64x2(three_pi_quarter_hi, three_pi_quarter_lo);
     float64x2 s, c;
     sincos_full(angle, s, c);
