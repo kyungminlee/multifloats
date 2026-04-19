@@ -44,7 +44,7 @@ Precision is measured as the maximum relative error vs the quad-precision
 |---|---|
 | **Julia** | Ported from `external/MultiFloats.jl/src/` |
 | **original** | Developed for this project |
-| **sample** | Adapted from `external/float64x2-sample.cpp` |
+| **sample** | Ad-hoc implementation in the benchmark harness, not exported from the library |
 
 ## Fortran: `float64x2` vs `real(16)`
 
@@ -85,9 +85,8 @@ the Fortran split (`fortran_fuzz` / `fortran_bench`):
 
 - **`mod` / `fmod`** is the only operation where quad precision is
   consistently faster. The DD `mod` uses a floor-multiple reduction loop
-  (adapted from `external/float64x2-sample.cpp`) for small quotients, or a
-  full DD divide chain for large quotients; libquadmath's `fmodq` uses a
-  specialized bit-level remainder algorithm.
+  for small quotients and a full DD divide chain for large quotients;
+  libquadmath's `fmodq` uses a specialized bit-level remainder algorithm.
 
 - **Trig range reduction** uses a 3-part π/2 constant (~161 bits) via
   Cody–Waite subtraction with DD arithmetic (FMA-captured product errors).

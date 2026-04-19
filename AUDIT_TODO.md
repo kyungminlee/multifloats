@@ -195,5 +195,13 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
   Executable target names left alone (no CI-config breakage).
   `ctest -R precision_` or `ctest -R fuzz_` now selects one
   category.
-- [ ] **28. Clean up `work-gemini/`** + `external/` unused samples. **S**
+- [x] **28. Clean up `work-gemini/`** + `external/` unused samples —
+  `git rm -r work-gemini/` (10 tracked bessel-scratch files; all
+  improvements already landed in `multifloats_math_bessel.inc`).
+  Deleted untracked `external/{erf.cpp,erf_constants.hpp,
+  float64x2-sample.{cpp,hpp},v3.12.1.tar.gz}`. Preserved
+  `external/{lapack-3.12.1,libquadmath,MultiFloats.jl}` —
+  `libquadmath/` is read live by `scripts/gen_constants.py`.
+  Updated `bench/BENCHMARK.md.j2` to drop now-dangling
+  `float64x2-sample.cpp` citations; regenerated `BENCHMARK.md`.
 - [ ] **29. PR CI workflow** (currently only tag builds). **S**
