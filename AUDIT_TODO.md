@@ -51,22 +51,27 @@ fixes land. File:line references are snapshots taken at the time of the audit.
 
 ## Precision
 
-- [ ] **P1 — `sqrt` Karp–Markstein is single-limb.** `src/multifloats.hh:980-984`.
+- [x] **P1 — `sqrt` Karp–Markstein is single-limb.** `src/multifloats.hh:980-984`.
   `residual._limbs[0] * (0.5 / s)` only; full DD division gives ~1–2 ulp
   improvement near perfect squares, and feeds `asin/acos` near ±1. Severity:
   **medium**.
-  _Attempted, reverted:_ three variants were tried on a pop-os fuzz run
-  (`sqrt` max_rel baseline 4.36e-32, n=450k).
-  (a) Full DD divide `residual / (2·s_dd)`: 1.90e-32 (2.3× better) but
-  sqrt bench dropped 52.6× → 23.7× and acosh dropped 8.6× → 6.6×.
-  (b) `residual * MultiFloat(0.5/s)` (DD × scalar): 2.60e-32 (1.7×
-  better) but sqrt bench dropped to 36.6× (~30% regression) and hypot
-  8.1× → 7.7×.
-  (c) Cheap `(residual.hi + residual.lo) * (0.5/s)`: no precision change
-  — lo limb is below the double rounding threshold once scaled by 0.5/s.
-  Plan stop-condition (>5% speedup regression) fires on (a) and (b), so
-  code was reverted. Needs a decision from the user on whether a ~30%
-  sqrt slowdown is acceptable for ~1.7× precision gain before re-landing.
+  _Closed — keep baseline, documented in code:_ the audit's "1–2 ulp loss
+  near perfect squares" framing turned out to overstate the problem.
+  A targeted probe (200k exact squares k² and 1.2M + 400k near-square
+  samples, reference = libquadmath `sqrtq`, 1 ulp ≈ 2.47e-32) shows:
+  ```
+                            baseline   (b) DD×scalar   (a) full DD divide
+    exact k²                0.00 ulp   0.00 ulp        0.00 ulp
+    k² ± small lo limb      0.76 ulp   0.58 ulp        0.39 ulp
+    k² ± ldexp(v, −54)      0.19 ulp   0.19 ulp        0.02 ulp
+  ```
+  Speed costs on pop-os (`cpp_bench` sqrt): baseline 52.6×, (b) ~36×
+  (~30% slower), (a) ~24× (~55% slower); (a) also slows hypot ~13% and
+  acosh ~24%. Baseline is already sub-1-ulp in every case, so the gain
+  isn't worth the regression. A comment in `multifloats.hh` records the
+  trade-off numbers so the optimization isn't re-attempted blindly.
+  Cheap variant `(residual.hi + residual.lo) * (0.5/s)` was also tried
+  and gives zero precision improvement (lo is below double rounding).
 - [ ] **P2 — `asin/acos` near ±1.** `src/multifloats_math_inv_trig.inc:87,121,128`.
   Region-3 half-angle path inherits the P1 error; `asin(±1)` only matches π/2
   to double. Severity: **medium** (gated by P1).

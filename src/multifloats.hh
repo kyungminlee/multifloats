@@ -991,7 +991,19 @@ MultiFloat<T, N> sqrt(MultiFloat<T, N> const &x) {
       r._limbs[0] = s;
       return r;
     }
-    // Karp/Markstein: r = s + (x - s*s) / (2s), evaluated in DD.
+    // Karp/Markstein: r = s + (x - s*s) / (2s), evaluated in DD. The
+    // correction reduces the DD residual to a scalar via
+    // `residual._limbs[0] * (0.5/s)`, so the residual's lo limb is
+    // dropped on the floor. Two higher-fidelity variants were measured
+    // (see AUDIT_TODO.md P1):
+    //   (a) full DD divide `residual / (2*s_dd)` — sqrt worst case near
+    //       perfect squares goes 0.76 → 0.39 ulp, but sqrt bench drops
+    //       ~55% and hypot/acosh take a 10–25% hit.
+    //   (b) `residual * MultiFloat(0.5/s)` (DD × scalar) — 0.76 → 0.58
+    //       ulp, sqrt bench drops ~30%.
+    // Baseline is already sub-1-ulp (0 ulp on exact k², ≤0.76 ulp with a
+    // non-zero lo limb). The gain from (a)/(b) isn't worth the speed
+    // regression for this library's usage pattern; keep baseline.
     MultiFloat<T, N> s_dd(s);
     MultiFloat<T, N> residual = x - s_dd * s_dd;
     MultiFloat<T, N> correction(residual._limbs[0] * (T(0.5) / s));
