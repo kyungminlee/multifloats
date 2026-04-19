@@ -1,25 +1,63 @@
 // ---- exp2 / exp / log2 / log / log10 ---------------------------------------
-float64x2 exp2_kernel(float64x2 const &x) {
-  // n = nearest integer to x.hi, y = (x - n)/8
-  double n_float = std::nearbyint(x._limbs[0]);
-  float64x2 y = x + float64x2(-n_float, 0.0);
-  y._limbs[0] = std::ldexp(y._limbs[0], -3);
-  y._limbs[1] = std::ldexp(y._limbs[1], -3);
-  // poly(y) then cube via three squarings (to undo the /8).
-  // 16 coefs → degree 15 → Estrin case in neval.
-  float64x2 p = neval(y, exp2_coefs_hi, exp2_coefs_lo, 15);
-  p = p * p;
-  p = p * p;
-  p = p * p;
-  // multiply by 2^n via two ldexps (split to keep intermediates in range)
-  int n = static_cast<int>(n_float);
+
+// Compute 2^(n_d + rh + rl), given |rh + rl| ≲ 0.5 and n_d an integer-valued
+// double. The fractional part is further split as k/256 + s with k ∈
+// [-128, 128] and |s| ≲ 1/512 from a 257-entry table of 2^(k/256). A
+// degree-9 Horner on s evaluates 2^s − 1 (next term ~6e-36 ≪ ulp_dd), and
+// one DD multiply against the table entry recombines. No cube, no 8×
+// amplification; round-off floor is ~1 ulp_dd.
+float64x2 exp2_from_reduced(double n_d, double rh, double rl) {
+  if (n_d > 1100.0) {
+    float64x2 r;
+    r._limbs[0] = std::numeric_limits<double>::infinity();
+    r._limbs[1] = 0.0;
+    return r;
+  }
+  if (n_d < -1100.0) return float64x2();
+
+  // Table index: k = round(rh · 256). rh − k/256 is exact (Sterbenz).
+  double k_d = std::nearbyint(rh * 256.0);
+  int k = static_cast<int>(k_d);
+  if (k > 128) k = 128;
+  if (k < -128) k = -128;
+  double sh = rh - static_cast<double>(k) / 256.0;
+  double sl = rl;
+  fast_two_sum(sh, sl, sh, sl);
+  float64x2 s_dd; s_dd._limbs[0] = sh; s_dd._limbs[1] = sl;
+
+  // Horner on c1..c9 of exp2_coefs: q = c1 + s·(c2 + s·(… + s·c9)).
+  float64x2 q; q._limbs[0] = exp2_coefs_hi[9]; q._limbs[1] = exp2_coefs_lo[9];
+  for (int j = 8; j >= 1; --j) {
+    q = q * s_dd;
+    float64x2 c; c._limbs[0] = exp2_coefs_hi[j]; c._limbs[1] = exp2_coefs_lo[j];
+    q = q + c;
+  }
+  // 2^s − 1 = s · q; 2^s = 1 + s·q.
+  float64x2 pow2s = float64x2(1.0) + s_dd * q;
+
+  // Mantissa = T[k+128] · 2^s.
+  float64x2 T;
+  T._limbs[0] = exp2_table_hi[k + 128];
+  T._limbs[1] = exp2_table_lo[k + 128];
+  float64x2 mantissa = T * pow2s;
+
+  int n = static_cast<int>(n_d);
   int half_n = n / 2;
   float64x2 r;
-  r._limbs[0] = std::ldexp(p._limbs[0], half_n);
-  r._limbs[1] = std::ldexp(p._limbs[1], half_n);
+  r._limbs[0] = std::ldexp(mantissa._limbs[0], half_n);
+  r._limbs[1] = std::ldexp(mantissa._limbs[1], half_n);
   r._limbs[0] = std::ldexp(r._limbs[0], n - half_n);
   r._limbs[1] = std::ldexp(r._limbs[1], n - half_n);
   return r;
+}
+
+float64x2 exp2_kernel(float64x2 const &x) {
+  double n_d = std::nearbyint(x._limbs[0]);
+  double rh, rl, t;
+  two_sum(x._limbs[0], -n_d, rh, t);
+  rl = t + x._limbs[1];
+  fast_two_sum(rh, rl, rh, rl);
+  return exp2_from_reduced(n_d, rh, rl);
 }
 
 float64x2 exp2_full(float64x2 const &x) {
@@ -79,22 +117,13 @@ float64x2 exp_full(float64x2 const &x) {
   float64x2 rr;
   fast_two_sum(rh, rl, rr._limbs[0], rr._limbs[1]);
 
-  // e^rr via cube-from-eighth: evaluate exp(rr/8) by Taylor, cube thrice.
-  rr._limbs[0] = std::ldexp(rr._limbs[0], -3);
-  rr._limbs[1] = std::ldexp(rr._limbs[1], -3);
-  float64x2 p = neval(rr, exp_taylor_coefs_hi, exp_taylor_coefs_lo, 15);
-  p = p * p;
-  p = p * p;
-  p = p * p;
-
-  // Scale by 2^n (split into two ldexps so subnormals round cleanly).
-  int n = static_cast<int>(n_d);
-  int half_n = n / 2;
-  r._limbs[0] = std::ldexp(p._limbs[0], half_n);
-  r._limbs[1] = std::ldexp(p._limbs[1], half_n);
-  r._limbs[0] = std::ldexp(r._limbs[0], n - half_n);
-  r._limbs[1] = std::ldexp(r._limbs[1], n - half_n);
-  return r;
+  // Route the residue rr through exp2_from_reduced. rr is in natural-log
+  // form (|rr| ≤ ln2/2 ≈ 0.347); convert to base-2 by one DD multiply
+  // y_frac = rr · log2(e), |y_frac| ≤ 0.5. The integer n from the Cody-
+  // Waite reduction is already the correct 2^n scale factor.
+  float64x2 log2e(log2_e_hi, log2_e_lo);
+  float64x2 y_frac = rr * log2e;
+  return exp2_from_reduced(n_d, y_frac._limbs[0], y_frac._limbs[1]);
 }
 
 float64x2 log2_kernel(float64x2 const &x) {
@@ -293,30 +322,5 @@ float64x2 pow_full(float64x2 const &x, float64x2 const &y) {
   rl = t + l;
   fast_two_sum(rh, rl, rh, rl);
 
-  // Overflow / underflow on the scaling exponent.
-  if (n_d > 1100.0) {
-    float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::infinity();
-    r._limbs[1] = 0.0;
-    return r;
-  }
-  if (n_d < -1100.0) return float64x2();
-
-  // 2^r via cube-of-eighth Taylor (same as exp2_kernel).
-  rh = std::ldexp(rh, -3);
-  rl = std::ldexp(rl, -3);
-  float64x2 r_dd;
-  r_dd._limbs[0] = rh;
-  r_dd._limbs[1] = rl;
-  float64x2 p = neval(r_dd, exp2_coefs_hi, exp2_coefs_lo, 15);
-  p = p * p; p = p * p; p = p * p;
-
-  int n = static_cast<int>(n_d);
-  int half_n = n / 2;
-  float64x2 r;
-  r._limbs[0] = std::ldexp(p._limbs[0], half_n);
-  r._limbs[1] = std::ldexp(p._limbs[1], half_n);
-  r._limbs[0] = std::ldexp(r._limbs[0], n - half_n);
-  r._limbs[1] = std::ldexp(r._limbs[1], n - half_n);
-  return r;
+  return exp2_from_reduced(n_d, rh, rl);
 }
