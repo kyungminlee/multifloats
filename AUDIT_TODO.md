@@ -128,7 +128,7 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
      limbs — a limb-wise copysign would corrupt the pair since lo is
      typically the opposite sign of hi). Fuzz precision on random
      inputs is byte-identical before/after (the fix is idempotent for
-     nonzero Im). Reproducers and measurements in `tier4/`.
+     nonzero Im).
 - [x] **17. Huge-argument trig** — `test_huge_argument_trig` in
   `test/test.cc` checks sin(2π·k) for k=2^N (N=0..40), sin(π/2+2π·k),
   exact-zero / ±1 at integer arguments of sinpi/cospi.

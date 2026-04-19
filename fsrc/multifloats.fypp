@@ -2889,10 +2889,13 @@ $:dd_minmax_body(func, n)
 #:elif opname == 'mul'
             ! Keep the 4-mul form. Karatsuba (3 muls + 5 adds,
             !   Im = (a+b)(c+d) - ac - bd
-            ! ) was tried and rejected in the Tier 3 audit: it is 2.26×
-            ! slower for DD (1 saved DD mul < 3 extra DD adds) AND less
-            ! precise — the subtraction loses bits when |ac+bd| ≫ |Im|.
-            ! See `tier3/karatsuba_probe.cc` and `test_complex_mul_cancellation`.
+            ! ) was tried and rejected: measured 2.26× slower for DD
+            ! (1 saved DD mul < 3 extra DD adds) AND less precise — the
+            ! subtraction loses bits when |ac+bd| ≫ |Im|. The regression
+            ! test `test_complex_mul_cancellation` (in test/test.cc)
+            ! locks in the 4-mul semantics on the classic witness
+            ! a = (1, ε), b = (-1, ε) where the Karatsuba form returns
+            ! -ε² instead of the exact 0.
             res%re = ca%re * cb%re - ca%im * cb%im
             res%im = ca%re * cb%im + ca%im * cb%re
 #:else

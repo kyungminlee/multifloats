@@ -699,8 +699,7 @@ static void test_huge_argument_trig(Stats &stats) {
 // which catastrophically loses precision when the true Im has internal
 // cancellation. For the classic witness a = (1, ε), b = (-1, ε) the
 // true imaginary part is 0 exactly; 4-mul returns 0, Karatsuba returns
-// −ε². See /tmp/tier3/karatsuba_probe.cc and AUDIT_TODO.md #10 for the
-// full A/B study.
+// −ε². See AUDIT_TODO.md #10 for the A/B study that rejected Karatsuba.
 static void test_complex_mul_cancellation() {
   mf::float64x2 const one(1.0), neg_one(-1.0);
   mf::float64x2 eps;
