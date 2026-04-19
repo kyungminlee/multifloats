@@ -79,10 +79,16 @@ static void record(char const *op, double rq, double rdd) {
 //      is not a library bug).
 //   3. Non-finite DD / quad outputs (overflow boundary).
 static bool mp_below_subnormal_floor(mp_t const &v) {
-  // 2^-1050 is well inside the subnormal range; any result smaller has
-  // at most 24 bits of mantissa left in a double, so the DD result
-  // cannot be asked to match a 200-bit reference there.
-  static const mp_t floor_ = mpfr::pow(mp_t(2), mp_t(-1050));
+  // DD precision is bounded by IEEE-double's exponent range: the lo limb
+  // is itself a double, so it cannot go below 2^-1074. For the pair to
+  // carry full 106-bit precision we need lo at ~hi·2^-53 to land in the
+  // *normal* double range, i.e. hi ≥ 2^-969. Below that, DD loses bits
+  // smoothly (at hi = 2^-1022 ≈ 53 bits of total precision survive).
+  // Skipping samples with |ref| < 2^-969 keeps fuzz measuring kernel
+  // quality rather than this format-level cliff. See AUDIT_TODO.md
+  // (erfc deep-tail analysis, 2026-04-19) and compare erfcq, which has
+  // no such cliff because __float128's exponent reaches ~2^-16494.
+  static const mp_t floor_ = mpfr::pow(mp_t(2), mp_t(-969));
   return mpfr::abs(v) < floor_;
 }
 

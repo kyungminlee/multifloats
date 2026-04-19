@@ -233,6 +233,35 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   is preserved to avoid the log1p cost. Fuzz @ 200k: `asinh`
   1.2e-30 → 5.5e-32 (~48 → ~2.2 ulp_dd, 22×). Speed: 9.43× → ~8.7× vs
   libquadmath (~7% slower on the mixed-range bench).
+- [x] **P10 — `erfc` deep-tail "4.6e6 ulp_dd" is a DD-format floor, not a
+  kernel bug.** *(Investigated 2026-04-19.)* Fuzz at seed 0x2a reported
+  `erfc` max_dd ≈ 1.12e-25 (≈4.55e6 ulp_dd). A fine sweep of
+  `erfc(x)` for x ∈ [25, 27] against 200-bit MPFR shows: ≤ 1 ulp_dd for
+  `|result| ≥ 2^-969`, then smooth degradation to ~80 ulp_dd at 2^-979,
+  ~1000 ulp_dd at 2^-983, 4.5e14 ulp_dd at 2^-1020, and 1.0 (full loss)
+  past 2^-1074. **Root cause:** the DD pair is two `double`s, and a
+  `double`'s exponent cannot go below 2^-1074. Once `hi < 2^-969`, the
+  companion `lo` at ~hi·2^-53 is forced into the double-subnormal range
+  and loses mantissa bits proportionally. At hi = 2^-1050, lo carries
+  only ~24 bits. This is a *format* limit, not an algorithm one: a
+  libquadmath cross-check shows `erfcq` holds ≤ 1 ulp_q across the same
+  range because `__float128`'s 15-bit exponent reaches ~2^-16494, so
+  `erfc(27) ≈ 5e-319` is still a fully-normal float128 with all 112
+  bits intact.
+  **Attempted fix that made things worse:** folding the asymptotic's
+  `exp(-s²-0.5625) · exp(diff_sq+p)` into a single `exp` call on the
+  combined DD argument regresses the normal range (0.2 → 12.7 ulp_dd at
+  x=8) because a DD argument of magnitude ~700 has absolute error
+  `ulp_dd·700`, which maps 1:1 to exp's relative output error. The
+  two-exp split was already correct; it lets each exp run at full DD
+  precision on a small argument.
+  **Resolution:** tightened the fuzz subnormal-floor filter from
+  `|ref| < 2^-1050` to `|ref| < 2^-969` so the measurement reflects
+  kernel quality, not the format cliff. Post-filter `erfc` max_dd is
+  ≤ 1 ulp_dd across the supported range. A genuine fix would require
+  escaping DD (e.g. a separate integer-exponent path for deep-tail
+  outputs, or a triple-double internal representation); deferred as
+  out of scope until a concrete caller needs it.
 - [x] **P9 — `atanh_full` ~40-ulp tail.** *(Fixed 2026-04-19.)*
   `0.5·log((1+x)/(1-x))` loses bits when the ratio ≈ 1 (|x| small but
   above the 0.01 Taylor threshold). Replaced with `0.5·log1p(2x/(1-x))`
