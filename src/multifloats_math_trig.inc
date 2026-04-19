@@ -2,15 +2,28 @@
 // Family of π-scaled trig: *pi(x) = fn(π·x). Range-reduce 2·|x| to the
 // nearest integer n, leaving |rx| ≤ 0.25, so |π·rx| ≤ π/4 matches the
 // sin/cos eval range. Dispatch by n mod 4 for the quadrant.
+//
+// Large-argument cap: for |x| ≥ 2^52 a double cannot resolve the fractional
+// part of 2x (ulp ≥ 1), so n mod 4 is meaningless and the result is
+// mathematically indeterminate. We also need the cap to stop 2·x from
+// overflowing to ±∞, which would make the subsequent static_cast<long long>
+// undefined behavior. Return NaN.
+namespace {
+constexpr double kPiTrigArgumentCap = 0x1p52;
+inline bool pi_trig_arg_too_large(double a) { return !(a < kPiTrigArgumentCap); }
+inline float64x2 pi_trig_nan() {
+  float64x2 r;
+  r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
+  r._limbs[1] = 0.0;
+  return r;
+}
+}
+
 float64x2 sinpi_full(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
-    return r;
-  }
+  if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
   bool sign = x._limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
+  if (pi_trig_arg_too_large(ax._limbs[0])) return pi_trig_nan();
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
   float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
@@ -28,13 +41,9 @@ float64x2 sinpi_full(float64x2 const &x) {
 
 // cospi is even; no sign flip on the result.
 float64x2 cospi_full(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
-    return r;
-  }
+  if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
   float64x2 ax = (x._limbs[0] < 0.0) ? -x : x;
+  if (pi_trig_arg_too_large(ax._limbs[0])) return pi_trig_nan();
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
   float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
@@ -51,14 +60,10 @@ float64x2 cospi_full(float64x2 const &x) {
 // tanpi: fuses sin/cos eval so both come from one Taylor pair. Poles at
 // half-integers fall out naturally (sin(0)=+0 ⇒ ±c/0 = ±inf).
 float64x2 tanpi_full(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
-    return r;
-  }
+  if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
   bool sign = x._limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
+  if (pi_trig_arg_too_large(ax._limbs[0])) return pi_trig_nan();
   double n_float = std::nearbyint(2.0 * ax._limbs[0]);
   float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);

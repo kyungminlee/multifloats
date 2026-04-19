@@ -11,9 +11,13 @@ fixes land. File:line references are snapshots taken at the time of the audit.
 
 ## Correctness & edge cases
 
-- [ ] **C1 — `sinpi/cospi/tanpi` overflow is UB.** `src/multifloats_math_trig.inc:14,38,62`.
+- [x] **C1 — `sinpi/cospi/tanpi` overflow is UB.** `src/multifloats_math_trig.inc:14,38,62`.
   `nearbyint(2.0 * ax._limbs[0])` overflows to ∞ for |x| ≳ 1e308, then the
   `long long` cast is undefined. Severity: **high**.
+  _Resolved:_ added `pi_trig_arg_too_large(ax)` guard that returns NaN when
+  `|x| ≥ 2^52`, the point where a double can no longer resolve the
+  fractional part of `2x` (and well below the `∞` threshold that would
+  cause the UB). All three entry points share the helper.
 - [ ] **C2 — `ctandd` divides by zero.** `src/multifloats_math_abi_complex.inc:185`.
   `den = ca*ca + sb*sb` has no zero guard; returns NaN/Inf via raw division
   instead of the C99 Annex G values. Severity: **high**.
