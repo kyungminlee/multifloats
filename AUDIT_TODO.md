@@ -214,4 +214,9 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
   `libquadmath/` is read live by `scripts/gen_constants.py`.
   Updated `bench/BENCHMARK.md.j2` to drop now-dangling
   `float64x2-sample.cpp` citations; regenerated `BENCHMARK.md`.
-- [ ] **29. PR CI workflow** (currently only tag builds). **S**
+- [x] **29. PR CI workflow** — new `.github/workflows/ci.yml` triggers
+  on `pull_request` and pushes to `main`. Single Linux / GCC-14
+  config: fypp install → cmake configure (Release) → build → full
+  ctest with `--output-on-failure`. Fast signal per PR; the existing
+  `release.yml` (gated on `v*` tags) continues to cover the wide
+  matrix (GCC 12-14, LLVM Flang 19-21, Intel oneAPI 2024/2025).
