@@ -1731,7 +1731,7 @@
     }
   },
   "system": {
-    "build": "CMake 3.28.3, `-O3`",
+    "build": "CMake 3.28.3, `-O3 -flto`, STATIC library",
     "compiler": "GNU Fortran / g++ 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1)",
     "cpu": "13th Gen Intel(R) Core(TM) i3-1315U (x86_64), 8 cores, 15 GB",
     "os": "Pop!_OS 24.04 LTS (Linux 6.17.9-76061709-generic)",

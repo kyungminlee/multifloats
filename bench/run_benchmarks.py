@@ -155,7 +155,34 @@ def _version_line(exe: str) -> str:
 def detect_build(build_dir: Path) -> str:
     cmake_ver = _run(["cmake", "--version"]).splitlines()
     cmake = cmake_ver[0].replace("cmake version ", "CMake ") if cmake_ver else "CMake ?"
-    return f"{cmake}, `-O3`"
+
+    # Extract optimization / LTO flags from the actual compile line so the
+    # label reflects what was built, not a hardcoded guess.
+    flags_file = build_dir / "src" / "CMakeFiles" / "multifloats.dir" / "flags.make"
+    opt_tokens: list[str] = []
+    try:
+        for line in flags_file.read_text().splitlines():
+            if line.startswith("CXX_FLAGS"):
+                seen: set[str] = set()
+                for tok in line.split("=", 1)[1].split():
+                    if re.fullmatch(r"-O\d", tok) or tok.startswith("-flto"):
+                        if tok not in seen:
+                            seen.add(tok)
+                            opt_tokens.append(tok)
+                break
+    except OSError:
+        pass
+    flags = " ".join(opt_tokens) if opt_tokens else "-O3"
+
+    # STATIC vs OBJECT vs SHARED — read from CMake's target properties via
+    # the generated archive/object artifacts.
+    lib_type = "STATIC library"
+    if (build_dir / "src" / "libmultifloats.a").exists():
+        lib_type = "STATIC library"
+    elif list(build_dir.glob("src/CMakeFiles/multifloats.dir/*.o")):
+        lib_type = "OBJECT library"
+
+    return f"{cmake}, `{flags}`, {lib_type}"
 
 
 def slugify(name: str) -> str:
