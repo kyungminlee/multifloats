@@ -168,7 +168,11 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
   erf_TN2/TD2, erfc sub-interval, erfc asymptotic, bessel_j0/j1
   power-series and Hankel asymptotic branches. atan_P/Q and asin
   regions already had adequate inline formulas.
-- [ ] **24. README minimal examples** — 5-line Fortran, C, C++ snippets. **S**
+- [x] **24. README minimal examples** — added "Minimal examples"
+  section with 5-line Fortran, C (via `multifloats_c.h`), and C++
+  snippets computing `sqrt(pi)` / `pi`. All three were round-trip
+  compiled against the built archives and produce correct DD output
+  (`pi.hi=3.141592…, pi.lo=1.22e-16`).
 - [x] **25. Delete `dd_constants.f90.inc`** — was a 7-line
   empty-comment placeholder. The generator script (`F90_KEPT_NAMES =
   set()`) explicitly documented that the Fortran module no longer

@@ -366,6 +366,42 @@ Fortran and makes the kernels safe to call from hot loops, vectorized
 code, and parallel regions without synchronization on shared error
 state.
 
+## Minimal examples
+
+### Fortran
+
+```fortran
+use multifloats                    ! generic sqrt/atan overloads live here
+integer, parameter :: dp = 8
+type(float64x2) :: x, y
+x = float64x2(1.0_dp)              ! from a dp literal
+y = sqrt(atan(x) * 4)              ! sqrt(pi) to full DD
+print *, y                         ! defined I/O: ~32 digits
+```
+
+### C (via the C ABI)
+
+```c
+#include "multifloats_c.h"          /* linked with -lmultifloats */
+float64x2_t x = {1.0, 0.0};
+float64x2_t pi4 = atandd(x);        /* pi/4 as a DD */
+float64x2_t pi = muldd((float64x2_t){4.0, 0.0}, pi4);
+printf("pi.hi = %.17g  pi.lo = %.17g\n", pi.hi, pi.lo);
+```
+
+### C++
+
+```cpp
+#include "multifloats.hh"           // header-only public API
+using namespace multifloats;
+float64x2 x(1.0);
+float64x2 pi = float64x2(4.0) * atan(x);
+std::cout << to_string(pi, 32) << "\n";   // scientific, 32 digits
+```
+
+Link `libmultifloats.a` (C / C++) or `libmultifloatsf-<compiler>.a`
+(Fortran); see the [Building](#building) section.
+
 ## Building
 
 Requires:
