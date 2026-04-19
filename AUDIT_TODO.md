@@ -159,8 +159,14 @@ Perf sentinels before/after: `div` 0.0013s, `atan2` 0.0072→0.0073s,
 - [ ] **24. README minimal examples** — 5-line Fortran, C, C++ snippets. **S**
 - [ ] **25. Delete or populate `dd_constants.f90.inc`** (7-line placeholder
   today). **S**
-- [ ] **26. Split `multifloats_math.cc`** into `_exp_log.cc`, `_trig.cc`,
-  `_special.cc`, or add a TOC header. **M**
+- [x] **26. Split `multifloats_math.cc`** — carved 2358-line file into
+  9 topical `.inc` files that the single compiled TU pulls in via
+  `#include`. Preserves all cross-kernel inlining (critical for
+  composed ops like `ctandd` / `casindd` / `ccoshdd` that chain
+  through `sincos_full` / `sinhcosh_full` / `csqrtdd` / `clogdd`)
+  even without `-flto`. Perf bit-identical to pre-split; all 8 ctest
+  targets pass. Files: `multifloats_math_{exp_log, trig, hyp,
+  inv_trig, special, bessel, matmul, abi_scalar, abi_complex}.inc`.
 - [ ] **27. Categorize ctest names** (`precision_*`, `fuzz_*`, `perf_*`). **S**
 - [ ] **28. Clean up `work-gemini/`** + `external/` unused samples. **S**
 - [ ] **29. PR CI workflow** (currently only tag builds). **S**
