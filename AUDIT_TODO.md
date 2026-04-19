@@ -89,11 +89,46 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   trade-off numbers so the optimization isn't re-attempted blindly.
   Cheap variant `(residual.hi + residual.lo) * (0.5/s)` was also tried
   and gives zero precision improvement (lo is below double rounding).
-- [ ] **P2 — `asin/acos` near ±1.** `src/multifloats_math_inv_trig.inc:87,121,128`.
+- [x] **P2 — `asin/acos` near ±1.** `src/multifloats_math_inv_trig.inc:87,121,128`.
   Region-3 half-angle path inherits the P1 error; `asin(±1)` only matches π/2
   to double. Severity: **medium** (gated by P1).
-- [ ] **P3 — `pi_half_cw3` is a single double.** `src/dd_constants.hh:60-63`.
+  _Closed — audit framing not reproducible:_ at exact `x = ±1` both
+  `asin` and `acos` return within 0.04 ulp of the true value (π/2, 0,
+  π). Global fuzz shows `asin` max 0.76 ulp, `acos` max 0.56 ulp —
+  already sub-1-ulp. An initial denser probe over DD-extended inputs
+  in [0.9, 1.0) appeared to show a 15.8-ulp spike for `acos` at
+  `x = (0.99993902994472146, −2.13e-19)`, which was traced further
+  and found to be a **float128 reference-precision artifact**, not a
+  real implementation bug — see investigation note below.
+  _Reference-noise note:_ when checking DD output against
+  `1.0Q − ((__float128)xhi + (__float128)xlo)`, the inner
+  `xhi + xlo` sum loses ~1–2 bits whenever `|xlo|` dips below
+  ~2^-60 (below float128's 113-bit trailing-mantissa floor for
+  magnitude-1 sums). Replacing the reference with the pairwise form
+  `(1.0Q − (__float128)xhi) − (__float128)xlo` (each sub exact for
+  double operands in float128) shows `got − ref = 0` bit-exact — the
+  DD kernel was already optimal. The `acos` region-3 path and the
+  underlying DD subtraction are correct for these inputs. Global
+  fuzz uses `|xlo| ≈ 2^-53·|xhi|`, well above the float128 cliff, so
+  its measurements were never polluted by this artifact.
+- [x] **P3 — `pi_half_cw3` is a single double.** `src/dd_constants.hh:60-63`.
   Third Cody–Waite term limits reduction for |x| > 1e15. Severity: **low**.
+  _Closed — reframed and capped:_ audit blamed cw3's single-double
+  form, but empirically `reduce_pi_half` stays sub-1-ulp through
+  `|x| ≤ 1.414·2^54 ≈ 2.5e16` (audit's 1e15 was conservative by ~25×).
+  The true cliff is at `|x| ≥ 2^55`, where `nearbyint(x·2/π)` loses
+  integer precision (ulp(x) ≥ 1 by then), so `n` is wrong by up to
+  ±0.5 and no finite number of CW terms can recover the answer —
+  adding a `cw4` wouldn't move the cliff. Worse, beyond the cliff
+  `sin_full`/`cos_full`/`tan_full`/`sincos_full` returned
+  progressively larger garbage (e.g. `sin(2^60)` ≈ -8.8e20) rather
+  than bounded values, because `sin_kernel`'s Taylor series was
+  evaluated on an unreduced argument. Added a `trig_arg_too_large`
+  guard mirroring the existing `sinpi`/`cospi`/`tanpi` cap, returning
+  NaN when `|x| ≥ 2^55`. Fuzz and bench on the supported range
+  unchanged. Proper support for huge arguments would require
+  Payne–Hanek reduction, which is out of scope for this library (see
+  `std::sin` for double-precision Payne–Hanek).
 - [ ] **P4 — `erfc_full` asymptotic x-split asymmetry.** `src/multifloats_math_special.inc:100-104`.
   35-bit hi truncation makes `(s-ax)(s+ax)` asymmetric in precision. Severity:
   **low**.

@@ -17,6 +17,18 @@ inline float64x2 pi_trig_nan() {
   r._limbs[1] = 0.0;
   return r;
 }
+// sin/cos/tan argument cap: through |x| ≤ 2^54, reduce_pi_half stays
+// sub-1-ulp; at |x| ≥ 2^55 the n·π/2 reduction walks off because
+// nearbyint(x·2/π) loses integer precision (ulp(x) ≥ 1). For normalized
+// DD with |hi| > 2^54 the lo limb (|lo| ≤ 0.5 ulp(hi), ≤ 2) carries no
+// sub-integer information, so the input itself is effectively an
+// integer — the DD library cannot do better than what std::sin(double)
+// returns via Payne–Hanek, which is outside this library's scope. Match
+// the sinpi cap and return NaN.
+constexpr double kTrigArgumentCap = 0x1p55;
+inline bool trig_arg_too_large(double a) {
+  return !(std::fabs(a) < kTrigArgumentCap);
+}
 }
 
 float64x2 sinpi_full(float64x2 const &x) {
@@ -189,7 +201,7 @@ void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c) {
 // Fused sin/cos of the full-range argument — one call to reduce_pi_half
 // plus one sincos_eval, with the per-quadrant sign/swap applied last.
 void sincos_full(float64x2 const &x, float64x2 &s, float64x2 &c) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) {
     float64x2 nan;
     nan._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     nan._limbs[1] = 0.0;
@@ -217,6 +229,7 @@ float64x2 sin_full(float64x2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
+  if (trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
@@ -235,6 +248,7 @@ float64x2 cos_full(float64x2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
+  if (trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
@@ -253,6 +267,7 @@ float64x2 tan_full(float64x2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
+  if (trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
