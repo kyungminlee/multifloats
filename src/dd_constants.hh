@@ -643,8 +643,15 @@ inline constexpr double exp2_coefs_lo[14] = {
     -2.91104539656094055e-26, -1.27310514850609541e-26,
     -3.69709120983025627e-28, 7.77079532866566839e-29};
 
-// exp2 input clamps
-inline constexpr double exp2_min = -1022.0;
+// exp2 input clamps. The smallest positive subnormal double is
+// 2^-1074, so any x < -1074 yields a correctly-rounded zero via
+// ldexp(·, half_n) + ldexp(·, rem) in exp2_kernel. We set the lower
+// clamp a few steps below -1074 to give the kernel's nearbyint
+// rounding headroom (y near -1074.5 must still reduce cleanly) and to
+// avoid any concern about `static_cast<int>(n_float)` for pathological
+// inputs. Subnormal outputs have only single-double precision — the DD
+// lo limb has no room below 2^-1022.
+inline constexpr double exp2_min = -1080.0;
 inline constexpr double exp2_max = 1023.9999999999998;
 
 // ==========================================================================

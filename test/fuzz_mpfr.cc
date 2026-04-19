@@ -71,6 +71,21 @@ static void record(char const *op, double rq, double rdd) {
 
 // Compare DD output and a float128 value against an mpreal reference.
 // `op` labels the row; ref_mp must be finite for the sample to count.
+//
+// Skips three IEEE floors where reporting rel-err would be misleading:
+//   1. ref_mp non-finite (NaN/Inf — no reference to compare).
+//   2. |ref_mp| < 2^-1050 (deep subnormal; IEEE double rounds to zero
+//      or the smallest subnormal, so rel-err up to 1.0 is expected and
+//      is not a library bug).
+//   3. Non-finite DD / quad outputs (overflow boundary).
+static bool mp_below_subnormal_floor(mp_t const &v) {
+  // 2^-1050 is well inside the subnormal range; any result smaller has
+  // at most 24 bits of mantissa left in a double, so the DD result
+  // cannot be asked to match a 200-bit reference there.
+  static const mp_t floor_ = mpfr::pow(mp_t(2), mp_t(-1050));
+  return mpfr::abs(v) < floor_;
+}
+
 static void check(char const *op,
                   mf::float64x2 const &got_dd,
                   q_t ref_q,
@@ -78,6 +93,7 @@ static void check(char const *op,
   if (!mp_isfinite(ref_mp) || mp_isnan(ref_mp)) return;
   if (!q_isfinite(ref_q)) return;
   if (!std::isfinite(got_dd._limbs[0])) return;
+  if (mp_below_subnormal_floor(ref_mp)) return;
   double rq  = mp_rel_err(to_mp(ref_q),          ref_mp);
   double rdd = mp_rel_err(to_mp(got_dd),          ref_mp);
   record(op, rq, rdd);
