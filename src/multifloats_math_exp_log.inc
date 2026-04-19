@@ -168,8 +168,11 @@ float64x2 log1p_full(float64x2 const &x) {
                (arg._limbs[0] == 0.0 && arg._limbs[1] < 0.0)) {
       r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
     } else {
-      // arg is a positive subnormal with hi == 0: fall through.
-      return log_full(arg);
+      // arg has hi == 0 but lo > 0: the "real" value is the lo limb alone
+      // (a positive subnormal). Passing the pair as-is to log_full would
+      // trip its leading-limb zero check and return −∞. Promote lo to the
+      // leading position so log_full sees a normalized operand.
+      return log_full(float64x2(arg._limbs[1], 0.0));
     }
     return r;
   }

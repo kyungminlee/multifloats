@@ -31,9 +31,13 @@ fixes land. File:line references are snapshots taken at the time of the audit.
 - [ ] **C4 — `casindd` branch-cut fixup ignores lo-limb sign.** `src/multifloats_math_abi_complex.inc:208`.
   `signbit(b._limbs[0])`-only; for `b=(+0,−ε)` imaginary sign flips wrong way
   on the real-axis cut. Severity: **medium**.
-- [ ] **C5 — `log1p` subnormal fall-through.** `src/multifloats_math_exp_log.inc:171`.
+- [x] **C5 — `log1p` subnormal fall-through.** `src/multifloats_math_exp_log.inc:171`.
   When `(1+x).hi == 0` but `lo ≠ 0`, control drops to `log_full(0) → −∞`
   instead of a large-negative finite value. Severity: **medium**.
+  _Resolved:_ when the subnormal branch is taken, promote the lo limb to
+  a normalized scalar via `float64x2(arg._limbs[1], 0.0)` before calling
+  `log_full`, so the leading-limb zero check inside `log_full`/`log2_full`
+  is not tripped.
 - [x] **C6 — FMA assumed but not asserted.** `src/multifloats.hh:41`, trig.inc:97, special.inc:101.
   If `FP_FAST_FMA` is false, `two_prod` silently loses the error term and every
   DD operation degrades to double. Add `static_assert(FP_FAST_FMA)` or a runtime
