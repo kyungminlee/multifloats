@@ -343,8 +343,22 @@ float64x2 lgamma_rational(float64x2 const &x) {
 
 // Compute lgamma for positive x >= 0.5.
 float64x2 lgamma_positive(float64x2 const &x) {
-  if (x._limbs[0] >= 13.5)
+  if (x._limbs[0] >= 25.0)
     return lgamma_stirling(x);
+  if (x._limbs[0] >= 13.5) {
+    // Shift recurrence: lgamma(x) = lgamma(x+N) - log(x*(x+1)*...*(x+N-1)).
+    // Push x into the asymptotic regime (≥25) where the 13-term Stirling
+    // series is tight. N ∈ [1..12].
+    int N = 25 - (int)x._limbs[0];
+    float64x2 xi = x;
+    float64x2 prod = xi;
+    for (int i = 1; i < N; ++i) {
+      xi = xi + float64x2(1.0);
+      prod = prod * xi;
+    }
+    float64x2 x_shifted = x + float64x2((double)N);
+    return lgamma_stirling(x_shifted) - log_full(prod);
+  }
   return lgamma_rational(x);
 }
 

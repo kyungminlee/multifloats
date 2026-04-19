@@ -262,6 +262,22 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   escaping DD (e.g. a separate integer-exponent path for deep-tail
   outputs, or a triple-double internal representation); deferred as
   out of scope until a concrete caller needs it.
+- [x] **P11 — `lgamma`/`tgamma` kernel seam at x=13.5.** *(Fixed 2026-04-19.)*
+  `lgamma_stirling` comment declared "x ≥ ~20" but `lgamma_positive` called it
+  directly at x ≥ 13.5, where the 13-term asymptotic series is under-converged
+  (`c_13/x^25` ≈ `10^-14` at x=13.5). Fuzz measured `lgamma` ≈ 1.5e3 ulp_dd and
+  `tgamma` ≈ 3.8e4 ulp_dd, with the worst case at x ≈ 13.5 exactly. Kernel seam,
+  not a DD-format cliff (results at ~21 and ~1.7e9 are fully normal).
+  **Fix:** shift recurrence in `lgamma_positive` for 13.5 ≤ x < 25 —
+  accumulate `prod = x·(x+1)·…·(x+N-1)` in DD (N ≤ 12), call
+  `lgamma_stirling(x+N)`, subtract `log_full(prod)`. Result:
+  `lgamma` 1.5e3 → ~2.3 ulp_dd, `tgamma` 3.8e4 → ~160 ulp_dd.
+  Bench essentially unchanged (12.57× → 12.55× tgamma; 4.79× → 4.82× lgamma).
+  `tgamma`'s remaining ~160 ulp_dd floor is inherent: `tgamma = exp(lgamma)`
+  amplifies lgamma's absolute error by `|tgamma|`, so at x=70 where
+  `lgamma ≈ 229` even a 1.3-ulp_dd lgamma produces ~300 ulp_dd on tgamma.
+  Closing this would require a direct-tgamma asymptotic path (separate
+  kernel rather than exp-of-lgamma); deferred.
 - [x] **P9 — `atanh_full` ~40-ulp tail.** *(Fixed 2026-04-19.)*
   `0.5·log((1+x)/(1-x))` loses bits when the ratio ≈ 1 (|x| small but
   above the 0.01 Taylor threshold). Replaced with `0.5·log1p(2x/(1-x))`
