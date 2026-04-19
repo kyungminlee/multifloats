@@ -204,12 +204,14 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   is preserved to avoid the log1p cost. Fuzz @ 200k: `asinh`
   1.2e-30 → 5.5e-32 (~48 → ~2.2 ulp_dd, 22×). Speed: 9.43× → ~8.7× vs
   libquadmath (~7% slower on the mixed-range bench).
-- [ ] **P9 — `atanh_full` ~40-ulp tail.** `0.5·log((1+x)/(1-x))`
-  cancels at both |x| → 0 (where log1p should carry it) and |x| → 1
-  (where the ratio explodes before the log). Fuzz worst case 9.4e-31.
-  Route small |x| through a Taylor / log1p path and large |x| through
-  `0.5·log1p(2x/(1-x))` with a careful denominator split. Severity:
-  **medium**.
+- [x] **P9 — `atanh_full` ~40-ulp tail.** *(Fixed 2026-04-19.)*
+  `0.5·log((1+x)/(1-x))` loses bits when the ratio ≈ 1 (|x| small but
+  above the 0.01 Taylor threshold). Replaced with `0.5·log1p(2x/(1-x))`
+  across the whole non-Taylor range — log1p routes to `log` internally
+  once the argument grows, so the single formula handles |x| near 1 too.
+  Fuzz @ 200k: `atanh` 9.4e-31 → 5.3e-32 (~38 → ~2.1 ulp_dd, 18×).
+  Bench: 5.59× → ~6.15× vs libquadmath (10% **faster** — one fewer full
+  `log_full` division round).
 
 ## Speed
 

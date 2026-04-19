@@ -267,8 +267,13 @@ float64x2 atanh_full(float64x2 const &x) {
     // 15 coefs → degree 14 → Estrin case in neval.
     return x * neval(x * x, atanh_taylor_hi, atanh_taylor_lo, 14);
   }
-  float64x2 num = float64x2(1.0) + x;
+  // atanh(x) = 0.5·log((1+x)/(1-x)) = 0.5·log1p(2x/(1-x)).
+  // For 0.01 ≤ |x| ≪ 1 the ratio ≈ 1 and the direct log loses bits;
+  // log1p of 2x/(1-x) (which stays small there) preserves them. For
+  // |x| near 1 the argument to log1p becomes large and log1p routes
+  // to log, so the same formula covers the whole remaining range.
   float64x2 den = float64x2(1.0) - x;
-  return float64x2(0.5, 0.0) * log_full(num / den);
+  float64x2 arg = (x + x) / den;
+  return float64x2(0.5, 0.0) * log1p_full(arg);
 }
 
