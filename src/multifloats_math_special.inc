@@ -391,6 +391,71 @@ float64x2 lgamma_full(float64x2 const &x) {
   return lgamma_positive(x);
 }
 
+// Direct DD Stirling for Γ(x), positive x in the asymptotic range (≥ ~24).
+// Returns `ret` with `exp2_adj` set so Γ(x) = ret · 2^exp2_adj, keeping
+// intermediates bounded. Mirrors libquadmath's gammal_positive
+// (external/libquadmath/math/tgammaq.c).
+//
+// Γ(x) = sqrt(2π/x) · (x/e)^x · (1 + expm1(Σ c_k/x^(2k-1)))
+// Factor x = mant · 2^e with mant ∈ [√½, √2), split x = x_int + x_frac.
+// Then (x/e)^x = mant^x · 2^(e·x_int) · 2^(e·x_frac) · e^-x; the 2^(e·x_int)
+// is exact and factored out as exp2_adj so nothing overflows in stages.
+static inline float64x2 tgamma_stirling_direct(float64x2 const &x,
+                                               int &exp2_adj) {
+  int log2_e;
+  double mh = std::frexp(x._limbs[0], &log2_e);
+  float64x2 mant;
+  mant._limbs[0] = mh;
+  mant._limbs[1] = std::ldexp(x._limbs[1], -log2_e);
+  if (mant._limbs[0] < 0.7071067811865475) {
+    log2_e -= 1;
+    mant._limbs[0] *= 2.0;
+    mant._limbs[1] *= 2.0;
+  }
+  double x_int_d = std::round(x._limbs[0]);
+  int x_int = (int)x_int_d;
+  float64x2 x_frac = x - float64x2(x_int_d);
+  exp2_adj = log2_e * x_int;
+
+  float64x2 pm_x = pow_full(mant, x);
+  float64x2 e2f = exp2_full(float64x2((double)log2_e) * x_frac);
+  float64x2 neg_x;
+  neg_x._limbs[0] = -x._limbs[0];
+  neg_x._limbs[1] = -x._limbs[1];
+  float64x2 emx = exp_full(neg_x);
+  float64x2 two_pi(2.0 * pi_dd_hi, 2.0 * pi_dd_lo);
+  float64x2 sq = multifloats::sqrt(two_pi / x);
+  float64x2 ret = pm_x * e2f * emx * sq;
+
+  float64x2 inv_x = float64x2(1.0) / x;
+  float64x2 inv_x2 = inv_x * inv_x;
+  float64x2 poly = horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13);
+  float64x2 S = poly * inv_x;
+  return ret + ret * expm1_full(S);
+}
+
+// Γ(x) for positive x ≥ 13.5 via shift-to-≥24 + direct Stirling.
+// Returns a value already multiplied back up through ldexp.
+static inline float64x2 tgamma_positive_direct(float64x2 const &x) {
+  float64x2 x_adj = x;
+  float64x2 prod = float64x2(1.0);
+  if (x._limbs[0] < 24.0) {
+    int N = 24 - (int)x._limbs[0];
+    float64x2 xi = x;
+    prod = xi;
+    for (int i = 1; i < N; ++i) {
+      xi = xi + float64x2(1.0);
+      prod = prod * xi;
+    }
+    x_adj = x + float64x2((double)N);
+  }
+  int exp2_adj = 0;
+  float64x2 ret = tgamma_stirling_direct(x_adj, exp2_adj) / prod;
+  ret._limbs[0] = std::ldexp(ret._limbs[0], exp2_adj);
+  ret._limbs[1] = std::ldexp(ret._limbs[1], exp2_adj);
+  return ret;
+}
+
 float64x2 tgamma_full(float64x2 const &x) {
   float64x2 r;
   double hi = x._limbs[0];
@@ -422,21 +487,18 @@ float64x2 tgamma_full(float64x2 const &x) {
   }
   if (hi < 0.5) {
     // Reflection: Γ(x) = π / (sin(πx) · Γ(1-x))
-    // For very negative x, Γ(1-x) overflows and the result underflows; let
-    // the DD division produce the underflowed / signed zero.
     float64x2 s = sinpi_full(x);
     float64x2 one_minus_x = float64x2(1.0) - x;
-    // Use lgamma path for the (1-x) branch so we avoid a double tgamma
-    // recursion and keep the large factor inside a log.
-    float64x2 lg = lgamma_positive(one_minus_x);
-    // Γ(1-x) = exp(lg). sin(πx) may be negative → track sign separately.
     bool neg = s._limbs[0] < 0.0;
     if (neg) {
       s._limbs[0] = -s._limbs[0];
       s._limbs[1] = -s._limbs[1];
     }
     float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
-    float64x2 g1mx = exp_full(lg);
+    // Γ(1-x): direct path when 1-x is in asymptotic range, else exp(lgamma).
+    float64x2 g1mx = (one_minus_x._limbs[0] >= 13.5)
+                       ? tgamma_positive_direct(one_minus_x)
+                       : exp_full(lgamma_positive(one_minus_x));
     float64x2 out = pi_dd / (s * g1mx);
     if (neg) {
       out._limbs[0] = -out._limbs[0];
@@ -444,6 +506,8 @@ float64x2 tgamma_full(float64x2 const &x) {
     }
     return out;
   }
+  if (hi >= 13.5)
+    return tgamma_positive_direct(x);
   return exp_full(lgamma_positive(x));
 }
 

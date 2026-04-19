@@ -273,17 +273,20 @@ fixes land. File:line references are snapshots taken at the time of the audit.
   `lgamma_stirling(x+N)`, subtract `log_full(prod)`. Result:
   `lgamma` 1.5e3 → ~2.3 ulp_dd, `tgamma` 3.8e4 → ~160 ulp_dd.
   Bench essentially unchanged (12.57× → 12.55× tgamma; 4.79× → 4.82× lgamma).
-  `tgamma`'s remaining ~160 ulp_dd floor is inherent to our
-  `tgamma = exp(lgamma)` strategy: lgamma's absolute error gets amplified
-  by `|tgamma|`, so at x=70 where `lgamma ≈ 229` even a 1.3-ulp_dd lgamma
-  produces ~300 ulp_dd on tgamma.
-  **Cross-check vs libquadmath** (seed 0xdead, 100k samples, x ∈ (0, 100),
-  512-bit MPFR reference): `lgammaq` ≤ 1.77 ulp_q, `tgammaq` ≤ 3.04 ulp_q
-  across the full range (including x=99 where tgamma ≈ 9.3e155). That
-  means libquadmath isn't going through `exp(lgamma)` — it evaluates
-  tgamma directly and dodges the amplification. Matching that would
-  require a direct-tgamma asymptotic kernel (shift + Stirling form of
-  tgamma, not exp-of-lgamma_stirling); deferred until a caller needs it.
+  **Follow-up (P11b, 2026-04-19):** direct-Stirling `tgamma` path replaces
+  `exp(lgamma)` for x ≥ 13.5 (and for `Γ(1-x)` in the reflection branch),
+  mirroring libquadmath's `tgammaq`. New `tgamma_stirling_direct`: shift
+  to x_adj ≥ 24, factor `x = mant · 2^e` (mant ∈ [√½, √2)), compute
+  `ret = pow(mant, x) · exp2(e·x_frac) · exp(-x) · sqrt(2π/x)`, then
+  `ret · (1 + expm1(Σ B_2k/(2k(2k-1))/x^(2k-1)))`; the `2^(e·x_int)`
+  factor is pulled out as `exp2_adj` and applied by `ldexp` at the end
+  so no intermediate overflows. Biggest exp-argument drops from
+  `log Γ(99) ≈ 359` to `x·log(mant) ≲ 63`, cutting the amplification
+  floor ~10×. Fuzz @ 200k: `tgamma` 3.9e-30 → 3.5e-31 (~157 → ~14
+  ulp_dd). Point probe at x=99: ~22 ulp_dd (was ~300); x=90: ~9;
+  x ≤ 50: ≤ 4. Bench: 11.3× → 13.3× (direct path is cheaper than
+  exp(lgamma_rational) at large x since it dodges the 14-piece
+  rational schedule). All 9 ctest tests pass.
 - [x] **P9 — `atanh_full` ~40-ulp tail.** *(Fixed 2026-04-19.)*
   `0.5·log((1+x)/(1-x))` loses bits when the ratio ≈ 1 (|x| small but
   above the 0.01 Taylor threshold). Replaced with `0.5·log1p(2x/(1-x))`
