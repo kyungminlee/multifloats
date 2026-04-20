@@ -645,29 +645,44 @@ constexpr MultiFloat<T, N> fma(MultiFloat<T, N> const &x,
 
 template <typename T, std::size_t N>
 MultiFloat<T, N> fmod(MultiFloat<T, N> const &x, MultiFloat<T, N> const &y) {
-  // Exponent gap > 53: quotient exceeds ~2^53, so one DD divide + trunc
-  // is cheaper and more accurate than looping.
-  // Otherwise: iteratively subtract floor(r_hi / ay_hi)·ay until r < ay.
-  // In practice the loop runs 1-3 iterations; it is robust to a
-  // leading-limb floor that undershoots by one (the loop closes the gap),
-  // unlike a single-pass reduction.
+  // Reduction step picks q from the ilogb gap between r and ay:
+  // gap ≤ 53 — scalar q fits in one double (the earlier all-scalar form
+  // silently lost q's low integer bits past 2^53); gap > 53 — DD-level
+  // trunc(r/ay) carries ~106 integer bits, so a single step drops gap by
+  // ≥ 53 and iteration converges in O(gap/53) steps even past 2^106. DD
+  // rounding of r − q·ay can leave a tiny negative residue; add-back
+  // uses the same gap dispatch so recovery stays O(1).
   bool x_neg = x._limbs[0] < T(0);
   MultiFloat<T, N> ax = x_neg ? -x : x;
   MultiFloat<T, N> ay = (y._limbs[0] < T(0)) ? -y : y;
 
   if (ax < ay) return x;
 
-  MultiFloat<T, N> r;
-  if (std::ilogb(ax._limbs[0]) - std::ilogb(ay._limbs[0]) > 53) {
-    r = ax - trunc(ax / ay) * ay;
-  } else {
-    r = ax;
-    while (r >= ay) {
-      T q = std::trunc(r._limbs[0] / ay._limbs[0]);
-      r = (q <= T(1)) ? (r - ay) : (r - ay * MultiFloat<T, N>(q));
-      if (r._limbs[0] < T(0)) r = r + ay;
-      if (r._limbs[0] == T(0) && r._limbs[1] == T(0)) break;
+  MultiFloat<T, N> r = ax;
+  while (true) {
+    if (r._limbs[0] < T(0)) {
+      T r_abs = -r._limbs[0];
+      int gap = std::ilogb(r_abs) - std::ilogb(ay._limbs[0]);
+      if (gap <= 0) {
+        r = r + ay;
+      } else if (gap <= 53) {
+        T q = std::trunc(r_abs / ay._limbs[0]) + T(1);
+        r = r + ay * MultiFloat<T, N>(q);
+      } else {
+        r = r + (trunc(-r / ay) + MultiFloat<T, N>(T(1))) * ay;
+      }
+    } else if (r >= ay) {
+      int gap = std::ilogb(r._limbs[0]) - std::ilogb(ay._limbs[0]);
+      if (gap <= 53) {
+        T q = std::trunc(r._limbs[0] / ay._limbs[0]);
+        r = (q <= T(1)) ? (r - ay) : (r - ay * MultiFloat<T, N>(q));
+      } else {
+        r = r - trunc(r / ay) * ay;
+      }
+    } else {
+      break;
     }
+    if (r._limbs[0] == T(0) && r._limbs[1] == T(0)) break;
   }
 
   return x_neg ? -r : r;
