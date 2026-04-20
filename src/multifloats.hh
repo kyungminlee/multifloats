@@ -1061,9 +1061,9 @@ MultiFloat<T, N> sqrt(MultiFloat<T, N> const &x) {
     // Baseline is already sub-1-ulp (0 ulp on exact k², ≤0.76 ulp with a
     // non-zero lo limb). The gain from (a)/(b) isn't worth the speed
     // regression for this library's usage pattern; keep baseline.
-    MultiFloat<T, N> s_dd(s);
-    MultiFloat<T, N> residual = x - s_dd * s_dd;
-    MultiFloat<T, N> correction(residual._limbs[0] * (T(0.5) / s));
+    const MultiFloat<T, N> s_dd(s);
+    const MultiFloat<T, N> residual = x - s_dd * s_dd;
+    const MultiFloat<T, N> correction(residual._limbs[0] * (T(0.5) / s));
     return s_dd + correction;
   }
 }
@@ -1078,10 +1078,10 @@ MultiFloat<T, N> cbrt(MultiFloat<T, N> const &x) {
     if (x._limbs[0] == T(0)) {
       return MultiFloat<T, N>();
     }
-    T s = std::cbrt(x._limbs[0]);
-    MultiFloat<T, N> s_dd(s);
-    MultiFloat<T, N> residual = x - s_dd * s_dd * s_dd;
-    MultiFloat<T, N> correction(residual._limbs[0] / (T(3) * s * s));
+    const T s = std::cbrt(x._limbs[0]);
+    const MultiFloat<T, N> s_dd(s);
+    const MultiFloat<T, N> residual = x - s_dd * s_dd * s_dd;
+    const MultiFloat<T, N> correction(residual._limbs[0] / (T(3) * s * s));
     return s_dd + correction;
   }
 }
@@ -1674,6 +1674,7 @@ inline std::string to_string(float64x2 const &x, int precision = 32) {
 
   // Extract precision+2 digits; the last two guard round-half-to-even.
   const int ndigits = precision + 2;
+  const std::size_t prec = static_cast<std::size_t>(precision);
   char digits[36] = {};
   for (int i = 0; i < ndigits; ++i) {
     int d = static_cast<int>(hi);
@@ -1693,7 +1694,7 @@ inline std::string to_string(float64x2 const &x, int precision = 32) {
       if (digits[i] < '9') { ++digits[i]; break; }
       digits[i] = '0';
       if (i == 0) {
-        std::memmove(digits + 1, digits, static_cast<size_t>(precision) - 1);
+        std::memmove(digits + 1, digits, prec - 1);
         digits[0] = '1';
         ++e10;
       }
@@ -1702,12 +1703,12 @@ inline std::string to_string(float64x2 const &x, int precision = 32) {
   digits[precision] = '\0';
 
   std::string out;
-  out.reserve(static_cast<size_t>(precision) + 8);
+  out.reserve(prec + 8);
   if (neg) out.push_back('-');
   out.push_back(digits[0]);
   if (precision > 1) {
     out.push_back('.');
-    out.append(digits + 1, static_cast<size_t>(precision) - 1);
+    out.append(digits + 1, prec - 1);
   }
   out.push_back('e');
   int abs_e = e10 < 0 ? -e10 : e10;

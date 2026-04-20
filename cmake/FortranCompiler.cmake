@@ -43,7 +43,14 @@ include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # ---------------------------------------------------------------------------
-# Detect compiler family
+# Detect compiler family and ABI version tag
+#
+# The snippet below reads CMAKE_Fortran_COMPILER_ID / *_VERSION and sets
+# _fc_family and _fc_abi_version. It is used here at configure time (for
+# this build's producer tag) and embedded verbatim into the generated
+# Config.cmake below (for the consumer's tag at find_package() time). The
+# shared source keeps producer- and consumer-side family/version mapping
+# from drifting.
 #
 # Compiler IDs used by CMake:
 #   GNU       - gfortran
@@ -55,31 +62,45 @@ include(CMakePackageConfigHelpers)
 #   NAG       - NAG Fortran
 #   Cray      - Cray Fortran (CCE)
 # ---------------------------------------------------------------------------
-set(FORTRAN_COMPILER_VERSION "${CMAKE_Fortran_COMPILER_VERSION}")
-
+set(_FC_DETECT_CODE [[
 if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-  set(FORTRAN_COMPILER_FAMILY "gfortran")
+  set(_fc_family "gfortran")
 elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "Intel")
-  set(FORTRAN_COMPILER_FAMILY "intel")
+  set(_fc_family "intel")
 elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
-  set(FORTRAN_COMPILER_FAMILY "intel")
+  set(_fc_family "intel")
 elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang")
-  # LLVM Flang (flang-new): .mod files are valid Fortran source with !mod$ v1 header
-  set(FORTRAN_COMPILER_FAMILY "flang")
+  set(_fc_family "flang")
 elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "Flang")
-  # Classic Flang (PGI-derived): completely different .mod format from LLVM Flang
-  set(FORTRAN_COMPILER_FAMILY "flang-classic")
+  set(_fc_family "flang-classic")
 elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "NVHPC")
-  # NVIDIA nvfortran: shares PGI-lineage .mod format with classic Flang
-  set(FORTRAN_COMPILER_FAMILY "nvhpc")
+  set(_fc_family "nvhpc")
 elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "NAG")
-  set(FORTRAN_COMPILER_FAMILY "nag")
+  set(_fc_family "nag")
 elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "Cray")
-  set(FORTRAN_COMPILER_FAMILY "cray")
+  set(_fc_family "cray")
 else()
-  set(FORTRAN_COMPILER_FAMILY "${CMAKE_Fortran_COMPILER_ID}")
-  string(TOLOWER "${FORTRAN_COMPILER_FAMILY}" FORTRAN_COMPILER_FAMILY)
+  set(_fc_family "${CMAKE_Fortran_COMPILER_ID}")
+  string(TOLOWER "${_fc_family}" _fc_family)
 endif()
+
+# Version truncation per family:
+#   gfortran / flang -> major only (ABI stable within a release series)
+#   intel            -> major.minor (ABI can change at minor releases)
+#   others           -> full version (conservative)
+if(_fc_family STREQUAL "gfortran" OR _fc_family STREQUAL "flang")
+  string(REGEX MATCH "^([0-9]+)" _fc_abi_version "${CMAKE_Fortran_COMPILER_VERSION}")
+elseif(_fc_family STREQUAL "intel")
+  string(REGEX MATCH "^([0-9]+\\.[0-9]+)" _fc_abi_version "${CMAKE_Fortran_COMPILER_VERSION}")
+else()
+  set(_fc_abi_version "${CMAKE_Fortran_COMPILER_VERSION}")
+endif()
+]])
+
+set(FORTRAN_COMPILER_VERSION "${CMAKE_Fortran_COMPILER_VERSION}")
+cmake_language(EVAL CODE "${_FC_DETECT_CODE}")
+set(FORTRAN_COMPILER_FAMILY "${_fc_family}")
+unset(_fc_family)
 
 # ---------------------------------------------------------------------------
 # Determine .mod format version from compiler family + version
@@ -153,20 +174,7 @@ endif()
 # Build tags:
 #   FORTRAN_MOD_COMPAT_TAG  - for .mod directories (by format compatibility)
 #   FORTRAN_COMPILER_TAG    - for library files (by ABI-relevant version)
-#
-# Version truncation per family:
-#   gfortran -> major only (ABI stable within a release series)
-#   flang    -> major only (follows LLVM major versioning)
-#   intel    -> major.minor (ABI can change at minor releases, e.g. 2021.10)
-#   others   -> full version (conservative)
 # ---------------------------------------------------------------------------
-if(FORTRAN_COMPILER_FAMILY STREQUAL "gfortran" OR FORTRAN_COMPILER_FAMILY STREQUAL "flang")
-  string(REGEX MATCH "^([0-9]+)" _fc_abi_version "${FORTRAN_COMPILER_VERSION}")
-elseif(FORTRAN_COMPILER_FAMILY STREQUAL "intel")
-  string(REGEX MATCH "^([0-9]+\\.[0-9]+)" _fc_abi_version "${FORTRAN_COMPILER_VERSION}")
-else()
-  set(_fc_abi_version "${FORTRAN_COMPILER_VERSION}")
-endif()
 set(FORTRAN_COMPILER_TAG "${FORTRAN_COMPILER_FAMILY}-${_fc_abi_version}")
 unset(_fc_abi_version)
 
@@ -330,38 +338,13 @@ function(fortran_install_library target)
 cmake_minimum_required(VERSION 3.12)
 
 # --- Derive consumer's compiler family and ABI version tag ---
-set(_FC_consumer_family \"\")
-
-if(CMAKE_Fortran_COMPILER_ID STREQUAL \"GNU\")
-  set(_FC_consumer_family \"gfortran\")
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL \"Intel\")
-  set(_FC_consumer_family \"intel\")
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL \"IntelLLVM\")
-  set(_FC_consumer_family \"intel\")
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL \"LLVMFlang\")
-  set(_FC_consumer_family \"flang\")
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL \"Flang\")
-  set(_FC_consumer_family \"flang-classic\")
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL \"NVHPC\")
-  set(_FC_consumer_family \"nvhpc\")
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL \"NAG\")
-  set(_FC_consumer_family \"nag\")
-elseif(CMAKE_Fortran_COMPILER_ID STREQUAL \"Cray\")
-  set(_FC_consumer_family \"cray\")
-else()
-  set(_FC_consumer_family \"\${CMAKE_Fortran_COMPILER_ID}\")
-  string(TOLOWER \"\${_FC_consumer_family}\" _FC_consumer_family)
-endif()
-
-if(_FC_consumer_family STREQUAL \"gfortran\" OR _FC_consumer_family STREQUAL \"flang\")
-  string(REGEX MATCH \"^([0-9]+)\" _FC_abi_version \"\${CMAKE_Fortran_COMPILER_VERSION}\")
-elseif(_FC_consumer_family STREQUAL \"intel\")
-  string(REGEX MATCH \"^([0-9]+\\\\.[0-9]+)\" _FC_abi_version \"\${CMAKE_Fortran_COMPILER_VERSION}\")
-else()
-  set(_FC_abi_version \"\${CMAKE_Fortran_COMPILER_VERSION}\")
-endif()
-set(_FC_consumer_tag \"\${_FC_consumer_family}-\${_FC_abi_version}\")
-unset(_FC_abi_version)
+# Detection snippet shared with FortranCompiler.cmake at producer build
+# time — see _FC_DETECT_CODE there. Sets _fc_family, _fc_abi_version from
+# CMAKE_Fortran_COMPILER_ID / *_VERSION of the consumer.
+${_FC_DETECT_CODE}
+set(_FC_consumer_tag \"\${_fc_family}-\${_fc_abi_version}\")
+unset(_fc_family)
+unset(_fc_abi_version)
 
 # Look for exact compiler version match
 set(_FC_targets_file \"\${CMAKE_CURRENT_LIST_DIR}/${ARG_EXPORT}-\${_FC_consumer_tag}.cmake\")

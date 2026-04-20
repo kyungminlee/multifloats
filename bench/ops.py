@@ -20,7 +20,7 @@ Sections are the H3 headings inside each H2 ("Fortran" / "C++").
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Sequence, Tuple, Union
+from typing import Sequence, Tuple, Union
 
 
 FuzzSpec = Union[None, str, Sequence[Tuple[str, str]]]

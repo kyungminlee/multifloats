@@ -19,14 +19,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import platform
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Optional
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BUILD_DIR = REPO_ROOT / "build"
@@ -175,11 +173,12 @@ def detect_build(build_dir: Path) -> str:
     flags = " ".join(opt_tokens) if opt_tokens else "-O3"
 
     # STATIC vs OBJECT vs SHARED — read from CMake's target properties via
-    # the generated archive/object artifacts.
-    lib_type = "STATIC library"
-    if (build_dir / "src" / "libmultifloats.a").exists():
+    # the generated archive/object artifacts. Default to STATIC when the
+    # archive is present or neither artifact is found.
+    if ((build_dir / "src" / "libmultifloats.a").exists()
+            or not list(build_dir.glob("src/CMakeFiles/multifloats.dir/*.o"))):
         lib_type = "STATIC library"
-    elif list(build_dir.glob("src/CMakeFiles/multifloats.dir/*.o")):
+    else:
         lib_type = "OBJECT library"
 
     return f"{cmake}, `{flags}`, {lib_type}"

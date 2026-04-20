@@ -70,8 +70,8 @@ float64x2 bessel_j1_full(float64x2 const &x);
 // multifloats_c.h is already pulled in via multifloats.hh.
 
 namespace {
-static inline float64x2 from(float64x2_t x) { float64x2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
-static inline float64x2_t to(float64x2 const &x) { return {x._limbs[0], x._limbs[1]}; }
+inline float64x2 from(float64x2_t x) { float64x2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
+inline float64x2_t to(float64x2 const &x) { return {x._limbs[0], x._limbs[1]}; }
 
 #include "multifloats_math_matmul.inc"
 } // anonymous namespace

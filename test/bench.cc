@@ -40,6 +40,13 @@ static constexpr int REPS_FAST = 400;       // +, -, *, /, abs, ...
 static constexpr int REPS_TRIG = 40;        // exp, log, sin, ...
 static constexpr int REPS_VERY_SLOW = 4;    // tgamma, erfc, ...
 
+// 2^-52 is 1 ulp of the double mantissa; perturbation for the DD lo limb.
+static constexpr int DD_LO_ULP_EXPONENT = -52;
+
+// Drain-feedback scale: small enough that it doesn't change the leading
+// bits of the accumulator but big enough to keep the dep chain live.
+static constexpr double DRAIN_FEEDBACK_SCALE = 1e-30;
+
 static q_t q1[N], q2[N], qpos[N], qsmall[N], qbnd[N], qres[N];
 static mf::float64x2 f1[N], f2[N], fpos[N], fsmall[N], fbnd[N], fres[N];
 
@@ -60,7 +67,7 @@ static void init_data() {
   // precision measurements exercise the full DD path, matching the Fortran
   // fuzz test which also generates inputs with non-trivial lo limbs.
   auto make_dd = [&](double hi) -> std::pair<q_t, mf::float64x2> {
-    double lo = hi * std::ldexp(udd(rng), -52);
+    double lo = hi * std::ldexp(udd(rng), DD_LO_ULP_EXPONENT);
     q_t v = (q_t)hi + (q_t)lo;
     return {v, from_q(v)};
   };
@@ -92,7 +99,7 @@ static void qfeed(q_t *in) {
   for (int i = 0; i < N; ++i) {
     s += (double)qres[i];
   }
-  in[0] += (q_t)(s * 1e-30);
+  in[0] += (q_t)(s * DRAIN_FEEDBACK_SCALE);
   q_sink += s;
 }
 
@@ -102,7 +109,7 @@ static void ffeed(mf::float64x2 *in) {
   for (int i = 0; i < N; ++i) {
     s += fres[i]._limbs[0];
   }
-  in[0]._limbs[0] += s * 1e-30;
+  in[0]._limbs[0] += s * DRAIN_FEEDBACK_SCALE;
   f_sink += s;
 }
 
