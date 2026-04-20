@@ -91,41 +91,44 @@ float64x2 tanpi_full(float64x2 const &x) {
 
 // Cody-Waite range reduction: n = nearest(x·2/π), r = x − n·(π/2) using a
 // 3-part π/2 constant (three back-to-back doubles). Each n·pi_half_cwK is
-// an exact DD product via FMA, then subtracted from r as full DD; the
-// accumulator carries the full ~106 bits DD can hold — the critical
-// difference from the previous sinpi(x·inv_pi) path, which lost the
-// integer part of x/π for large |x|.
+// an exact DD product via FMA, then subtracted from r via Shewchuk/Bailey
+// IEEE-style DD-add that carries both lo-limb contributions through a
+// two_sum pair — error ≤ 4·eps²·|r|. The earlier `rl += e - pl` inline
+// summed three same-magnitude terms in plain double, injecting ~eps·|pl|
+// per step (~800 DD-ulp floor at x near multiples of π/2 when |n·pi_half|
+// ≫ |r|, e.g. sin(47.15) near 15π).
 //
-// Inlined as three (two_sum + low-limb-merge + fast_two_sum) steps rather
-// than three full DD operator- calls: operator- does two independent
-// two_sums (one per limb) then two more fast_two_sums, and guards
-// non-finite/zero inputs. Here we know the accumulator stays finite and
-// never reaches the zero-zero branch, so we can fold the low-limb into
-// one fast_two_sum per step (~11 FLOPs instead of ~20).
+// Guards (non-finite, zero) from the public DD operator- are elided: the
+// caller (sincos_full etc.) pre-checks both conditions, so the kernel
+// runs on a finite non-zero accumulator.
 void reduce_pi_half(float64x2 const &x, float64x2 &r, int &n_mod4) {
   using multifloats::detail::two_sum;
   using multifloats::detail::fast_two_sum;
   double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);
   double rh = x._limbs[0];
   double rl = x._limbs[1];
-  double t, e, ph, pl;
-  // Step 1: subtract n·cw1 (exact DD via FMA) from (rh, rl).
+  double ph, pl;
+  double sh, sl, tl, tll;
+  // One IEEE DD-subtract step: (rh, rl) ← (rh, rl) - (ph, pl).
+  auto dd_sub_step = [&](double ph, double pl) {
+    two_sum(rh, -ph, sh, sl);        // sh + sl = rh - ph exact
+    two_sum(rl, -pl, tl, tll);       // tl + tll = rl - pl exact
+    sl += tl;                        // fold lo-limb hi part (1 rounding)
+    fast_two_sum(sh, sl, rh, rl);    // renormalize
+    rl += tll;                       // fold lo-limb tail (1 rounding)
+    fast_two_sum(rh, rl, rh, rl);    // final renormalize
+  };
+  // Step 1: subtract n·cw1 (exact DD via FMA).
   ph = n_float * pi_half_cw1;
   pl = std::fma(n_float, pi_half_cw1, -ph);
-  two_sum(rh, -ph, t, e);
-  rl += e - pl;
-  fast_two_sum(t, rl, rh, rl);
+  dd_sub_step(ph, pl);
   // Step 2: subtract n·cw2.
   ph = n_float * pi_half_cw2;
   pl = std::fma(n_float, pi_half_cw2, -ph);
-  two_sum(rh, -ph, t, e);
-  rl += e - pl;
-  fast_two_sum(t, rl, rh, rl);
-  // Step 3: cw3 is single-double (pl ≡ 0), so skip the FMA split.
+  dd_sub_step(ph, pl);
+  // Step 3: cw3 small enough that n·cw3 fits one double exactly (pl ≡ 0).
   ph = n_float * pi_half_cw3;
-  two_sum(rh, -ph, t, e);
-  rl += e;
-  fast_two_sum(t, rl, rh, rl);
+  dd_sub_step(ph, 0.0);
   r._limbs[0] = rh;
   r._limbs[1] = rl;
   long long nn = static_cast<long long>(std::fabs(n_float)) & 3LL;
