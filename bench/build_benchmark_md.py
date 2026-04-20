@@ -27,7 +27,7 @@ import ops as ops_mod  # noqa: E402
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = Path(__file__).resolve().parent
 RESULTS_DIR = REPO_ROOT / "bench" / "results"
-DEFAULT_OUTPUT = REPO_ROOT / "BENCHMARK.md"
+DEFAULT_OUTPUT = REPO_ROOT / "doc" / "BENCHMARK.md"
 
 EMDASH = "\u2014"  # —
 TIMES = "\u00d7"   # ×

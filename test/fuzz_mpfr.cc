@@ -85,7 +85,7 @@ static bool mp_below_subnormal_floor(mp_t const &v) {
   // *normal* double range, i.e. hi ≥ 2^-969. Below that, DD loses bits
   // smoothly (at hi = 2^-1022 ≈ 53 bits of total precision survive).
   // Skipping samples with |ref| < 2^-969 keeps fuzz measuring kernel
-  // quality rather than this format-level cliff. See AUDIT_TODO.md
+  // quality rather than this format-level cliff. See doc/developer/AUDIT_TODO.md
   // (erfc deep-tail analysis, 2026-04-19) and compare erfcq, which has
   // no such cliff because __float128's exponent reaches ~2^-16494.
   static const mp_t floor_ = mpfr::pow(mp_t(2), mp_t(-969));

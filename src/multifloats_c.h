@@ -219,7 +219,7 @@ MULTIFLOATS_API float64x2_t   cimagdd(complex64x2_t z);
  * register-blocked panel design that assumes contiguous column-major
  * storage with the canonical shape. Adding transposed / strided / in-
  * place-accumulating variants is plausible but would require a new set
- * of panel dispatchers — tracked in the AUDIT_TODO.md roadmap.
+ * of panel dispatchers — tracked in the doc/developer/AUDIT_TODO.md roadmap.
  *
  * renorm_interval: if > 0, renormalize accumulators every N reductions
  * (matches DD_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo

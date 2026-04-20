@@ -1,6 +1,6 @@
 # Benchmark automation
 
-Scripts that keep [`BENCHMARK.md`](../BENCHMARK.md) in sync with
+Scripts that keep [`BENCHMARK.md`](../doc/BENCHMARK.md) in sync with
 reproducible results collected on each target machine.
 
 ## Layout
@@ -87,8 +87,8 @@ python3 bench/build_benchmark_md.py
 ```
 
 By default this loads every `bench/results/benchmark-*.json` in
-alphabetical order and writes `BENCHMARK.md` at the repo root. Column
-order in the tables matches the file-name order.
+alphabetical order and writes `doc/BENCHMARK.md`. Column order in the
+tables matches the file-name order.
 
 Render just a subset, or control ordering explicitly:
 
@@ -113,7 +113,7 @@ git commit -m "bench: refresh m1-max results"
 # Once all three machines have pushed their JSON up
 git pull
 python3 bench/build_benchmark_md.py
-git add BENCHMARK.md
+git add doc/BENCHMARK.md
 git commit -m "docs: regenerate BENCHMARK.md"
 ```
 
