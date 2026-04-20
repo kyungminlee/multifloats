@@ -81,14 +81,26 @@ add_subdirectory(fsrc)  # project(multifloatsf) → libmultifloatsf-<compiler>.a
 # time. Executable target names are unchanged (no rename cost for
 # downstream tooling / CI configs).
 
-add_executable(cpp_test ./test/test.cc)
-target_compile_options(cpp_test PRIVATE -O3 -fext-numeric-literals)
-target_link_libraries(cpp_test PRIVATE multifloats quadmath)
+# Helpers to cut boilerplate for the ~10 test/bench executables below.
+# The compile flags and library set are identical per-language, so a
+# helper is strictly easier to maintain than a dozen copies.
+function(mf_add_cpp_executable name source)
+    add_executable(${name} ${source})
+    target_compile_options(${name} PRIVATE -O3 -fext-numeric-literals)
+    target_link_libraries(${name} PRIVATE multifloats quadmath)
+endfunction()
+
+function(mf_add_fortran_executable name source)
+    cmake_parse_arguments(PARSE_ARGV 2 ARG "" "" "LINK")
+    add_executable(${name} ${source})
+    target_compile_options(${name} PRIVATE -O3)
+    target_link_libraries(${name} PRIVATE multifloatsf ${ARG_LINK})
+endfunction()
+
+mf_add_cpp_executable(cpp_test ./test/test.cc)
 add_test(NAME precision_cpp COMMAND cpp_test)
 
-add_executable(cpp_fuzz ./test/fuzz.cc)
-target_compile_options(cpp_fuzz PRIVATE -O3 -fext-numeric-literals)
-target_link_libraries(cpp_fuzz PRIVATE multifloats quadmath)
+mf_add_cpp_executable(cpp_fuzz ./test/fuzz.cc)
 add_test(NAME fuzz_cpp COMMAND cpp_fuzz)
 
 # Seed-determinism: the fuzz RNG must be byte-identical across runs
@@ -99,24 +111,16 @@ add_test(NAME fuzz_cpp_determinism
     COMMAND bash -c
     "diff <($<TARGET_FILE:cpp_fuzz> 2000 0xc0ffee) <($<TARGET_FILE:cpp_fuzz> 2000 0xc0ffee)")
 
-add_executable(cpp_bench ./test/bench.cc)
-target_compile_options(cpp_bench PRIVATE -O3 -fext-numeric-literals)
-target_link_libraries(cpp_bench PRIVATE multifloats quadmath)
+mf_add_cpp_executable(cpp_bench ./test/bench.cc)
 
 # Fortran tests
-add_executable(fortran_precision ./test/precision.f90)
-target_compile_options(fortran_precision PRIVATE -O3)
-target_link_libraries(fortran_precision PRIVATE multifloatsf)
+mf_add_fortran_executable(fortran_precision ./test/precision.f90)
 add_test(NAME precision_fortran COMMAND fortran_precision)
 
-add_executable(fortran_test ./test/test.f90)
-target_compile_options(fortran_test PRIVATE -O3)
-target_link_libraries(fortran_test PRIVATE multifloatsf)
+mf_add_fortran_executable(fortran_test ./test/test.f90)
 add_test(NAME precision_fortran_unit COMMAND fortran_test)
 
-add_executable(fortran_fuzz ./test/fuzz.f90)
-target_compile_options(fortran_fuzz PRIVATE -O3)
-target_link_libraries(fortran_fuzz PRIVATE multifloatsf)
+mf_add_fortran_executable(fortran_fuzz ./test/fuzz.f90)
 add_test(NAME fuzz_fortran COMMAND fortran_fuzz)
 
 # Fortran-side seed determinism (seed is hardcoded to 42 inside fuzz.f90;
@@ -129,14 +133,11 @@ add_test(NAME fuzz_fortran_determinism
 # bind(c) Fortran reimpl) must produce bit-identical results on the same
 # inputs. Catches ABI drift or a divergence in the hand-written bindc
 # reimplementation in dd_bindc.f90.
-add_executable(fortran_abi_equivalence ./test/abi_equivalence.f90)
-target_compile_options(fortran_abi_equivalence PRIVATE -O3)
-target_link_libraries(fortran_abi_equivalence PRIVATE multifloatsf dd-bindc)
+mf_add_fortran_executable(fortran_abi_equivalence ./test/abi_equivalence.f90
+    LINK dd-bindc)
 add_test(NAME precision_abi_equivalence COMMAND fortran_abi_equivalence)
 
-add_executable(fortran_bench ./test/bench.f90)
-target_compile_options(fortran_bench PRIVATE -O3)
-target_link_libraries(fortran_bench PRIVATE multifloatsf)
+mf_add_fortran_executable(fortran_bench ./test/bench.f90)
 
 # BLAS extensions (not installed)
 add_library(blas-multifloat STATIC
@@ -147,9 +148,7 @@ target_link_libraries(blas-multifloat PRIVATE multifloatsf)
 # Fortran library uses C++ DD kernels via bind(C) (extern "C" in multifloats_math.cc)
 target_link_libraries(multifloatsf PUBLIC multifloats)
 
-add_executable(fortran_bench_c ./test/bench_c.f90)
-target_compile_options(fortran_bench_c PRIVATE -O3)
-target_link_libraries(fortran_bench_c PRIVATE multifloatsf)
+mf_add_fortran_executable(fortran_bench_c ./test/bench_c.f90)
 
 add_library(dd-bindc OBJECT ./test/dd_bindc.f90)
 target_compile_options(dd-bindc PRIVATE -O3)
@@ -157,9 +156,8 @@ set_target_properties(dd-bindc PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fmod/test)
 target_include_directories(dd-bindc PUBLIC ${CMAKE_BINARY_DIR}/fmod/test)
 
-add_executable(fortran_bench_abi ./test/bench_abi.f90)
-target_compile_options(fortran_bench_abi PRIVATE -O3)
-target_link_libraries(fortran_bench_abi PRIVATE multifloatsf dd-bindc)
+mf_add_fortran_executable(fortran_bench_abi ./test/bench_abi.f90
+    LINK dd-bindc)
 
 # =============================================================================
 # Optional MPFR-based precision tests
