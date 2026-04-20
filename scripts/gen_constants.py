@@ -40,6 +40,16 @@ def to_dd(value):
     return hi, lo
 
 
+def _double_bits(x):
+    import struct
+    return struct.unpack('<q', struct.pack('<d', float(x)))[0]
+
+
+def _bits_double(bits):
+    import struct
+    return struct.unpack('<d', struct.pack('<q', bits & ((1 << 64) - 1)))[0]
+
+
 def verify_dd(value, hi, lo):
     """Verify |value - (hi+lo)| / |value| < tol. Returns relative error."""
     dd = mpf(hi) + mpf(lo)
@@ -69,6 +79,33 @@ def gen_log2_table(n=32):
     centers = [1.0 + (2*i + 1) / 64.0 for i in range(n)]
     values = [log(mpf(c)) / log(mpf(2)) for c in centers]
     return centers, values
+
+
+def gen_log2_values_extra(n=32):
+    """Third-limb residual for log2 centers: log2(c) - (hi + lo), as doubles.
+
+    Used by pow_full to carry log2(m) as a triple-double so that y*log2(m)
+    retains accuracy proportional to |y|*ulp_dd instead of
+    |y|*|log2(x)|*ulp_dd. log2_full / log2_kernel ignore this array.
+    """
+    centers = [1.0 + (2*i + 1) / 64.0 for i in range(n)]
+    extras = []
+    for c in centers:
+        v = log(mpf(c)) / log(mpf(2))
+        hi, lo = to_dd(v)
+        extras.append(float(v - mpf(hi) - mpf(lo)))
+    return extras
+
+
+def gen_exp2_table(n_half=128):
+    """T[k] = 2^((k - n_half) / (2*n_half)) for k = 0..2*n_half, as DD values.
+
+    Combined with a small-r Taylor on the residue |r| <= 1/(4*n_half), this
+    replaces the divide-by-8 + cube-three-times exp2 reconstruction. n_half=128
+    gives 257 entries spanning 2^-1/2 .. 2^+1/2 at 1/256-unit spacing.
+    """
+    return [mpf(2) ** (mpf(k - n_half) / (2 * n_half))
+            for k in range(2 * n_half + 1)]
 
 
 def gen_sin_taylor(n=13):
@@ -670,11 +707,58 @@ def collect_all():
 
     section('EXP2',
             'in-house Taylor',
-            'exp2 coefficients (ln2)^k/k!, k=0..13; input clamps')
+            'exp2 coefficients (ln2)^k/k!, k=0..15; input clamps; 257-entry 2^(k/256) table')
     # --- exp2 ---
-    array('exp2_coefs', gen_exp2_coefs(14), 'exp2: c[k] = (ln2)^k / k!')
-    groups.append(dict(kind='exp2_clamp', comment='exp2 input clamps',
-                       min=-1022.0, max=1023.9999999999998))
+    # Degree bumped from 13 to 15 so the three-squaring cube reconstruction
+    # no longer amplifies Taylor-truncation error at the fit-interval edge.
+    array('exp2_coefs', gen_exp2_coefs(16), 'exp2: c[k] = (ln2)^k / k!, k=0..15')
+
+    # exp2 lookup table: T[k] = 2^((k-128)/256) as DD, k=0..256.
+    array('exp2_table', gen_exp2_table(128),
+          ('exp2 table: T[k] = 2^((k-128)/256) as DD, k=0..256. Combined with '
+           'a small-r Taylor on the residue |r| <= 1/512 (degree 9 suffices; '
+           'next term is (ln2/512)^10 / 10! ~ 6e-36 << ulp_dd), this replaces '
+           'the divide-by-8 + degree-15 + cube-three-times reconstruction.'))
+    # exp2_min is extended below -1022 so the exp2 kernel can produce
+    # subnormal-range outputs instead of flushing to zero at the binade edge.
+    groups.append(dict(kind='exp2_clamp', comment=(
+        'exp2 input clamps. The smallest positive subnormal double is '
+        '2^-1074, so any x < -1074 yields a correctly-rounded zero via '
+        'ldexp(.) in exp2_kernel. We set the lower clamp a few steps '
+        'below -1074 for nearbyint rounding headroom and to avoid any '
+        'concern about int-cast of pathological inputs. Subnormal '
+        'outputs have only single-double precision.'),
+                       min=-1080.0, max=1023.9999999999998))
+
+    # --- exp Cody-Waite ln(2) split ---
+    # cw1 carries a 33-bit mantissa (low 20 bits of ln2's double form
+    # masked off) so n*cw1 is exact in double for |n| < 2^20, far above
+    # any |n| exp ever sees (<= ~1025). cw2 and cw3 are the 53-bit
+    # residuals of ln2 - cw1. The three-piece split gives r = x - n*ln2
+    # ~160 bits of working precision, eliminating the cancellation-driven
+    # ~220-ulp tail seen when reducing via a DD product.
+    _ln2 = log(mpf(2))
+    _ln2_d = float(_ln2)
+    _ln2_bits = _double_bits(_ln2_d)
+    _cw1 = _bits_double(_ln2_bits & ~((1 << 20) - 1))
+    _cw2 = float(_ln2 - mpf(_cw1))
+    _cw3 = float(_ln2 - mpf(_cw1) - mpf(_cw2))
+    groups.append(dict(kind='cw3', name='ln2_cw',
+                       v1=_cw1, v2=_cw2, v3=_cw3,
+                       comment=('Cody-Waite split of ln(2) for exp_full range '
+                                'reduction: cw1 is 33-bit, cw2+cw3 carry the '
+                                'residual (~160 bits total).')))
+
+    # --- exp input clamps ---
+    # exp(709.78...) = 2^1024 overflows; exp(-745.13...) underflows to 0.
+    # exp_max leaves one ulp of headroom; exp_min is set several units
+    # below the underflow edge so the subnormal tail is reached through
+    # the kernel rather than the short-circuit.
+    groups.append(dict(kind='exp_clamp',
+                       comment=("exp input clamps: exp_max just under the "
+                                "overflow edge, exp_min past the underflow "
+                                "edge so subnormals go through the kernel."),
+                       min=-750.0, max=709.78271289338397))
 
     section('LOG2',
             'in-house Taylor (atanh-of-u)',
@@ -682,8 +766,11 @@ def collect_all():
     # --- log2 ---
     array('log2_narrow', gen_log2_coefs(7),
           'log2 narrow: c[k] = 2/((2k+1)*ln2)')
-    array('log2_wide', gen_log2_coefs(9),
-          'log2 wide: c[k] = 2/((2k+1)*ln2)')
+    # log2_wide degree bumped from 8 to 10 (9 → 11 coefs) so the wide
+    # path covers the full |u| region around the log2 table centers
+    # without losing Taylor-truncation headroom.
+    array('log2_wide', gen_log2_coefs(11),
+          'log2 wide: c[k] = 2/((2k+1)*ln2), k=0..10')
 
     section('EXPM1_LOG1P',
             'in-house Taylor',
@@ -699,6 +786,12 @@ def collect_all():
     centers, values = gen_log2_table(32)
     dp_array('log2_centers', centers, 'log2 lookup centers')
     array('log2_values', values, 'log2 lookup values')
+    dp_array('log2_values_extra', gen_log2_values_extra(32),
+             ('log2 lookup values: third-limb residual = log2(center) - '
+              '(hi + lo), rounded to a double. Used by pow_full to carry '
+              'log2(m) as a triple-double so that y*log2(m) retains accuracy '
+              'proportional to |y|*ulp_dd instead of |y|*|log2(x)|*ulp_dd. '
+              'log2_full / log2_kernel ignore this array.'))
 
     section('TRIG',
             'in-house Taylor',
@@ -1333,6 +1426,11 @@ def write_cpp(groups, f):
             f.write(f"// {g['comment']}\n")
             f.write(f"inline constexpr double exp2_min = {g['min']!r};\n")
             f.write(f"inline constexpr double exp2_max = {g['max']!r};\n\n")
+
+        elif kind == 'exp_clamp':
+            f.write(f"// {g['comment']}\n")
+            f.write(f"inline constexpr double exp_max = {g['max']:23.17e};\n")
+            f.write(f"inline constexpr double exp_min = {g['min']:23.17e};\n\n")
 
         elif kind == 'array':
             n = len(g['hi'])
