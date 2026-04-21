@@ -65,6 +65,42 @@ Notes:
   that gap needs a TD/QD multi-limb expansion (libquadmath does
   bit-level mantissa arithmetic); out of scope for Tier 1b.
 
+### 1c. cdd_mul (cpp — cancellation-gated compensation)
+- before: re max 6.09e-30 (~248 ulp_dd), im max 4.49e-30 (~183 ulp_dd)
+  across 5 fuzz seeds × 200k iters; speedup 5.96× vs __float128 (dd_time
+  0.0092 s on cpp_bench, pop-os / gcc-13).
+- after : re max 2.20e-31 (~9 ulp_dd), im max 2.36e-31 (~9.6 ulp_dd);
+  speedup 4.22× (dd_time 0.0130 s, ~41% slower). All 10 ctests pass;
+  classic witness a=(1,ε),b=(-1,ε) still returns exact zero on Im and
+  full-DD −1−ε² on Re.
+- change: src/multifloats_math_abi_complex.inc cmuldd. Compute the
+  cheap 4-mul form first (two DD muls + DD sub for Re; two DD muls +
+  DD add for Im). Then per component fire a hi-limb cancellation test
+  `|R_hi| < 2⁻⁴ · max(|p_hi|, |q_hi|)` — the ratio directly measures
+  how many bits were shed to cancellation, since each DD-mul carries
+  ~ulp_dd·|max| absolute error and the relative error after cancellation
+  scales as `ulp_dd · max/|R|`. When the test fires, recompute that
+  component through the existing `dd_cross_diff` (full 14-term exact
+  expansion + TD accumulator). Im is a sum; route through
+  `dd_cross_diff(ar, bi, -ai, br)` — DD-limb negation is exact.
+- note : the speed floor is not detector arithmetic (fabs + max + cmp
+  is ~2%; verified by setting kThresh=0 which dead-code-elides the
+  compensated arm and restores 5.70× bench). It's the branch existing
+  at all — any live threshold forces the compiler to keep
+  `dd_cross_diff` in cmuldd's flow graph, adding register pressure.
+  Marking `dd_cross_diff` `__attribute__((noinline, cold))` and the
+  two ifs with `__builtin_expect(..., 0)` holds the hot path tight but
+  doesn't move the ~30-40% floor. Outlining/inlining variants all
+  landed within noise of each other.
+- threshold choice: 2⁻⁴ caps cheap-path worst-case rel-err at ~16
+  ulp_dd while firing on ~6% of uniform-quadrant inputs. Tighter 2⁻¹
+  → 1-4 ulp_dd worst case but ~56% slowdown (fires ~25% of time).
+  Looser 2⁻⁸ → 18-21 ulp_dd worst case, similar speed. See diagnostic
+  table in the kernel-body comment.
+- cdd_div unchanged (was already compensated in 1a) — dd_time 0.0382
+  → 0.0342 as a side effect of making dd_cross_diff noinline (slight
+  icache win).
+
 ## Tier 2
 
 ### 2a. cdd_asinh (cpp)
