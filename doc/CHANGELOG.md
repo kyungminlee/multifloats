@@ -99,6 +99,13 @@ Dates are ISO-8601 UTC.
 
 ### Fixed
 
+- `catandd` imaginary part lost ~7 decimals when `|b|` is small and
+  `|a|` moderate (num/den ≈ 1, cancellation in `0.25·log(num/den)`):
+  max_rel dropped from 3.3e-25 to 9.5e-32, mean_rel from 4.4e-28 to
+  1.2e-32. Now delegates to `catanhdd` via `catan(z) = −i·catanh(iz)`,
+  inheriting the Kahan `log1p(4a/den)` form and the unit-circle
+  `dd_x2y2m1` denominator. Bench cost: ~6% slower (0.0016 → 0.0017 s
+  / 4096 ops).
 - `catanhdd(±1 + 0i)` returned NaN; now short-circuits at the
   branch-point singularity to `(copysign(inf, re), +0)` (#16.3).
 - `casindd` / `cacosdd` lost the signed-zero imag-part sign because

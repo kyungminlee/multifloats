@@ -491,20 +491,16 @@ complex64x2_t cacosdd(complex64x2_t z) {
   return { to(half_pi - from(s.re)), to(-from(s.im)) };
 }
 
-// atan(z). libstdc++ generic form:
-//   Re = 0.5 · atan2(2a, 1 − a² − b²)
-//   Im = 0.25 · log((a² + (b+1)²) / (a² + (b−1)²))
-// Single log-ratio rather than the naive (i/2)(log(1−iz) − log(1+iz)).
+// atan(z) = −i · atanh(i·z). Delegating to catanhdd reuses its Kahan-
+// style Im-part (log1p(4·a/den) gated on f ≥ 0.5) and its unit-circle
+// denominator picker (dd_x2y2m1 near |z| ≈ 1). The old direct form
+// `0.25·log(num/den)` lost ~7 decimals of Im precision when num ≈ den
+// (|b| small, |a| moderate); the identity form inherits full DD.
+// i·z = (−b + a·i), and DD negation is exact, so the rotation is free.
 complex64x2_t catandd(complex64x2_t z) {
-  float64x2 a = from(z.re), b = from(z.im);
-  float64x2 a2 = a * a;
-  float64x2 x = float64x2(1.0) - a2 - b * b;
-  float64x2 bp1 = b + float64x2(1.0), bm1 = b - float64x2(1.0);
-  float64x2 num = a2 + bp1 * bp1;
-  float64x2 den = a2 + bm1 * bm1;
-  float64x2 half = float64x2(0.5, 0.0), quarter = float64x2(0.25, 0.0);
-  return { to(half * atan2_full(a + a, x)),
-           to(quarter * log_full(num / den)) };
+  complex64x2_t iz = { to(-from(z.im)), z.re };
+  complex64x2_t w = catanhdd(iz);
+  return { w.im, to(-from(w.re)) };
 }
 
 // sinh(a+bi) = sinh(a)·cos(b) + i·cosh(a)·sin(b). 2 fused transcendentals.
