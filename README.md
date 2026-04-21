@@ -312,9 +312,9 @@ replacement for DGEMM / CGEMM:
 These constraints are deliberate: the compensated DD kernels use a
 register-blocked panel design that assumes contiguous column-major
 storage with the canonical shape. Relaxing them (e.g. GEMM-style
-trans/alpha/beta/LDA) is on the `doc/developer/AUDIT_TODO.md` roadmap for a future
-release; it requires a new set of panel dispatchers to cover the
-additional shapes.
+trans/alpha/beta/LDA) is tracked under "Deferred / out-of-scope work"
+in `doc/developer/AUDIT_NOTES.md` for a future release; it requires a
+new set of panel dispatchers to cover the additional shapes.
 
 **BLAS shims.** `blas/wgemm.f90` and `blas/wtrsm.f90` provide
 `real(qp)`-mangled DGEMM/DTRSM-style wrappers that route to the DD

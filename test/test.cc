@@ -657,7 +657,8 @@ static void test_huge_argument_trig(Stats &stats) {
 // which catastrophically loses precision when the true Im has internal
 // cancellation. For the classic witness a = (1, ε), b = (-1, ε) the
 // true imaginary part is 0 exactly; 4-mul returns 0, Karatsuba returns
-// −ε². See doc/developer/AUDIT_TODO.md #10 for the A/B study that rejected Karatsuba.
+// −ε². See "Designs measured and rejected" in
+// doc/developer/AUDIT_NOTES.md for the A/B study that rejected Karatsuba.
 static void test_complex_mul_cancellation() {
   mf::float64x2 const one(1.0), neg_one(-1.0);
   mf::float64x2 eps;
@@ -1550,7 +1551,7 @@ int main() {
   print_stats("td primitives", tdp);
 
   // ----------------------------------------------------------------
-  // Tolerance sensitivity ratchet (doc/developer/AUDIT_TODO.md #18).
+  // Tolerance sensitivity ratchet (see §7 of doc/developer/AUDIT_NOTES.md).
   // ----------------------------------------------------------------
   // Pins observed max_rel for each category between [1/20×, 20×] of a
   // recorded expected value. Either direction fails:

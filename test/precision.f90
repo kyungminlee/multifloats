@@ -900,9 +900,10 @@ contains
     call check_complex_close('ccospi(1)', cr, (-1.0_qp, 0.0_qp), failures)
   end subroutine
 
-  ! Matmul shape coverage (doc/developer/AUDIT_TODO.md #15). The panel kernels are
-  ! dispatched on (M, K, N); these cases hit the common shapes that
-  ! production code sees:
+  ! Matmul shape coverage. The panel kernels are dispatched on
+  ! (M, K, N); these cases hit the common shapes that production code
+  ! sees (see "GEMM-style matmul" under deferred work in
+  ! doc/developer/AUDIT_NOTES.md for the shape restrictions):
   !   - strictly rectangular (3×5 · 5×2)
   !   - outer product (3×1 · 1×2, k=1 edge case)
   !   - inner product-style (1×5 · 5×1, m=n=1)
