@@ -272,6 +272,182 @@ constexpr std::size_t first_nonzero_limb_index(MultiFloat<T, N> const &x) {
   }
   return N;
 }
+
+// ---- Triple-double scratch primitives -------------------------------------
+// Narrow-scope toolkit used by kernels whose DD output would otherwise
+// suffer cancellation below the DD floor (e.g. cexpm1 Re near the
+// cancellation surface cos(b)·e^a = 1). Not a general MultiFloat<double, 3>
+// — just enough primitives to carry a residue through a single
+// TD × TD → TD ⊖ 1 pipeline and fold back to DD at the output.
+//
+// See doc/developer/PLAN-cexpm1-td-internals.md.
+struct float64x3 {
+  double _limbs[3] = {0.0, 0.0, 0.0};
+  constexpr float64x3() = default;
+  constexpr float64x3(double h, double m, double l) : _limbs{h, m, l} {}
+};
+
+// a + b + c = s + t + u, exact. Two_sum variant; input ordering is not
+// required. Outputs are not renormalized — callers that need the
+// normalized form should follow with renorm3.
+inline void three_sum(double a, double b, double c,
+                      double &s, double &t, double &u) {
+  double u1, v1, w;
+  two_sum(a, b, u1, v1);   // a + b = u1 + v1 exact
+  two_sum(u1, c, s, w);    // (a+b) + c = s + w exact
+  two_sum(v1, w, t, u);    // v1 + w = t + u exact
+}
+
+// Renormalize three doubles to a TD with |m| ≤ ulp(h)/2, |l| ≤ ulp(m)/2.
+// Uses two_sum throughout; the three passes preserve the exact sum.
+inline float64x3 renorm3(double h, double m, double l) {
+  two_sum(m, l, m, l);
+  two_sum(h, m, h, m);
+  two_sum(m, l, m, l);
+  return {h, m, l};
+}
+
+// Single-step TSUM accumulator: (T0, T1, T2) += x with two sequential
+// two_sums. Residuals cascade down; the last residual is absorbed into
+// T2 with a plain `+=` (its magnitude sits below ulp(T1), so the rounding
+// loses at most one bit of the TD's least-significant limb — well below
+// the DD output resolution after td_to_dd).
+inline void tsum3(double &T0, double &T1, double &T2, double x) {
+  double e;
+  two_sum(T0, x, T0, e);
+  two_sum(T1, e, T1, e);
+  T2 += e;
+}
+
+// Final renormalize of (T0, T1, T2) produced by a TSUM chain: two
+// two_sum passes canonicalize the triple. Preserves the third limb.
+inline void tsum3_finalize(double &T0, double &T1, double &T2) {
+  double e;
+  two_sum(T1, T2, T1, e); T2 = e;
+  two_sum(T0, T1, T0, e); T1 = e;
+}
+
+// TD + exact double, renormalized. The magnitude of d is at most
+// comparable to T0, so two sequential two_sums plus an absorb into the
+// third limb suffice.
+inline float64x3 td_add_double(float64x3 const &a, double d) {
+  double T0 = a._limbs[0], T1 = a._limbs[1], T2 = a._limbs[2];
+  tsum3(T0, T1, T2, d);
+  tsum3_finalize(T0, T1, T2);
+  return {T0, T1, T2};
+}
+
+inline float64x3 td_sub_double(float64x3 const &a, double d) {
+  return td_add_double(a, -d);
+}
+
+// TD + DD → TD. DD expands to two scalar doubles; TSUM accumulator keeps
+// the exact sum within the 3-limb output (modulo the 3rd-limb absorb).
+inline float64x3 td_add_dd(float64x3 const &a, MultiFloat<double, 2> const &b) {
+  double T0 = 0.0, T1 = 0.0, T2 = 0.0;
+  // Magnitude-descending: a.hi, b.hi, a.mid, b.lo, a.lo (typical normalized
+  // TD has |a.mid| ≤ ulp(a.hi)/2 ≈ 2^-53·|a.hi|, and |b.lo| ~ 2^-53·|b.hi|).
+  tsum3(T0, T1, T2, a._limbs[0]);
+  tsum3(T0, T1, T2, b._limbs[0]);
+  tsum3(T0, T1, T2, a._limbs[1]);
+  tsum3(T0, T1, T2, b._limbs[1]);
+  tsum3(T0, T1, T2, a._limbs[2]);
+  tsum3_finalize(T0, T1, T2);
+  return {T0, T1, T2};
+}
+
+// Exact per-limb negation. The TD sum is linear, so negating all three
+// limbs negates the TD value exactly (no rounding).
+inline float64x3 td_negate(float64x3 const &a) {
+  return {-a._limbs[0], -a._limbs[1], -a._limbs[2]};
+}
+
+// TD + TD → TD. Expands the two triples into six doubles and feeds them
+// through the TSUM accumulator in a single descending pass.
+inline float64x3 td_add_td(float64x3 const &a, float64x3 const &b) {
+  double T0 = 0.0, T1 = 0.0, T2 = 0.0;
+  tsum3(T0, T1, T2, a._limbs[0]);
+  tsum3(T0, T1, T2, b._limbs[0]);
+  tsum3(T0, T1, T2, a._limbs[1]);
+  tsum3(T0, T1, T2, b._limbs[1]);
+  tsum3(T0, T1, T2, a._limbs[2]);
+  tsum3(T0, T1, T2, b._limbs[2]);
+  tsum3_finalize(T0, T1, T2);
+  return {T0, T1, T2};
+}
+
+// TD × DD → TD. Six two_prods + a scalar product (the DD has no third
+// limb, so the three 9-way products involving b's missing lo are dropped;
+// net cost is ~40% fewer ops than td_mul_td).
+inline float64x3 td_mul_dd(float64x3 const &a, MultiFloat<double, 2> const &b) {
+  double a0 = a._limbs[0], a1 = a._limbs[1], a2 = a._limbs[2];
+  double b0 = b._limbs[0], b1 = b._limbs[1];
+  double p00h, p00l; two_prod(a0, b0, p00h, p00l);
+  double p01h, p01l; two_prod(a0, b1, p01h, p01l);
+  double p10h, p10l; two_prod(a1, b0, p10h, p10l);
+  double p11h, p11l; two_prod(a1, b1, p11h, p11l);
+  double p20h, p20l; two_prod(a2, b0, p20h, p20l);
+  double p21 = a2 * b1;  // ~2^-159, below TD output resolution
+  double T0 = 0.0, T1 = 0.0, T2 = 0.0;
+  tsum3(T0, T1, T2, p00h);
+  tsum3(T0, T1, T2, p01h); tsum3(T0, T1, T2, p10h);
+  tsum3(T0, T1, T2, p00l);
+  tsum3(T0, T1, T2, p11h); tsum3(T0, T1, T2, p20h);
+  tsum3(T0, T1, T2, p01l); tsum3(T0, T1, T2, p10l);
+  tsum3(T0, T1, T2, p21);
+  tsum3(T0, T1, T2, p11l); tsum3(T0, T1, T2, p20l);
+  tsum3_finalize(T0, T1, T2);
+  return {T0, T1, T2};
+}
+
+// TD × TD → TD. Exact 9-way scalar expansion via two_prod (FMA), fed into
+// a TSUM accumulator in magnitude-descending order so the high bits land
+// in T0 and residuals in T1/T2. The two lowest-order terms a.lo·b.mid,
+// a.mid·b.lo, a.lo·b.lo sit ~2^-159 below T0 — below the TD output
+// resolution; kept for symmetry (TSUM absorbs them without cost).
+inline float64x3 td_mul_td(float64x3 const &a, float64x3 const &b) {
+  double a0 = a._limbs[0], a1 = a._limbs[1], a2 = a._limbs[2];
+  double b0 = b._limbs[0], b1 = b._limbs[1], b2 = b._limbs[2];
+  double p00h, p00l; two_prod(a0, b0, p00h, p00l);  // O(1)
+  double p01h, p01l; two_prod(a0, b1, p01h, p01l);  // O(2^-53)
+  double p10h, p10l; two_prod(a1, b0, p10h, p10l);  // O(2^-53)
+  double p02h, p02l; two_prod(a0, b2, p02h, p02l);  // O(2^-106)
+  double p11h, p11l; two_prod(a1, b1, p11h, p11l);  // O(2^-106)
+  double p20h, p20l; two_prod(a2, b0, p20h, p20l);  // O(2^-106)
+  double p12 = a1 * b2;                             // O(2^-159)
+  double p21 = a2 * b1;                             // O(2^-159)
+  // a2*b2 ~ 2^-212 below TD output; drop.
+  double T0 = 0.0, T1 = 0.0, T2 = 0.0;
+  tsum3(T0, T1, T2, p00h);
+  tsum3(T0, T1, T2, p01h); tsum3(T0, T1, T2, p10h);
+  tsum3(T0, T1, T2, p00l);
+  tsum3(T0, T1, T2, p02h); tsum3(T0, T1, T2, p11h); tsum3(T0, T1, T2, p20h);
+  tsum3(T0, T1, T2, p01l); tsum3(T0, T1, T2, p10l);
+  tsum3(T0, T1, T2, p12);  tsum3(T0, T1, T2, p21);
+  tsum3(T0, T1, T2, p02l); tsum3(T0, T1, T2, p11l); tsum3(T0, T1, T2, p20l);
+  tsum3_finalize(T0, T1, T2);
+  return {T0, T1, T2};
+}
+
+// TD → DD: fold third limb into second via two_sum, then canonicalize the
+// leading pair. Dropped residue ≤ ulp(l) ≈ 2^-159 — invisible in DD output.
+inline MultiFloat<double, 2> td_to_dd(float64x3 const &a) {
+  double h = a._limbs[0], m = a._limbs[1], l = a._limbs[2];
+  double e;
+  two_sum(m, l, m, e);      // |e| ≤ ulp(m)/2
+  two_sum(h, m, h, m);      // canonical leading pair
+  m += e;                   // absorb third-limb residue
+  MultiFloat<double, 2> r;
+  r._limbs[0] = h;
+  r._limbs[1] = m;
+  return r;
+}
+
+// DD → TD: trivial zero-extension (already normalized since DD pair is).
+inline float64x3 td_from_dd(MultiFloat<double, 2> const &a) {
+  return {a._limbs[0], a._limbs[1], 0.0};
+}
+
 } // namespace detail
 
 template <typename T, std::size_t N>

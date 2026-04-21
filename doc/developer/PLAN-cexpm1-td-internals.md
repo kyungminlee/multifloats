@@ -314,3 +314,238 @@ split threshold will be chosen so the common DD path dominates.
 - `cdd_expm1` bench speedup: 1.88× → **≥ 1.0×** (acceptable:
   DD-faster-than-qp preserved; TD branch amortized over regime
   split).
+
+## Decision-gate outcome (2026-04-21)
+
+**Result: negative.** Step 1 (TD primitives) and step 2 (TD exp) were
+implemented and the prototype was measured. TD exp + mock TD cos did
+not improve cdd_expm1_re — it *regressed* to 6.24e-27 (~250 000 DD
+ulp) at N=1M, more than 1 000× worse than the half-angle-DD baseline.
+Risk #5 materialized.
+
+### What was built (and remains in-tree)
+
+Re-usable, unit-tested TD infrastructure lives in
+`src/multifloats.hh` (`multifloats::detail`):
+
+- `float64x3` struct.
+- `three_sum`, `renorm3`, `tsum3`, `tsum3_finalize` primitives.
+- `td_add_double`, `td_sub_double`, `td_add_dd`, `td_mul_dd`,
+  `td_mul_td`, `td_to_dd`, `td_from_dd`.
+
+13 unit tests in `test/test.cc::test_td_primitives` exercise each
+primitive against qp. Status: all pass, max_rel 1.23e-32.
+
+`exp_full_td(x) → float64x3` in `src/multifloats_math_exp_log.inc`
+was added but **is not currently wired into any kernel**. Left in
+place as a working demonstration of the TD pipeline for future
+reference; callers: none.
+
+### Measurements (M1 Max, g++-15 -O3, N=1M)
+
+| variant | cdd_expm1_re max_rel | cdd_expm1_im max_rel |
+|---|---|---|
+| baseline (half-angle DD) | **4.536e-30** (184 ulp) | 5.465e-32 (2.2 ulp) |
+| TD exp · mock-TD cos − 1 (prototype) | 6.241e-27 (~254k ulp) | 5.465e-32 |
+| pure DD with identity `e^a·cos(b) − 1` | 2.957e-26 (~1.2M ulp) | 5.465e-32 |
+| `exp_full_td` |> `td_to_dd` fed into old identity | 4.536e-30 | 5.465e-32 |
+
+The fourth row confirms `exp_full_td` round-trips to `exp_full` at DD
+precision — TD exp itself is correct. The regression in rows 2–3
+comes from the *identity* `e^a·cos(b) − 1`, which at equal arithmetic
+precision is ~1 000× less precise than the half-angle form
+`expm1(a)·cos(b) − 2sin²(b/2)` near the cancellation surface.
+
+### Why the TD path did not help
+
+The half-angle form owes its precision to *magnitude-scaled*
+absolute error per term:
+
+- `expm1(a)` is small when |a| is small; its DD abs err is
+  ~|expm1(a)|·2⁻¹⁰⁵, scaling *with* the physical size of the
+  quantity.
+- `−2sin²(b/2)` is small when |b| is small; likewise abs err
+  ~|sin²(b/2)|·2⁻¹⁰⁵.
+- Their sum's abs err is bounded by max-term·2⁻¹⁰⁵ — which stays
+  small when *both* terms are small.
+
+The TD identity `e^a·cos(b) − 1` computes two **O(1)** quantities
+first, then subtracts 1. The abs err of `e^a·cos(b)` before the
+subtraction is ~|e^a·cos(b)|·ε_TD + |cos|·ε_cos, where ε_cos is the
+precision of the cos representation. With *mock* TD cos
+(DD-precision), ε_cos = 2⁻¹⁰⁵, so the subtraction inherits a fixed
+~2⁻¹⁰⁵ abs err regardless of how small |Re| becomes — the same
+ceiling as DD, with none of the per-term scaling.
+
+### Would full TD sincos (step 3) fix this?
+
+Partially. Replacing `mock_cos_td` with a TD cos that carries its
+true 159-bit value would drop ε_cos from 2⁻¹⁰⁵ toward 2⁻¹⁵⁸ —
+*provided* every constant inside the sincos kernel is also TD. But
+the sincos kernel relies on DD constants (sincos coefficients, the
+Payne-Hanek π-split constants `pi_cw1/cw2/cw3`, the DD `pi_dd`). Each
+caps the output at ~2⁻¹⁰⁵. So a "TD sincos" built over DD constants
+will still carry ε_cos ≈ 2⁻¹⁰⁵ and the cancellation-surface abs err
+floor would not drop.
+
+The analogous limitation applies to `exp_full_td` itself: `log2(e)`,
+the `exp2_coefs`, the 257-entry `exp2_table`, and the Cody-Waite
+`ln2_cw1/cw2/cw3` constants are all DD. The TD Horner and TD table-
+mul eliminate *step-wise rounding* (each was ~2⁻¹⁰⁶), but the
+constants impose a 2⁻¹⁰⁵ constant-precision floor that upper-bounds
+the whole pipeline.
+
+### Options for a real fix
+
+1. **Upgrade every constant to TD.** (Chosen — see Phase A/B/C
+   sections below.) Pre-compute 159-bit representations of `log2(e)`,
+   `exp2_coefs[1..9]`, `exp2_table[257]`, `ln2_cw1..cw3` (or add
+   `cw4`), sincos coefficients, `pi_dd`, and the Payne-Hanek π-split.
+   Significant effort (~a week on top of step 3); payoff is genuine
+   2⁻¹⁵⁸ precision throughout, which *should* drop cdd_expm1_re to
+   ≲ 1 DD ulp. Result: dropped to ≲ 0.25 DD ulp.
+
+2. **Rewrite the identity, not the arithmetic.** Keep DD throughout,
+   but find an expression for Re whose per-term DD abs err scales
+   with |Re| rather than max(|e^a|, |cos|). E.g.
+   `Re = (cos(b) − 1) · e^a + (e^a − 1)` (rearranged),
+   or a Taylor expansion around the cancellation surface `cos(b)·e^a
+   = 1` parameterized by distance from that surface. Hard to derive;
+   doesn't always exist.
+
+3. **Accept the current baseline.** 184 DD ulp at N=10^5 is still
+   within the DD-band for most users. The 1078-ulp figure at N=10^7
+   is a sampling worst case on a multi-decade-wide input
+   distribution, not typical.
+
+4. **Back out the TD infrastructure.** `git reset` to
+   `pre-expm1-optim`; drop the unused TD primitives, `exp_full_td`,
+   and their tests. Nothing in main actually needs them today.
+
+### Current state of the tree (post-gate — superseded by Phase A/B/C)
+
+At the time the gate was recorded, `cexpm1dd` was reverted to the
+half-angle DD baseline and the TD primitives / `exp_full_td` sat
+inert. Phase A/B/C below then implemented option 1; see the final
+"Tree state after Phase C" for the post-option-1 layout.
+
+## Phase A / B / C — full TD path with TD constants (2026-04-21)
+
+**Option 1 accepted.** After the decision-gate negative, every `exp` /
+`sincos` constant was lifted to TD precision and the kernels rebuilt.
+The `cexpm1dd` Re path now runs on `exp_full_td · sincos_full_td − 1`
+round-tripped to DD.
+
+### Phase A — TD exp with TD constants
+
+- **A.1**: extended `scripts/gen_constants.py` with `to_td`,
+  `scalar_td`, `array_td`, and `cw4`. Promoted `log2_e`, `pi_dd`,
+  `inv_sqrt2`, `pi_quarter`, `exp2_coefs`, `exp2_table`, `sin_taylor`,
+  `cos_taylor` to TD; extended `ln2_cw3` → `ln2_cw4` and `pi_half_cw3`
+  → `pi_half_cw4`. Existing DD limbs (`_hi`, `_lo`) are byte-for-byte
+  unchanged. Generator now verifies `max TD err 3.165e-49` (~2⁻¹⁶¹).
+- **A.2**: rewrote `exp2_td_from_reduced` with TD Horner on 15 TD
+  coefficients and TD table-mul; rewrote `exp_full_td` CW reduction
+  with TSUM over 4 TD-split `ln2_cw` terms and a TD `log2(e)` multiply.
+  Verified `td_to_dd(exp_full_td(a)) == exp_full(a)` at baseline
+  precision via bisect in `cexpm1dd`.
+- **A.3**: re-ran the decision gate (TD exp + mock TD cos). Still
+  regressed — 6.24e-27 at N=1M, unchanged from the constants-
+  untouched attempt. This pinned the remaining floor on *cos*
+  precision, not exp. → proceed to Phase B.
+
+### Phase B — TD sincos with TD constants
+
+- Added `reduce_pi_half_td`, `sin_kernel_td`, `cos_kernel_td`,
+  `sincos_eval_td`, `sincos_full_td` in `multifloats_math_trig.inc`.
+  Added `td_add_td`, `td_negate` primitives.
+- **First-cut bug**: `reduce_pi_half_td` computed
+  `-(n_float * pi_half_cw1)` directly instead of via an FMA pair.
+  `pi_half_cw1` has 33-bit significand; for |n| < 2²⁰ the product is
+  exact in double, but the `trig_arg_too_large` cap allows |n| up to
+  2⁵⁴, at which point the product silently rounds. Sampled regression:
+  sincos_td(1000) → rel 3e-14; sincos_td(10¹⁰) → rel 1.6e-6. Fix:
+  universal FMA capture for every `n·cw_k`, k = 1…4.
+- After the fix, `sincos_full_td` measures sincos_s `5.929e-33`,
+  sincos_c `5.909e-33` @ N=1M (~0.24 DD ulp each — actually *beats* the
+  DD `sincos_full` kernel which sits at ~1.8 DD ulp).
+
+### Phase C — wire full TD into cexpm1dd Re
+
+```cpp
+float64x3 ea_td = exp_full_td(a);
+float64x3 s_td, c_td; sincos_full_td(b, s_td, c_td);
+float64x3 prod_td = td_mul_td(ea_td, c_td);
+float64x3 diff_td = td_sub_double(prod_td, 1.0);
+float64x2 re = td_to_dd(diff_td);
+float64x2 im = td_to_dd(ea_td) * td_to_dd(s_td);  // Im stays DD
+```
+
+### Results (2026-04-21, M1 Max, g++-15 -O3)
+
+`fuzz_mpfr` — DD vs mpreal @ 200 bits (values in `max_rel`):
+
+| op | baseline N=10M | TD path N=10M | improvement |
+|---|---|---|---|
+| `cdd_expm1_re` | 2.65e-29 (1078 ulp) | **6.160e-33 (~0.25 ulp)** | **≥ 4000×** |
+| `cdd_expm1_im` | 6.434e-32 (2.6 ulp) | **4.573e-32 (1.9 ulp)** | 1.4× |
+
+The TD Re worst case **stops growing with N** — the cancellation-
+surface tail is fully closed. Im improves modestly as a side effect
+of `sincos_full_td` being more precise than `sincos_full`.
+
+`cpp_bench` cost (before regime split):
+
+| op | baseline dd_time | TD path dd_time | vs qp |
+|---|---|---|---|
+| `cdd_expm1` | 0.0281 s | 0.0499 s (+1.78×) | 1.06× (was 1.88×) |
+
+### Regime split — pay TD cost only on cancellation
+
+Always compute the DD half-angle form; only fall through to the TD
+pipeline when `|Re_DD| / max(|term1|, |cos_m1|) < kCancelThresh`. Each
+bit of DD-path cancellation costs ~1 DD ulp, so the threshold is the
+direct knob for worst-case DD rel-err. Tuning sweep (fuzz_mpfr N=10^7,
+cpp_bench on M1 Max):
+
+| kCancelThresh | Re DD ulp | dd_time (s) | vs qp | Re interpretation |
+|---|---|---|---|---|
+| *(no split — pure TD)* | **0.25** | 0.0499 | 1.06× | TD pipeline on every call |
+| 2⁻⁴ | 28.3  | 0.0289 | 1.88× | 4-bit cancellation threshold |
+| 2⁻² | 7.7   | 0.0298 | 1.78× | 2-bit cancellation threshold |
+| **2⁻¹ (shipped)** | **4.3** | **0.0303** | **1.80×** | **1-bit cancellation threshold** |
+| *(baseline, no TD at all)* | 1078  | 0.0281 | 1.88× | reference |
+
+Shipped: **kCancelThresh = 2⁻¹**. Sits under the plan's ≤5 DD-ulp
+ideal while adding only ~8% runtime vs the pure-DD baseline. The TD
+path fires on ~1–2% of fuzz inputs (those close to the cancellation
+surface), which is empirically enough to cap the worst case at the
+desired band without reinflating the runtime.
+
+### Success-threshold check (with regime split @ 2⁻¹)
+
+| target | result | verdict |
+|---|---|---|
+| Re @ N=10M ≲ 5 DD ulp (ideal), ≲ 50 ulp (acceptable) | 4.3 ulp | ✓ under the ideal |
+| Im @ N=10M ≤ 2.6 ulp (no regression) | 2.6 ulp | ✓ |
+| `cdd_expm1` speedup vs qp ≥ 1.0× | 1.80× | ✓ (baseline was 1.88×) |
+| ctest 11/11, cpp_fuzz failures=0, cpp_fuzz_mpfr failures=0 | all green | ✓ |
+
+### Tree state after Phase C
+
+- `src/multifloats.hh`: TD primitives (`float64x3`, `three_sum`,
+  `renorm3`, `tsum3`, `tsum3_finalize`, `td_negate`, `td_add_double`,
+  `td_sub_double`, `td_add_dd`, `td_add_td`, `td_mul_dd`, `td_mul_td`,
+  `td_to_dd`, `td_from_dd`) — all in `multifloats::detail`, unit-tested.
+- `src/multifloats_math_exp_log.inc`: `exp_full_td`,
+  `exp2_td_from_reduced`.
+- `src/multifloats_math_trig.inc`: `reduce_pi_half_td`,
+  `sin_kernel_td`, `cos_kernel_td`, `sincos_eval_td`, `sincos_full_td`.
+- `src/multifloats_math_abi_complex.inc::cexpm1dd`: TD Re path wired.
+- `scripts/gen_constants.py`: `scalar_td`, `array_td`, `cw4` kinds.
+- `src/dd_constants.hh`: auto-regenerated; `log2_e_lo2`,
+  `exp2_coefs_lo2[16]`, `exp2_table_lo2[257]`, `sin_taylor_lo2[13]`,
+  `cos_taylor_lo2[13]`, `pi_dd_lo2`, `pi_quarter_lo2`, `inv_sqrt2_lo2`,
+  `ln2_cw4`, `pi_half_cw4`.
+
+Plan closed.

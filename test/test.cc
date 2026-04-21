@@ -1275,6 +1275,216 @@ static void test_atan_cutover(Stats &stats) {
 }
 
 // =============================================================================
+// Triple-double scratch primitives (`detail::float64x3`, `td_mul_td`, …)
+// =============================================================================
+//
+// Each primitive is verified against a __float128 reference. Inputs are
+// chosen so the qp-exact operation fits inside qp's 113-bit significand
+// — under that constraint, sum-preserving primitives (three_sum,
+// td_add_double, td_add_dd, …) must match bit-exactly; td_mul_td is
+// allowed qp-ulp rounding on the final-limb absorb. See
+// doc/developer/PLAN-cexpm1-td-internals.md step 1.
+
+// Exact DD → qp: (q_t)(h) + (q_t)(m) + (q_t)(l) is exact when the limb
+// span stays below 113 bits. Normalized TDs from our producers span at
+// most ~159 bits, so for the carefully-chosen inputs below the sum fits.
+static q_t to_q_td(mf::detail::float64x3 const &t) {
+  return (q_t)t._limbs[0] + (q_t)t._limbs[1] + (q_t)t._limbs[2];
+}
+
+// Build a TD that represents `v` to ~159 bits by extracting residues.
+static mf::detail::float64x3 td_from_q(q_t v) {
+  double hi = (double)v;
+  if (!std::isfinite(hi)) return {hi, 0.0, 0.0};
+  double mid = (double)(v - (q_t)hi);
+  double lo  = (double)(v - (q_t)hi - (q_t)mid);
+  return {hi, mid, lo};
+}
+
+static void test_td_primitives(Stats &td_stats) {
+  using mf::detail::float64x3;
+  using mf::detail::three_sum;
+  using mf::detail::renorm3;
+  using mf::detail::td_add_double;
+  using mf::detail::td_sub_double;
+  using mf::detail::td_add_dd;
+  using mf::detail::td_mul_td;
+  using mf::detail::td_to_dd;
+  using mf::detail::td_from_dd;
+
+  auto expect_exact = [&](char const *name, q_t got, q_t expected) {
+    ++g_checks;
+    double rel = q_rel_err(got, expected);
+    td_stats.update(rel);
+    if (got != expected) {
+      ++g_failures;
+      std::fprintf(stderr,
+                   "FAIL [%s] not exact: got=%s expected=%s (rel=%g)\n",
+                   name, qstr(got), qstr(expected), rel);
+    }
+  };
+  auto expect_near = [&](char const *name, q_t got, q_t expected, double tol) {
+    ++g_checks;
+    double rel = q_rel_err(got, expected);
+    td_stats.update(rel);
+    if (!(rel <= tol)) {
+      ++g_failures;
+      std::fprintf(stderr,
+                   "FAIL [%s] rel=%g > tol=%g  got=%s expected=%s\n",
+                   name, rel, tol, qstr(got), qstr(expected));
+    }
+  };
+
+  // three_sum: widely separated magnitudes — each is exactly in qp, sum is exact.
+  {
+    double a = 1.0, b = 0x1p-60, c = 0x1p-120;
+    double s, t, u;
+    three_sum(a, b, c, s, t, u);
+    expect_exact("three_sum wide",
+                 (q_t)s + (q_t)t + (q_t)u,
+                 (q_t)a + (q_t)b + (q_t)c);
+  }
+  // three_sum: cancellation — a + b = 0 exactly, c dominates.
+  {
+    double a = 1.0, b = -1.0, c = 0x1p-30;
+    double s, t, u;
+    three_sum(a, b, c, s, t, u);
+    expect_exact("three_sum cancel",
+                 (q_t)s + (q_t)t + (q_t)u,
+                 (q_t)a + (q_t)b + (q_t)c);
+  }
+  // three_sum: reverse order (unordered inputs).
+  {
+    double a = 0x1p-120, b = 0x1p-60, c = 1.0;
+    double s, t, u;
+    three_sum(a, b, c, s, t, u);
+    expect_exact("three_sum reversed",
+                 (q_t)s + (q_t)t + (q_t)u,
+                 (q_t)a + (q_t)b + (q_t)c);
+  }
+
+  // renorm3: sum-preserving and canonically ordered.
+  {
+    double h = 1.0, m = 0x1p-53, l = 0x1p-106;
+    float64x3 r = renorm3(h, m, l);
+    expect_exact("renorm3 sum",
+                 (q_t)r._limbs[0] + (q_t)r._limbs[1] + (q_t)r._limbs[2],
+                 (q_t)h + (q_t)m + (q_t)l);
+    // Canonical ordering: |m| ≤ ulp(h), |l| ≤ ulp(m) (within 1 bit).
+    REQUIRE(std::abs(r._limbs[1]) <=
+            std::ldexp(std::abs(r._limbs[0]), -52));
+    REQUIRE(std::abs(r._limbs[2]) <=
+            std::ldexp(std::abs(r._limbs[1]), -52) ||
+            r._limbs[1] == 0.0);
+  }
+
+  // td_add_double: sum preservation for a TD + exact double.
+  {
+    float64x3 td{1.0, 0x1p-53, 0x1p-106};
+    double d = 0.5;
+    float64x3 r = td_add_double(td, d);
+    expect_exact("td_add_double",
+                 (q_t)r._limbs[0] + (q_t)r._limbs[1] + (q_t)r._limbs[2],
+                 (q_t)td._limbs[0] + (q_t)td._limbs[1] +
+                     (q_t)td._limbs[2] + (q_t)d);
+  }
+  // td_sub_double: the cancellation case that motivates TD internals —
+  //   cos(b)·e^a − 1 near the cancellation surface. Here we just verify
+  //   the subtraction is exact (qp will not round a 107-bit operand).
+  {
+    // td representing 1 + 2^-80.
+    float64x3 td{1.0, 0x1p-80, 0.0};
+    float64x3 r = td_sub_double(td, 1.0);
+    expect_exact("td_sub_double cancel",
+                 (q_t)r._limbs[0] + (q_t)r._limbs[1] + (q_t)r._limbs[2],
+                 (q_t)0x1p-80);
+  }
+
+  // td_add_dd: TD + DD with a non-trivial DD lo limb.
+  {
+    float64x3 td{1.0, 0x1p-53, 0x1p-106};
+    mf::float64x2 dd(0x1p-30, 0x1p-83);
+    float64x3 r = td_add_dd(td, dd);
+    expect_exact("td_add_dd",
+                 (q_t)r._limbs[0] + (q_t)r._limbs[1] + (q_t)r._limbs[2],
+                 (q_t)td._limbs[0] + (q_t)td._limbs[1] +
+                     (q_t)td._limbs[2] +
+                     (q_t)dd._limbs[0] + (q_t)dd._limbs[1]);
+  }
+
+  // td_to_dd: round back to DD; the DD pair matches the TD sum to the
+  //   DD resolution (~2^-105). A third limb below that threshold is
+  //   absorbed into the leading pair with at most one DD-ulp of rounding.
+  {
+    float64x3 td{1.0, 0x1p-53, 0x1p-106};
+    mf::float64x2 dd = td_to_dd(td);
+    q_t got = to_q(dd);
+    q_t expected = (q_t)1.0 + (q_t)0x1p-53 + (q_t)0x1p-106;
+    expect_near("td_to_dd drop-3rd", got, expected, 1.3e-32);  // 1 DD ulp
+  }
+  // td_to_dd with a third limb that survives DD rounding: input
+  //   (1, 2^-60, 2^-110) — the 2^-110 bit is captured exactly into
+  //   the DD low limb through the final fold.
+  {
+    float64x3 td{1.0, 0x1p-60, 0x1p-110};
+    mf::float64x2 dd = td_to_dd(td);
+    q_t got = to_q(dd);
+    q_t expected = (q_t)1.0 + (q_t)0x1p-60 + (q_t)0x1p-110;
+    expect_exact("td_to_dd fold", got, expected);
+  }
+
+  // td_mul_td: two TDs representing irrational values (π and e-ish).
+  //   qp can represent the 113-bit product; TD mul should match qp to
+  //   ~2^-110 (qp rounding), well inside the qp precision band.
+  {
+    q_t va = M_PIq;
+    q_t vb = M_Eq;
+    float64x3 a = td_from_q(va);
+    float64x3 b = td_from_q(vb);
+    float64x3 p = td_mul_td(a, b);
+    // qp product itself rounds at 2^-112; TD carries ~2^-159 of extra
+    //   precision below that, so the match is limited by qp.
+    expect_near("td_mul_td pi·e", to_q_td(p), va * vb, 2e-33);
+  }
+  // td_mul_td: near-cancellation product — a·b very close to 1. Inputs
+  //   are chosen so the qp-exact product fits inside qp's 113-bit
+  //   significand (residue at 2^-101, leading 1 bit and trailing sit
+  //   within ~101 bits, well under the qp limit), which pins qp as the
+  //   gold reference against the TD result.
+  {
+    q_t one = (q_t)1;
+    q_t va = (q_t)2 + scalbnq(one, -50);
+    q_t vb = (q_t)0.5 - scalbnq(one, -51);
+    float64x3 a = td_from_q(va);
+    float64x3 b = td_from_q(vb);
+    float64x3 p = td_mul_td(a, b);
+    expect_near("td_mul_td near-1", to_q_td(p), va * vb, 2e-33);
+
+    // And the motivating cexpm1-style composition: (a*b) - 1 near the
+    //   cancellation surface. TD subtract exact; qp reference rounds at
+    //   2^-112, which is still well below TD's 2^-159.
+    float64x3 diff = td_sub_double(p, 1.0);
+    q_t diff_ref = va * vb - one;
+    expect_near("td_mul·sub cancel", to_q_td(diff), diff_ref, 2e-33);
+    // Key behavioural check: the DD projection of (TD·TD − 1) preserves
+    //   the residue, whereas a naive DD mul → (DD·DD − 1) would have
+    //   lost it entirely.
+    mf::float64x2 diff_dd = td_to_dd(diff);
+    REQUIRE(diff_dd._limbs[0] != 0.0 || diff_dd._limbs[1] != 0.0);
+  }
+
+  // td_from_dd round-trip: DD → TD → DD must be identity on any
+  //   normalized DD.
+  {
+    mf::float64x2 dd = from_q(M_PIq);
+    float64x3 td = td_from_dd(dd);
+    mf::float64x2 back = td_to_dd(td);
+    expect_exact("td_from_dd → td_to_dd",
+                 to_q(back), to_q(dd));
+  }
+}
+
+// =============================================================================
 // Driver
 // =============================================================================
 
@@ -1293,7 +1503,7 @@ int main() {
   test_classification();
   test_nextafter_symmetry();
 
-  Stats add, sub, mul, div, una, abs_fmm, csgn, ldx, atn, lrp, cxa, bjn, cxn, lre, htr, cbr;
+  Stats add, sub, mul, div, una, abs_fmm, csgn, ldx, atn, lrp, cxa, bjn, cxn, lre, htr, cbr, tdp;
   test_unary(una);
   test_addition(add);
   test_subtraction(sub);
@@ -1315,6 +1525,7 @@ int main() {
   test_huge_argument_trig(htr);
   test_complex_branch_cuts(cbr);
   test_bessel_jn_miller_precision(bjn);
+  test_td_primitives(tdp);
 
   std::printf("[multifloats_test] %d checks, %d failures\n", g_checks,
               g_failures);
@@ -1336,6 +1547,7 @@ int main() {
   print_stats("huge arg trig", htr);
   print_stats("cx branch cuts", cbr);
   print_stats("bessel jn (Miller)", bjn);
+  print_stats("td primitives", tdp);
 
   // ----------------------------------------------------------------
   // Tolerance sensitivity ratchet (doc/developer/AUDIT_TODO.md #18).

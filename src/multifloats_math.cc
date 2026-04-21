@@ -35,6 +35,7 @@ using multifloats::float64x2;
 
 // Forward declarations for internal cross-references.
 float64x2 exp_full(float64x2 const &x);
+multifloats::detail::float64x3 exp_full_td(float64x2 const &x);
 float64x2 exp2_full(float64x2 const &x);
 float64x2 expm1_full(float64x2 const &x);
 float64x2 log_full(float64x2 const &x);
@@ -45,6 +46,8 @@ float64x2 sin_eval(float64x2 const &r);
 float64x2 cos_eval(float64x2 const &r);
 void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c);
 void sincos_full(float64x2 const &x, float64x2 &s, float64x2 &c);
+void sincos_full_td(float64x2 const &x, multifloats::detail::float64x3 &s,
+                    multifloats::detail::float64x3 &c);
 void sinhcosh_full(float64x2 const &x, float64x2 &s, float64x2 &c);
 float64x2 sinpi_full(float64x2 const &x);
 float64x2 erfc_full(float64x2 const &x);

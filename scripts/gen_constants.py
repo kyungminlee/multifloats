@@ -40,6 +40,14 @@ def to_dd(value):
     return hi, lo
 
 
+def to_td(value):
+    """Split an mpf value into (hi, mid, lo) triple-double triple (~159 bits)."""
+    hi = float(value)
+    mid = float(value - mpf(hi))
+    lo = float(value - mpf(hi) - mpf(mid))
+    return hi, mid, lo
+
+
 def _double_bits(x):
     import struct
     return struct.unpack('<q', struct.pack('<d', float(x)))[0]
@@ -56,6 +64,14 @@ def verify_dd(value, hi, lo):
     if value == 0:
         return abs(float(dd))
     return float(abs((dd - value) / value))
+
+
+def verify_td(value, hi, mid, lo):
+    """Verify |value - (hi+mid+lo)| / |value|. Returns relative error."""
+    td = mpf(hi) + mpf(mid) + mpf(lo)
+    if value == 0:
+        return abs(float(td))
+    return float(abs((td - value) / value))
 
 
 # =============================================================================
@@ -201,11 +217,26 @@ def collect_all():
         groups.append(dict(kind='scalar', name=name, hi=hi, lo=lo,
                            exact=value, comment=comment))
 
+    def scalar_td(name, value, comment):
+        """Triple-double scalar — emits _hi, _lo, and _lo2 limbs."""
+        hi, mid, lo = to_td(value)
+        groups.append(dict(kind='scalar_td', name=name, hi=hi, mid=mid, lo=lo,
+                           exact=value, comment=comment))
+
     def array(name, values, comment):
         pairs = [to_dd(v) for v in values]
         groups.append(dict(kind='array', name=name,
                            hi=[p[0] for p in pairs],
                            lo=[p[1] for p in pairs],
+                           exact=values, comment=comment))
+
+    def array_td(name, values, comment):
+        """Triple-double array — emits _hi[], _lo[], and _lo2[] limbs."""
+        triples = [to_td(v) for v in values]
+        groups.append(dict(kind='array_td', name=name,
+                           hi=[t[0] for t in triples],
+                           mid=[t[1] for t in triples],
+                           lo=[t[2] for t in triples],
                            exact=values, comment=comment))
 
     def dp_array(name, values, comment):
@@ -226,22 +257,24 @@ def collect_all():
     section('CONVERSION',
             'mpmath (60 dp precision)',
             'log2(e), ln(2), pi, 1/pi, pi/2 Cody-Waite 3-part, ...')
-    scalar('log2_e',       1 / log(mpf(2)),        'log2(e)')
+    scalar_td('log2_e',    1 / log(mpf(2)),        'log2(e)')
     scalar('ln_2',         log(mpf(2)),            'ln(2)')
     scalar('log10_2',      log10(mpf(2)),          'log10(2)')
     scalar('inv_pi',       1 / pi,                 '1/pi')
-    scalar('pi_dd',        pi,                     'pi')
+    scalar_td('pi_dd',     pi,                     'pi')
     scalar('half_log_2pi', log(2 * pi) / 2,        '(1/2)*log(2*pi)')
     scalar('log_pi',       log(pi),                'log(pi)')
 
-    # pi/2 Cody-Waite 3-part
+    # pi/2 Cody-Waite 4-part. cw1..cw3 carry ~161 bits (unchanged from
+    # before); cw4 pushes the residual to ~214 bits for TD sincos kernels.
     p = pi / 2
     cw1 = float(p)
     cw2 = float(p - mpf(cw1))
     cw3 = float(p - mpf(cw1) - mpf(cw2))
-    groups.append(dict(kind='cw3', name='pi_half_cw',
-                       v1=cw1, v2=cw2, v3=cw3,
-                       comment='pi/2 Cody-Waite 3-part (~161 bits)'))
+    cw4 = float(p - mpf(cw1) - mpf(cw2) - mpf(cw3))
+    groups.append(dict(kind='cw4', name='pi_half_cw',
+                       v1=cw1, v2=cw2, v3=cw3, v4=cw4,
+                       comment='pi/2 Cody-Waite 4-part (~214 bits; cw4 is TD-precision tail)'))
 
     section('ERF_RATIONAL',
             'libquadmath erfq.c (GCC, LGPL)',
@@ -711,14 +744,19 @@ def collect_all():
     # --- exp2 ---
     # Degree bumped from 13 to 15 so the three-squaring cube reconstruction
     # no longer amplifies Taylor-truncation error at the fit-interval edge.
-    array('exp2_coefs', gen_exp2_coefs(16), 'exp2: c[k] = (ln2)^k / k!, k=0..15')
+    array_td('exp2_coefs', gen_exp2_coefs(16),
+             'exp2: c[k] = (ln2)^k / k!, k=0..15. TD (~159 bits) for the '
+             'TD exp path; the _hi/_lo pair alone matches the prior DD '
+             'values exactly (same to_dd decomposition).')
 
-    # exp2 lookup table: T[k] = 2^((k-128)/256) as DD, k=0..256.
-    array('exp2_table', gen_exp2_table(128),
-          ('exp2 table: T[k] = 2^((k-128)/256) as DD, k=0..256. Combined with '
-           'a small-r Taylor on the residue |r| <= 1/512 (degree 9 suffices; '
-           'next term is (ln2/512)^10 / 10! ~ 6e-36 << ulp_dd), this replaces '
-           'the divide-by-8 + degree-15 + cube-three-times reconstruction.'))
+    # exp2 lookup table: T[k] = 2^((k-128)/256) as TD, k=0..256.
+    array_td('exp2_table', gen_exp2_table(128),
+             ('exp2 table: T[k] = 2^((k-128)/256) as TD, k=0..256. Combined with '
+              'a small-r Taylor on the residue |r| <= 1/512 (degree 9 suffices; '
+              'next term is (ln2/512)^10 / 10! ~ 6e-36 << ulp_dd), this replaces '
+              'the divide-by-8 + degree-15 + cube-three-times reconstruction. '
+              'The _lo2 third limb lifts the table to TD precision for the '
+              'cexpm1 Re path.'))
     # exp2_min is extended below -1022 so the exp2 kernel can produce
     # subnormal-range outputs instead of flushing to zero at the binade edge.
     groups.append(dict(kind='exp2_clamp', comment=(
@@ -743,11 +781,13 @@ def collect_all():
     _cw1 = _bits_double(_ln2_bits & ~((1 << 20) - 1))
     _cw2 = float(_ln2 - mpf(_cw1))
     _cw3 = float(_ln2 - mpf(_cw1) - mpf(_cw2))
-    groups.append(dict(kind='cw3', name='ln2_cw',
-                       v1=_cw1, v2=_cw2, v3=_cw3,
+    _cw4 = float(_ln2 - mpf(_cw1) - mpf(_cw2) - mpf(_cw3))
+    groups.append(dict(kind='cw4', name='ln2_cw',
+                       v1=_cw1, v2=_cw2, v3=_cw3, v4=_cw4,
                        comment=('Cody-Waite split of ln(2) for exp_full range '
                                 'reduction: cw1 is 33-bit, cw2+cw3 carry the '
-                                'residual (~160 bits total).')))
+                                'DD residual (~139 bits); cw4 extends to ~192 '
+                                'bits for the TD exp path.')))
 
     # --- exp input clamps ---
     # exp(709.78...) = 2^1024 overflows; exp(-745.13...) underflows to 0.
@@ -797,10 +837,14 @@ def collect_all():
             'in-house Taylor',
             'sin/cos kernel Taylor coefficients for reduced |r| < pi/4')
     # --- trig ---
-    array('sin_taylor', gen_sin_taylor(13),
-          'sin(x)/x Taylor: c[k] = (-1)^k / (2k+1)!')
-    array('cos_taylor', gen_cos_taylor(13),
-          'cos(x) Taylor: c[k] = (-1)^k / (2k)!')
+    array_td('sin_taylor', gen_sin_taylor(13),
+             'sin(x)/x Taylor: c[k] = (-1)^k / (2k+1)!. TD (~159 bits) for '
+             'the TD sincos path; the _hi/_lo pair matches the prior DD '
+             'values exactly.')
+    array_td('cos_taylor', gen_cos_taylor(13),
+             'cos(x) Taylor: c[k] = (-1)^k / (2k)!. TD (~159 bits) for the '
+             'TD sincos path; the _hi/_lo pair matches the prior DD values '
+             'exactly.')
 
     section('HYPERBOLIC',
             'in-house Taylor',
@@ -1351,12 +1395,12 @@ def collect_all():
             'libquadmath j0q.c / j1q.c (arrays) + mpmath (scalars)',
             'J0 / Y0 / J1 / Y1 rational fits + asymptotic phase constants')
     # --- Bessel functions (from libquadmath j0q.c / j1q.c) ---
-    scalar('inv_sqrt2', 1 / sqrt(mpf(2)), '1/sqrt(2)')
+    scalar_td('inv_sqrt2', 1 / sqrt(mpf(2)), '1/sqrt(2)')
     scalar('two_over_pi', 2 / pi, '2/pi')
     scalar('bessel_u0',
            mpf('-7.3804295108687225274343927948483016310862e-02'),
            'Y0 small-x constant')
-    scalar('pi_quarter', pi / 4, 'pi/4')
+    scalar_td('pi_quarter', pi / 4, 'pi/4')
     scalar('three_pi_quarter', 3 * pi / 4, '3*pi/4')
 
     j0_path = os.path.join(PROJECT_DIR, 'external', 'libquadmath', 'math',
@@ -1416,11 +1460,24 @@ def write_cpp(groups, f):
             f.write(f"inline constexpr double {g['name']}_hi = {g['hi']:23.17e};\n")
             f.write(f"inline constexpr double {g['name']}_lo = {g['lo']:23.17e};\n\n")
 
+        elif kind == 'scalar_td':
+            f.write(f"// {g['comment']}\n")
+            f.write(f"inline constexpr double {g['name']}_hi  = {g['hi']:23.17e};\n")
+            f.write(f"inline constexpr double {g['name']}_lo  = {g['mid']:23.17e};\n")
+            f.write(f"inline constexpr double {g['name']}_lo2 = {g['lo']:23.17e};\n\n")
+
         elif kind == 'cw3':
             f.write(f"// {g['comment']}\n")
             f.write(f"inline constexpr double {g['name']}1 = {g['v1']:23.17e};\n")
             f.write(f"inline constexpr double {g['name']}2 = {g['v2']:23.17e};\n")
             f.write(f"inline constexpr double {g['name']}3 = {g['v3']:23.17e};\n\n")
+
+        elif kind == 'cw4':
+            f.write(f"// {g['comment']}\n")
+            f.write(f"inline constexpr double {g['name']}1 = {g['v1']:23.17e};\n")
+            f.write(f"inline constexpr double {g['name']}2 = {g['v2']:23.17e};\n")
+            f.write(f"inline constexpr double {g['name']}3 = {g['v3']:23.17e};\n")
+            f.write(f"inline constexpr double {g['name']}4 = {g['v4']:23.17e};\n\n")
 
         elif kind == 'exp2_clamp':
             f.write(f"// {g['comment']}\n")
@@ -1447,6 +1504,18 @@ def write_cpp(groups, f):
                 f.write(f"    {', '.join(vals)}{end}\n")
             f.write("\n")
 
+        elif kind == 'array_td':
+            n = len(g['hi'])
+            f.write(f"// {g['comment']}\n")
+            for suffix, data in (('_hi', g['hi']), ('_lo', g['mid']),
+                                 ('_lo2', g['lo'])):
+                f.write(f"inline constexpr double {g['name']}{suffix}[{n}] = {{\n")
+                for i in range(0, n, 2):
+                    vals = [f"{data[j]:23.17e}" for j in range(i, min(i+2, n))]
+                    end = "};" if i + 2 >= n else ","
+                    f.write(f"    {', '.join(vals)}{end}\n")
+            f.write("\n")
+
         elif kind == 'dp_array':
             vals = g['values']
             n = len(vals)
@@ -1465,6 +1534,7 @@ def write_cpp(groups, f):
 
 def verify_all(groups):
     max_err = 0.0
+    max_err_td = 0.0
     n_checked = 0
     for g in groups:
         if g['kind'] == 'scalar':
@@ -1476,7 +1546,17 @@ def verify_all(groups):
                 err = verify_dd(g['exact'][i], g['hi'][i], g['lo'][i])
                 max_err = max(max_err, err)
                 n_checked += 1
-    return max_err, n_checked
+        elif g['kind'] == 'scalar_td':
+            err = verify_td(g['exact'], g['hi'], g['mid'], g['lo'])
+            max_err_td = max(max_err_td, err)
+            n_checked += 1
+        elif g['kind'] == 'array_td':
+            for i in range(len(g['hi'])):
+                err = verify_td(g['exact'][i], g['hi'][i], g['mid'][i],
+                                g['lo'][i])
+                max_err_td = max(max_err_td, err)
+                n_checked += 1
+    return max_err, max_err_td, n_checked
 
 
 # =============================================================================
@@ -1487,13 +1567,17 @@ def main():
     check_only = '--check' in sys.argv
 
     groups = collect_all()
-    max_err, n_checked = verify_all(groups)
+    max_err, max_err_td, n_checked = verify_all(groups)
 
-    print(f"Verified {n_checked} constants, max DD conversion error: {max_err:.3e}",
-          file=sys.stderr)
+    print(f"Verified {n_checked} constants: max DD err {max_err:.3e}, "
+          f"max TD err {max_err_td:.3e}", file=sys.stderr)
 
     if max_err > 1e-31:
-        print("WARNING: some constants exceed 1e-31 relative error", file=sys.stderr)
+        print("WARNING: some DD constants exceed 1e-31 relative error",
+              file=sys.stderr)
+    if max_err_td > 1e-47:
+        print("WARNING: some TD constants exceed 1e-47 relative error",
+              file=sys.stderr)
 
     if check_only:
         print("Check-only mode, not writing files.", file=sys.stderr)

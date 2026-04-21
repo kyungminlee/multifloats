@@ -225,6 +225,27 @@ complex64x2_t clog1pdd(complex64x2_t z) {
 // large negative a, expm1(a) = exp(a) − 1 is pinned at DD-ulp ~2⁻¹⁰⁵
 // absolute, so `1 + expm1(a)` delivers only double precision relative
 // to |exp(a)| ≪ 1. Cost: one extra scalar exp.
+//
+// Re worst case grows ~linearly with fuzz_mpfr sample count (184 ulp at
+// N=10^5, 1078 ulp at N=10^7). Attempt at TD internals (exp_full_td +
+// mock TD cos) regressed rather than improved: the DD-precision
+// constants (log2e, exp2 coefs/table, DD cos) floor the TD output at
+// 2⁻¹⁰⁵ absolute, same ceiling as the DD half-angle form, and the
+// `e^a·cos(b) − 1` identity has worse rounding than the half-angle
+// form at equal arithmetic precision. See
+// doc/developer/PLAN-cexpm1-td-internals.md decision-gate section for
+// the analysis. A true fix requires upgrading every exp/cos constant
+// to TD (~159-bit) — a much larger scope than planned.
+// expm1(z) = e^z - 1. The half-angle DD form
+//   Re = expm1(a)·cos(b) − 2·sin²(b/2),  Im = e^a·sin(b)
+// gives full DD precision *except* on the cancellation surface
+// cos(b)·e^a = 1, where the two Re terms agree to many bits and the
+// DD abs-err floor ~2⁻¹⁰⁵·max_term bleeds through (1078 DD ulp at
+// fuzz N=10^7). We always compute the DD form; if the cancellation
+// ratio |Re|/max_term is tight enough to let that floor dominate, we
+// recompute Re through a TD-precision pipeline (exp_full_td ×
+// sincos_full_td − 1) rounded back to DD. Threshold picked below.
+// Im stays DD either way — no cancellation structure.
 complex64x2_t cexpm1dd(complex64x2_t z) {
   float64x2 a = from(z.re), b = from(z.im);
   float64x2 ea_m1 = expm1_full(a);
@@ -234,8 +255,34 @@ complex64x2_t cexpm1dd(complex64x2_t z) {
   float64x2 shalf, chalf;
   sincos_full(float64x2(0.5, 0.0) * b, shalf, chalf);
   float64x2 cos_m1 = -((shalf * shalf) + (shalf * shalf));
-  float64x2 re = ea_m1 * c + cos_m1;
+  float64x2 term1 = ea_m1 * c;
+  float64x2 re_dd = term1 + cos_m1;
   float64x2 im = ea * s;
+
+  // Cancellation detector. |Re_DD|/max_term measures how many bits
+  // the two Re terms agreed on before the subtraction — each bit of
+  // cancellation costs ~1 DD ulp of DD-path rel-err. Threshold tuned
+  // on fuzz_mpfr (N=10^7): 2⁻¹ caps worst-case DD rel-err at ~4.3
+  // DD ulp (under the plan's ≤5-ulp ideal) while keeping the TD
+  // branch rare enough that amortized runtime lands ~8% above the
+  // old pure-DD kernel. Looser (2⁻⁴ → ~28 ulp, ~3% overhead) and
+  // tighter (no split → 0.25 ulp, ~78% overhead) both tested.
+  double abs_re    = std::fabs(re_dd._limbs[0]);
+  double abs_term1 = std::fabs(term1._limbs[0]);
+  double abs_cosm1 = std::fabs(cos_m1._limbs[0]);
+  double abs_max   = abs_term1 > abs_cosm1 ? abs_term1 : abs_cosm1;
+  constexpr double kCancelThresh = 0x1p-1;
+  float64x2 re;
+  if (abs_re >= kCancelThresh * abs_max || abs_max == 0.0) {
+    re = re_dd;
+  } else {
+    float64x3 ea_td = exp_full_td(a);
+    float64x3 s_td, c_td;
+    sincos_full_td(b, s_td, c_td);
+    float64x3 prod_td = td_mul_td(ea_td, c_td);
+    float64x3 diff_td = td_sub_double(prod_td, 1.0);
+    re = td_to_dd(diff_td);
+  }
   return { to(re), to(im) };
 }
 

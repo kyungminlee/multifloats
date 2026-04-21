@@ -264,3 +264,109 @@ float64x2 tan_full(float64x2 const &x) {
     default: return -c / s;  // q == 1 or 3
   }
 }
+
+// ---- TD-output sincos variants --------------------------------------------
+// Mirror of reduce_pi_half / sincos_full that carries ~159 bits through
+// the range reduction and Taylor evaluation. Every constant (π/2 split
+// cw1..cw4, pi_quarter, inv_sqrt2, sin_taylor, cos_taylor) is lifted to
+// TD precision in dd_constants.hh. See doc/developer/PLAN-cexpm1-td-
+// internals.md Phase B for motivation — the mock-TD-cos prototype
+// stalled at the DD-cos floor of 2⁻¹⁰⁵, which this kernel removes.
+
+void reduce_pi_half_td(float64x2 const &x, float64x3 &r, int &n_mod4) {
+  double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);
+  // TSUM accumulator: start from x (DD) and subtract n·π/2 in four
+  // Cody-Waite stages. Every n·cwk is captured as an exact FMA pair so
+  // |n| can grow up to kTrigArgumentCap (2^55) without losing the
+  // sub-double residual. Using the same FMA for cw1 is the fix for a
+  // bug where |n·cw1| exceeded the 33-bit significand's exact range at
+  // |n| > 2^20; the DD path hides this via dd_sub_step's FMA, but the
+  // single-limb `-(n_float*cw1)` shortcut here does not.
+  double T0 = 0.0, T1 = 0.0, T2 = 0.0;
+  tsum3(T0, T1, T2, x._limbs[0]);
+  tsum3(T0, T1, T2, x._limbs[1]);
+  auto sub_fma_pair = [&](double cw) {
+    double ph = n_float * cw;
+    double pl = std::fma(n_float, cw, -ph);
+    tsum3(T0, T1, T2, -ph);
+    tsum3(T0, T1, T2, -pl);
+  };
+  sub_fma_pair(pi_half_cw1);
+  sub_fma_pair(pi_half_cw2);
+  sub_fma_pair(pi_half_cw3);
+  sub_fma_pair(pi_half_cw4);
+  tsum3_finalize(T0, T1, T2);
+  r = {T0, T1, T2};
+  long long nn = static_cast<long long>(std::fabs(n_float)) & 3LL;
+  if (n_float < 0.0) nn = (4 - nn) & 3;
+  n_mod4 = static_cast<int>(nn);
+}
+
+// Taylor kernels at TD precision, |x| ≤ π/8. sin keeps the factored
+// sin(x)/x form so the low limbs of x survive the outer multiply.
+float64x3 sin_kernel_td(float64x3 const &x) {
+  float64x3 x2 = td_mul_td(x, x);
+  float64x3 q = {sin_taylor_hi[12], sin_taylor_lo[12], sin_taylor_lo2[12]};
+  for (int j = 11; j >= 0; --j) {
+    q = td_mul_td(q, x2);
+    float64x3 c = {sin_taylor_hi[j], sin_taylor_lo[j], sin_taylor_lo2[j]};
+    q = td_add_td(q, c);
+  }
+  return td_mul_td(q, x);
+}
+float64x3 cos_kernel_td(float64x3 const &x) {
+  float64x3 x2 = td_mul_td(x, x);
+  float64x3 q = {cos_taylor_hi[12], cos_taylor_lo[12], cos_taylor_lo2[12]};
+  for (int j = 11; j >= 0; --j) {
+    q = td_mul_td(q, x2);
+    float64x3 c = {cos_taylor_hi[j], cos_taylor_lo[j], cos_taylor_lo2[j]};
+    q = td_add_td(q, c);
+  }
+  return q;
+}
+
+// Fused TD sin/cos for |r| ≤ π/4 — mirrors sincos_eval with TD constants
+// throughout. For |r| > π/8, shift by π/4 so the Taylor arg stays inside
+// [-π/8, π/8] and the 13-term polynomial hits full TD at the edge.
+void sincos_eval_td(float64x3 const &r, float64x3 &s, float64x3 &c) {
+  constexpr double pi8 = 0.392699081698724;
+  if (std::fabs(r._limbs[0]) <= pi8) {
+    s = sin_kernel_td(r);
+    c = cos_kernel_td(r);
+    return;
+  }
+  float64x3 pi4_td = {pi_quarter_hi, pi_quarter_lo, pi_quarter_lo2};
+  float64x3 inv_sqrt2_td = {inv_sqrt2_hi, inv_sqrt2_lo, inv_sqrt2_lo2};
+  bool pos = r._limbs[0] > 0.0;
+  float64x3 rp = pos ? td_add_td(r, td_negate(pi4_td))
+                     : td_add_td(r, pi4_td);
+  float64x3 sk = sin_kernel_td(rp);
+  float64x3 ck = cos_kernel_td(rp);
+  if (pos) {
+    s = td_mul_td(td_add_td(sk, ck), inv_sqrt2_td);
+    c = td_mul_td(td_add_td(ck, td_negate(sk)), inv_sqrt2_td);
+  } else {
+    s = td_mul_td(td_add_td(sk, td_negate(ck)), inv_sqrt2_td);
+    c = td_mul_td(td_add_td(ck, sk), inv_sqrt2_td);
+  }
+}
+
+void sincos_full_td(float64x2 const &x, float64x3 &s, float64x3 &c) {
+  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) {
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    s = {nan, 0.0, 0.0};
+    c = {nan, 0.0, 0.0};
+    return;
+  }
+  float64x3 r;
+  int q;
+  reduce_pi_half_td(x, r, q);
+  float64x3 ss, cc;
+  sincos_eval_td(r, ss, cc);
+  switch (q) {
+    case 0: s = ss;              c = cc;              break;
+    case 1: s = cc;              c = td_negate(ss);   break;
+    case 2: s = td_negate(ss);   c = td_negate(cc);   break;
+    default: s = td_negate(cc);  c = ss;              break;
+  }
+}

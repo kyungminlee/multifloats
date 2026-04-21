@@ -84,6 +84,110 @@ float64x2 exp2_full(float64x2 const &x) {
   return exp2_kernel(x);
 }
 
+// ---- TD-output exp variants -----------------------------------------------
+// Mirror of `exp2_from_reduced` / `exp_full` that operates on TD (~159 bit)
+// internals throughout — every constant (log2_e, exp2_coefs, exp2_table,
+// ln2_cw1..cw4) is lifted to TD precision from dd_constants.hh so the
+// output genuinely carries ~158 bits rather than being capped at the
+// DD-constant floor. See doc/developer/PLAN-cexpm1-td-internals.md
+// "Decision-gate outcome" for why the DD-constant prototype failed.
+//
+// `exp_full_td(x) |> td_to_dd` matches `exp_full(x)` within one DD ulp.
+// The TD pair (em, el) carries the residue used by the Re path of
+// `cexpm1dd` to survive the cancellation surface cos(b)·e^a = 1.
+
+float64x3 exp2_td_from_reduced(double n_d, float64x3 const &y) {
+  if (n_d > 1100.0) {
+    return {std::numeric_limits<double>::infinity(), 0.0, 0.0};
+  }
+  if (n_d < -1100.0) return {0.0, 0.0, 0.0};
+
+  // Same table-index split as the DD path, but extended to TD residue.
+  // y.hi − k/256 is exact (Sterbenz) provided |y.hi| ≲ 0.5 and
+  // k ∈ [-128, 128].
+  double k_d = std::nearbyint(y._limbs[0] * 256.0);
+  int k = static_cast<int>(k_d);
+  if (k > 128) k = 128;
+  if (k < -128) k = -128;
+  double sh = y._limbs[0] - static_cast<double>(k) / 256.0;
+  float64x3 s_td = {sh, y._limbs[1], y._limbs[2]};
+  // Canonicalize: the three limbs may no longer be ordered after the
+  // subtraction (sh can collapse to ~y.mid if k rounded y.hi well).
+  s_td = renorm3(s_td._limbs[0], s_td._limbs[1], s_td._limbs[2]);
+
+  // TD Horner on c[1]..c[15] of exp2_coefs. Degree 15 drives the Taylor
+  // truncation below ~2⁻¹⁹⁷, well under the TD floor.
+  float64x3 q_td;
+  q_td._limbs[0] = exp2_coefs_hi[15];
+  q_td._limbs[1] = exp2_coefs_lo[15];
+  q_td._limbs[2] = exp2_coefs_lo2[15];
+  for (int j = 14; j >= 1; --j) {
+    q_td = td_mul_td(q_td, s_td);
+    float64x3 c_td = {exp2_coefs_hi[j], exp2_coefs_lo[j],
+                      exp2_coefs_lo2[j]};
+    q_td = td_add_td(q_td, c_td);
+  }
+  // 2^s − 1 = s · q; 2^s = 1 + s·q.
+  float64x3 sq_td = td_mul_td(q_td, s_td);
+  float64x3 pow2s_td = td_add_double(sq_td, 1.0);
+
+  // Mantissa = T[k+128] · 2^s with the full TD table entry.
+  float64x3 T_td = {exp2_table_hi[k + 128], exp2_table_lo[k + 128],
+                    exp2_table_lo2[k + 128]};
+  float64x3 mantissa_td = td_mul_td(pow2s_td, T_td);
+
+  // Scale by 2^n. ldexp on each limb is exact for normal inputs; split
+  // n in halves so ldexp stays inside its well-defined range at the
+  // extreme ends of exp's domain.
+  int n = static_cast<int>(n_d);
+  int half_n = n / 2;
+  float64x3 r;
+  for (int i = 0; i < 3; ++i) {
+    double v = std::ldexp(mantissa_td._limbs[i], half_n);
+    r._limbs[i] = std::ldexp(v, n - half_n);
+  }
+  return r;
+}
+
+float64x3 exp_full_td(float64x2 const &x) {
+  if (!std::isfinite(x._limbs[0])) {
+    return {_exp_nonfinite(x._limbs[0])._limbs[0], 0.0, 0.0};
+  }
+  if (x._limbs[0] > exp_max) {
+    return {std::numeric_limits<double>::infinity(), 0.0, 0.0};
+  }
+  if (x._limbs[0] < exp_min) return {0.0, 0.0, 0.0};
+
+  double n_d = std::nearbyint(x._limbs[0] * log2_e_hi);
+
+  // TD-precision Cody-Waite reduction: r = x − n·ln2 via the 4-part
+  // split cw1..cw4. cw1 is 33-bit (n·cw1 exact in double for |n| < 2^20),
+  // cw2..cw4 are 53-bit residuals totalling ~192 bits below cw1. Exact
+  // products n·cwk for k≥2 are captured via FMA pairs; everything is
+  // accumulated through the TSUM primitive into a TD residue.
+  double T0 = 0.0, T1 = 0.0, T2 = 0.0;
+  tsum3(T0, T1, T2, x._limbs[0]);
+  tsum3(T0, T1, T2, x._limbs[1]);
+  tsum3(T0, T1, T2, -(n_d * ln2_cw1));           // exact
+  double p2h = n_d * ln2_cw2;
+  double p2l = std::fma(n_d, ln2_cw2, -p2h);     // n·cw2 exact split
+  tsum3(T0, T1, T2, -p2h);
+  tsum3(T0, T1, T2, -p2l);
+  double p3h = n_d * ln2_cw3;
+  double p3l = std::fma(n_d, ln2_cw3, -p3h);
+  tsum3(T0, T1, T2, -p3h);
+  tsum3(T0, T1, T2, -p3l);
+  tsum3(T0, T1, T2, -(n_d * ln2_cw4));           // below TD floor already
+  tsum3_finalize(T0, T1, T2);
+  float64x3 rr_td = {T0, T1, T2};
+
+  // Convert r (natural-log form) to base-2: y = r · log2(e), both TD.
+  // log2(e) carried to ~159 bits via log2_e_{hi,lo,lo2}.
+  float64x3 log2e_td = {log2_e_hi, log2_e_lo, log2_e_lo2};
+  float64x3 y_td = td_mul_td(rr_td, log2e_td);
+  return exp2_td_from_reduced(n_d, y_td);
+}
+
 float64x2 exp_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) return _exp_nonfinite(x._limbs[0]);
   if (x._limbs[0] > exp_max) {
