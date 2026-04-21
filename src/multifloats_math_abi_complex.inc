@@ -218,20 +218,23 @@ complex64x2_t clog1pdd(complex64x2_t z) {
 // expm1(z) = e^z - 1 without losing precision for |z| << 1. Write
 //   Re = (e^a - 1) cos(b) + (cos(b) - 1)
 //      = expm1(a)·cos(b) − 2·sin²(b/2)
-//   Im = e^a · sin(b) = (1 + expm1(a)) · sin(b)
+//   Im = e^a · sin(b)
 // The half-angle form of (cos(b) − 1) keeps the real part full-DD for
-// small |b| where the direct `cos(b) − 1` cancels. Two fused sincos
-// pairs — cost is ~2× cexp for general z, matches cexp for |z| ≫ 1.
+// small |b| where the direct `cos(b) − 1` cancels. The Im part calls
+// exp_full(a) directly rather than reconstructing (1 + expm1(a)): for
+// large negative a, expm1(a) = exp(a) − 1 is pinned at DD-ulp ~2⁻¹⁰⁵
+// absolute, so `1 + expm1(a)` delivers only double precision relative
+// to |exp(a)| ≪ 1. Cost: one extra scalar exp.
 complex64x2_t cexpm1dd(complex64x2_t z) {
   float64x2 a = from(z.re), b = from(z.im);
   float64x2 ea_m1 = expm1_full(a);
+  float64x2 ea = exp_full(a);
   float64x2 s, c;
   sincos_full(b, s, c);
   float64x2 shalf, chalf;
   sincos_full(float64x2(0.5, 0.0) * b, shalf, chalf);
   float64x2 cos_m1 = -((shalf * shalf) + (shalf * shalf));
   float64x2 re = ea_m1 * c + cos_m1;
-  float64x2 ea = float64x2(1.0, 0.0) + ea_m1;
   float64x2 im = ea * s;
   return { to(re), to(im) };
 }
