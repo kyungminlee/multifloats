@@ -17,7 +17,6 @@ The optional MPFR driver raises the reference to 200 bits.
 | `test.cc` | `cpp_test` | `precision_cpp` | C++ per-op precision table over a curated input list, qp reference. |
 | `test.f90` | `fortran_test` | `precision_fortran_unit` | Fortran operator / intrinsic coverage, qp reference. |
 | `precision.f90` | `fortran_precision` | `precision_fortran` | Broader Fortran precision sweep (arithmetic, matmul shape coverage, signed zero, inf/NaN). |
-| `test_mod.f90` | — | — | Targeted `mod` / `modulo` edge cases (not wired into ctest). |
 
 ### Randomized fuzz
 
@@ -55,8 +54,6 @@ each file.
 |---|---|
 | `test_common.hh` | `to_q` / `from_q` / `q_rel_err` / `qstr` bridge between `multifloats::float64x2` and `__float128`. Shared across C++ test / fuzz / bench. |
 | `test_common_mpfr.hh` | Same bridge against `mpreal` at 200 bits. Included only by `fuzz_mpfr.cc`. |
-| `matmul.hh` | Trivial reference `matmul` used by bench drivers. |
-| `test_mod.f90` | Standalone precision driver — not linked into ctest. |
 
 ## Running
 

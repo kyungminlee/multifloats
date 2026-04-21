@@ -299,16 +299,6 @@ C_SECTIONS: list[Section] = [
     ]),
 ]
 
-# Backwards-compatible alias: earlier callers imported CPP_SECTIONS.
-CPP_SECTIONS = C_SECTIONS
-
-
-def all_ops_by_section(lang: str) -> list[Section]:
-    if lang == "fortran":
-        return FORTRAN_SECTIONS
-    # Treat "c" and the legacy "cpp" as the same set.
-    return C_SECTIONS
-
 
 def qp_reference_ops() -> list[Op]:
     """Flat list of ops for the top-level quadmath-vs-MPFR reference table.

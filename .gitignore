@@ -2,7 +2,6 @@ build/
 .cache/
 .claude/
 compile_commands.json
-external/
 Testing/
 *.o
 *.a

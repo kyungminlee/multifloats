@@ -76,13 +76,13 @@ is only used by the test harness as a high-precision reference.
 
 ## Precision
 
-`multifloat_fuzz` runs every operation listed below through 1M random
-input pairs (using adversarial input strategies that include subnormals,
-near-cancellation pairs, near-overflow pairs, and non-finite leading limbs)
-and reports the per-op `(max_rel_err, mean_rel_err)` against a
-quad-precision (`real(16)`) reference. The numbers in the tables below are
-representative samples from a recent run of `multifloat_fuzz` (seed = 0,
-1M iterations); your build will land in the same orders of magnitude.
+The `cpp_fuzz` / `fortran_fuzz` drivers run every operation listed below
+through 1M random input pairs (using adversarial input strategies that
+include subnormals, near-cancellation pairs, near-overflow pairs, and
+non-finite leading limbs) and report the per-op `(max_rel_err, mean_rel_err)`
+against a quad-precision (`real(16)`) reference. The numbers in the tables
+below are representative samples from a recent fuzz run (seed = 0, 1M
+iterations); your build will land in the same orders of magnitude.
 
 A relative error reported as `0` means *exactly bit-equal* to the qp
 reference for every input the fuzz drew. Operations are organized by their
@@ -173,7 +173,7 @@ approximations. `erfc_scaled` is in the same bucket.
   dp `erfc`. At `|x| = 2` that's ~5e-19; at `|x| ≥ 6` the low limb is
   below the DD ulp floor and the result is full DD.
 
-Mean error across `multifloat_fuzz`'s random input distribution is
+Mean error across the fuzz drivers' random input distribution is
 now ~2e-21 for `erf` (5 orders better than the previous
 derivative-corrected version). Worst case is still ~2e-18 because
 the `|x| ∈ [2, 6]` band inherits libm's dp precision for `erfc`.
