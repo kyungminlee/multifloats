@@ -408,6 +408,8 @@ contains
     @:BENCH1(exp,   REPS_TRIG, qsmall, fsmall)
     @:BENCH1(log,   REPS_TRIG, qpos, fpos)
     @:BENCH1(log10, REPS_TRIG, qpos, fpos)
+    ! log2: no qp intrinsic; compose as log(x) / log(2). DD exposes log2.
+    @:BENCH(log2,   REPS_TRIG, log(qpos(i)) / log(2.0_qp), log2(fpos(i)), qpos, fpos)
     @:BENCH(pow,     REPS_TRIG, qpos(i) ** qbnd(i), fpos(i) ** fbnd(i), qpos, fpos)
     @:BENCH(pow_int, REPS_TRIG, q1(i) ** 3,         f1(i) ** 3,         q1,   f1)
   end subroutine
@@ -428,6 +430,29 @@ contains
     @:BENCH(cospi,  REPS_TRIG, cos(qsmall(i) * acos(-1.0_qp)), cospi(fsmall(i)), qsmall, fsmall)
     @:BENCH(tanpi,  REPS_TRIG, tan(qbnd(i)   * acos(-1.0_qp)), tanpi(fbnd(i)),   qbnd,   fbnd)
     @:BENCH1(tan,   REPS_TRIG, qbnd, fbnd)
+
+    ! Fused sincos: one call per iteration on the DD side (produces s, c),
+    ! two intrinsics on the qp side (sin + cos). Sum them so the drain
+    ! sees both. No BENCH macro fits — subroutine output via intent(out).
+    block
+      type(float64x2) :: fs, fc
+      call tick(t0)
+      do r = 1, REPS_TRIG
+        do i = 1, N; qres(i) = sin(qsmall(i)) + cos(qsmall(i)); end do
+        call qfeed(qsmall)
+      end do
+      tq = elapsed(t0)
+      call tick(t0)
+      do r = 1, REPS_TRIG
+        do i = 1, N
+          call sincos(fsmall(i), fs, fc)
+          fres(i) = fs + fc
+        end do
+        call ffeed(fsmall)
+      end do
+      tf = elapsed(t0)
+      call report("sincos", n_ops, tq, tf)
+    end block
   end subroutine
 
   ! ================================================================
@@ -447,6 +472,7 @@ contains
     @:BENCH1(atan,   REPS_TRIG, q1, f1)
     @:BENCH(atanpi,  REPS_TRIG, atan(q1(i))   / acos(-1.0_qp), atanpi(f1(i)),   q1,   f1)
     @:BENCH2(atan2,  REPS_TRIG, q1, f1, q2, f2)
+    @:BENCH(atan2pi, REPS_TRIG, atan2(q1(i), q2(i)) / acos(-1.0_qp), atan2pi(f1(i), f2(i)), q1, f1)
   end subroutine
 
   ! ================================================================
@@ -462,6 +488,27 @@ contains
     @:BENCH1(sinh, REPS_TRIG, qsmall, fsmall)
     @:BENCH1(cosh, REPS_TRIG, qsmall, fsmall)
     @:BENCH1(tanh, REPS_TRIG, qsmall, fsmall)
+
+    ! Fused sinhcosh — one DD call vs qp sinh + cosh.
+    block
+      type(float64x2) :: fs, fc
+      call tick(t0)
+      do r = 1, REPS_TRIG
+        do i = 1, N; qres(i) = sinh(qsmall(i)) + cosh(qsmall(i)); end do
+        call qfeed(qsmall)
+      end do
+      tq = elapsed(t0)
+      call tick(t0)
+      do r = 1, REPS_TRIG
+        do i = 1, N
+          call sinhcosh(fsmall(i), fs, fc)
+          fres(i) = fs + fc
+        end do
+        call ffeed(fsmall)
+      end do
+      tf = elapsed(t0)
+      call report("sinhcosh", n_ops, tq, tf)
+    end block
   end subroutine
 
   ! ================================================================
@@ -573,7 +620,14 @@ contains
     n_ops = n_ops_slow
     @:BENCHC1(sqrt,  REPS_VERY_SLOW)
     @:BENCHC1(exp,   REPS_VERY_SLOW)
+    ! complex expm1 / log2 / log10 / log1p: no complex(qp) intrinsics in
+    ! Fortran; compose the qp-side oracle the same way the multifloats DD
+    ! kernels are tested against in fuzz.cc.
+    @:BENCHC(cdd_expm1, REPS_VERY_SLOW, exp(cq1(i)) - 1.0_qp, expm1(cf1(i)))
     @:BENCHC1(log,   REPS_VERY_SLOW)
+    @:BENCHC(cdd_log2,  REPS_VERY_SLOW, log(cq1(i)) / log(2.0_qp),  log2(cf1(i)))
+    @:BENCHC(cdd_log10, REPS_VERY_SLOW, log(cq1(i)) / log(10.0_qp), log10(cf1(i)))
+    @:BENCHC(cdd_log1p, REPS_VERY_SLOW, log(1.0_qp + cq1(i)),       log1p(cf1(i)))
     @:BENCHC1(sin,   REPS_VERY_SLOW)
     @:BENCHC1(cos,   REPS_VERY_SLOW)
     @:BENCHC1(tan,   REPS_VERY_SLOW)
@@ -586,6 +640,8 @@ contains
     @:BENCHC1(asinh, REPS_VERY_SLOW)
     @:BENCHC1(acosh, REPS_VERY_SLOW)
     @:BENCHC1(atanh, REPS_VERY_SLOW)
+    ! cdd_pow via `**` on complex(qp) / complex64x2.
+    @:BENCHC2_OP(pow, REPS_VERY_SLOW, **)
   end subroutine
 
   ! ================================================================

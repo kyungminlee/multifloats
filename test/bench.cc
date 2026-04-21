@@ -74,7 +74,12 @@ WRAP_REAL_UNARY(acosh)
 WRAP_REAL_UNARY(atanh)
 WRAP_REAL_UNARY(erf)
 WRAP_REAL_UNARY(erfc)
-// no ::erfcxq in libquadmath; omit erfcx from the bench.
+// erfcx: libquadmath has no direct variant; compose from erfc and exp(x²).
+// This is the same oracle fuzz.cc / fuzz_mpfr.cc use.
+inline mf::float64x2 erfcx(mf::float64x2 const &x) {
+  return mf::detail::from_f64x2(::erfcxdd(mf::detail::to_f64x2(x)));
+}
+inline q_t erfcx(q_t x) { return ::expq(x * x) * ::erfcq(x); }
 WRAP_REAL_UNARY(tgamma)
 WRAP_REAL_UNARY(lgamma)
 // fabs: libquadmath is fabsq; DD is fabsdd. "abs" common name for readability.
@@ -148,6 +153,48 @@ WRAP_REAL_BINARY(pow)
 WRAP_REAL_BINARY(atan2)
 #undef WRAP_REAL_BINARY
 
+// atan2pi: DD native, qp composed as atan2q(y, x) / M_PIq.
+inline mf::float64x2 atan2pi(mf::float64x2 const &y, mf::float64x2 const &x) {
+  return mf::detail::from_f64x2(::atan2pidd(
+      mf::detail::to_f64x2(y), mf::detail::to_f64x2(x)));
+}
+inline q_t atan2pi(q_t y, q_t x) { return ::atan2q(y, x) / (q_t)M_PIq; }
+
+// -- Fused sincos / sinhcosh: one DD call produces both outputs. Returning
+//    a single value (hi+lo-limb sum) keeps the anti-DCE feedback pattern
+//    usable while still forcing both outputs to be computed. The qp leg
+//    does two separate sinq/cosq calls for a fair "single call with two
+//    outputs vs two calls" comparison.
+inline mf::float64x2 sincos_op(mf::float64x2 const &x) {
+  float64x2_t s, c;
+  ::sincosdd(mf::detail::to_f64x2(x), &s, &c);
+  return mf::detail::from_f64x2(::adddd(s, c));
+}
+inline q_t sincos_op(q_t x) { return ::sinq(x) + ::cosq(x); }
+
+inline mf::float64x2 sinhcosh_op(mf::float64x2 const &x) {
+  float64x2_t s, c;
+  ::sinhcoshdd(mf::detail::to_f64x2(x), &s, &c);
+  return mf::detail::from_f64x2(::adddd(s, c));
+}
+inline q_t sinhcosh_op(q_t x) { return ::sinhq(x) + ::coshq(x); }
+
+// yn_range: one yn_rangedd call produces 6 outputs; the qp leg runs 6
+// separate ynq calls. Sum all 6 into one scalar so the drain consumes
+// everything and the compiler can't elide any output.
+inline mf::float64x2 yn_range_op(mf::float64x2 const &x) {
+  float64x2_t out[6];
+  ::yn_rangedd(0, 5, mf::detail::to_f64x2(x), out);
+  float64x2_t acc = out[0];
+  for (int k = 1; k < 6; ++k) acc = ::adddd(acc, out[k]);
+  return mf::detail::from_f64x2(acc);
+}
+inline q_t yn_range_op(q_t x) {
+  q_t acc = ::ynq(0, x);
+  for (int k = 1; k < 6; ++k) acc += ::ynq(k, x);
+  return acc;
+}
+
 // fma: (a, b, c) → a·b + c
 inline mf::float64x2 fma_op(mf::float64x2 const &a, mf::float64x2 const &b, mf::float64x2 const &c) {
   return mf::detail::from_f64x2(::fmadd(mf::detail::to_f64x2(a),
@@ -182,9 +229,70 @@ WRAP_COMPLEX_UNARY(atanh)
 inline mf::float64x2 cabs(complex64x2_t z) { return mf::detail::from_f64x2(::cabsdd(z)); }
 inline q_t           cabs(__complex128  z) { return ::cabsq(z); }
 
+// carg: complex → real (phase angle in (-π, π]).
+inline mf::float64x2 carg(complex64x2_t z) { return mf::detail::from_f64x2(::cargdd(z)); }
+inline q_t           carg(__complex128  z) { return ::cargq(z); }
+
 // conjg: complex → complex
 inline complex64x2_t cconjg(complex64x2_t z) { return ::conjdd(z); }
 inline __complex128  cconjg(__complex128  z) { return ::conjq(z); }
+
+// cproj: Riemann sphere projection.
+inline complex64x2_t cproj(complex64x2_t z) { return ::cprojdd(z); }
+inline __complex128  cproj(__complex128  z) { return ::cprojq(z); }
+
+// -- Complex composite-oracle ops: libquadmath has no direct variant
+//    (cexpm1q, clog2q, clog10q, clog1pq, csinpiq, ccospiq are all
+//    missing). Compose the qp reference from primitives.
+
+inline complex64x2_t cexpm1(complex64x2_t z) { return ::cexpm1dd(z); }
+inline __complex128  cexpm1(__complex128 z) {
+  __complex128 one; __real__ one = 1; __imag__ one = 0;
+  return ::cexpq(z) - one;
+}
+
+inline complex64x2_t clog1p(complex64x2_t z) { return ::clog1pdd(z); }
+inline __complex128  clog1p(__complex128 z) {
+  __complex128 one; __real__ one = 1; __imag__ one = 0;
+  return ::clogq(z + one);
+}
+
+inline complex64x2_t clog2(complex64x2_t z) { return ::clog2dd(z); }
+inline __complex128  clog2(__complex128 z) {
+  __complex128 lg = ::clogq(z);
+  q_t l2 = ::logq((q_t)2);
+  __complex128 r;
+  __real__ r = crealq(lg) / l2;
+  __imag__ r = cimagq(lg) / l2;
+  return r;
+}
+
+inline complex64x2_t clog10(complex64x2_t z) { return ::clog10dd(z); }
+inline __complex128  clog10(__complex128 z) {
+  __complex128 lg = ::clogq(z);
+  q_t l10 = ::logq((q_t)10);
+  __complex128 r;
+  __real__ r = crealq(lg) / l10;
+  __imag__ r = cimagq(lg) / l10;
+  return r;
+}
+
+inline complex64x2_t csinpi(complex64x2_t z) { return ::csinpidd(z); }
+inline __complex128  csinpi(__complex128 z) {
+  __complex128 pi; __real__ pi = (q_t)M_PIq; __imag__ pi = 0;
+  return ::csinq(pi * z);
+}
+
+inline complex64x2_t ccospi(complex64x2_t z) { return ::ccospidd(z); }
+inline __complex128  ccospi(__complex128 z) {
+  __complex128 pi; __real__ pi = (q_t)M_PIq; __imag__ pi = 0;
+  return ::ccosq(pi * z);
+}
+
+// cpow: both libquadmath (cpowq) and DD (cpowdd) provide native binary
+// entry points, so a generic two-input bench macro fits.
+inline complex64x2_t cpow(complex64x2_t z, complex64x2_t w) { return ::cpowdd(z, w); }
+inline __complex128  cpow(__complex128 z, __complex128 w)   { return ::cpowq(z, w); }
 
 } // namespace fx
 
@@ -397,6 +505,8 @@ static void bench_trig() {
   BENCH1(sin,    REPS_TRIG, qsmall, fsmall);
   BENCH1(cos,    REPS_TRIG, qsmall, fsmall);
   BENCH1(tan,    REPS_TRIG, qbnd,   fbnd);
+  BENCH("sincos", REPS_TRIG,
+        fx::sincos_op(qsmall[i]), fx::sincos_op(fsmall[i]), qsmall, fsmall);
 }
 
 static void bench_pi_trig() {
@@ -413,12 +523,15 @@ static void bench_inv_trig() {
   BENCH1(acos,   REPS_TRIG, qbnd, fbnd);
   BENCH1(atan,   REPS_TRIG, q1,   f1);
   BENCH2(atan2,  REPS_TRIG, q1, f1, q2, f2);
+  BENCH2(atan2pi, REPS_TRIG, q1, f1, q2, f2);
 }
 
 static void bench_hyperbolic() {
   BENCH1(sinh,  REPS_TRIG, qsmall, fsmall);
   BENCH1(cosh,  REPS_TRIG, qsmall, fsmall);
   BENCH1(tanh,  REPS_TRIG, qsmall, fsmall);
+  BENCH("sinhcosh", REPS_TRIG,
+        fx::sinhcosh_op(qsmall[i]), fx::sinhcosh_op(fsmall[i]), qsmall, fsmall);
 }
 
 static void bench_inv_hyperbolic() {
@@ -432,6 +545,12 @@ static void bench_inv_hyperbolic() {
 static void bench_erf_gamma() {
   BENCH1(erf,    REPS_VERY_SLOW, q1, f1);
   BENCH1(erfc,   REPS_VERY_SLOW, q1, f1);
+  // erfcx: use qbnd (|x| < 1) so the qp composite oracle (exp(x²)·erfc(x))
+  // stays well inside qp range. The DD kernel's selling point — no tail
+  // cancellation — kicks in harder at larger |x|, but those inputs need
+  // the q-input range gated to keep exp(x²) representable.
+  BENCH("erfcx", REPS_VERY_SLOW,
+        fx::erfcx(qbnd[i]), fx::erfcx(fbnd[i]), qbnd, fbnd);
   BENCH1(tgamma, REPS_VERY_SLOW, qpos, fpos);
   BENCH1(lgamma, REPS_VERY_SLOW, qpos, fpos);
 }
@@ -443,6 +562,12 @@ static void bench_bessel() {
   BENCH("by0", REPS_VERY_SLOW, fx::y0(qpos[i]), fx::y0(fpos[i]), qpos, fpos);
   BENCH("by1", REPS_VERY_SLOW, fx::y1(qpos[i]), fx::y1(fpos[i]), qpos, fpos);
   BENCH_BESN("byn", yn, 3, REPS_VERY_SLOW, qpos, fpos);
+
+  // yn_range(0..5): one DD call fills six outputs vs six qp ynq calls.
+  // Work-per-call is 6× a single yn, so n_ops reflects the speedup of
+  // the fused sweep.
+  BENCH("yn_range(0..5)", REPS_VERY_SLOW,
+        fx::yn_range_op(qpos[i]), fx::yn_range_op(fpos[i]), qpos, fpos);
 }
 
 static void bench_complex_arith() {
@@ -450,18 +575,26 @@ static void bench_complex_arith() {
   BENCHZ2_OP(sub, -);
   BENCHZ2_OP(mul, *);
   BENCHZ2_OP(div, /);
-  // cabs returns real: use the real bench macro with complex inputs.
+  // cabs / carg return real: use the real bench macro with complex inputs.
   BENCH("cdd_abs", REPS_FAST, fx::cabs(zq1[i]), fx::cabs(zf1[i]), q1, f1);
+  BENCH("cdd_arg", REPS_FAST, fx::carg(zq1[i]), fx::carg(zf1[i]), q1, f1);
   BENCHZ("cdd_conjg", REPS_FAST, fx::cconjg(zq1[i]), fx::cconjg(zf1[i]), zq1, zf1);
+  BENCHZ("cdd_proj",  REPS_FAST, fx::cproj(zq1[i]),  fx::cproj(zf1[i]),  zq1, zf1);
 }
 
 static void bench_complex_trans() {
   BENCHZ1_FAST(sqrt, REPS_TRIG);
   BENCHZ1_FAST(exp,  REPS_TRIG);
+  BENCHZ1_FAST(expm1, REPS_TRIG);
   BENCHZ1_FAST(log,  REPS_TRIG);
+  BENCHZ1_FAST(log2, REPS_TRIG);
+  BENCHZ1_FAST(log10, REPS_TRIG);
+  BENCHZ1_FAST(log1p, REPS_TRIG);
   BENCHZ1_FAST(sin,  REPS_TRIG);
   BENCHZ1_FAST(cos,  REPS_TRIG);
   BENCHZ1_FAST(tan,  REPS_TRIG);
+  BENCHZ1_FAST(sinpi, REPS_TRIG);
+  BENCHZ1_FAST(cospi, REPS_TRIG);
   BENCHZ1_FAST(sinh, REPS_TRIG);
   BENCHZ1_FAST(cosh, REPS_TRIG);
   BENCHZ1_FAST(tanh, REPS_TRIG);
@@ -471,6 +604,9 @@ static void bench_complex_trans() {
   BENCHZ1_FAST(asinh, REPS_VERY_SLOW);
   BENCHZ1_FAST(acosh, REPS_VERY_SLOW);
   BENCHZ1_FAST(atanh, REPS_VERY_SLOW);
+  // cpow: binary complex. BENCHZ1_FAST assumes unary, so explicit form.
+  BENCHZ("cdd_pow", REPS_VERY_SLOW,
+         fx::cpow(zq1[i], zq2[i]), fx::cpow(zf1[i], zf2[i]), zq1, zf1);
 }
 
 // =============================================================================
