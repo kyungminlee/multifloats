@@ -1,3 +1,16 @@
+namespace {
+// Non-finite DD inputs (NaN / ±Inf) are routed through the scalar std:: lib
+// call, with a zero lo-limb. The six inverse-trig `*_full` functions below
+// share this preamble verbatim except for the std:: callee.
+template <typename ScalarFn>
+inline float64x2 _nonfinite_scalar_fallback(float64x2 const &x, ScalarFn fn) {
+  float64x2 r;
+  r._limbs[0] = fn(x._limbs[0]);
+  r._limbs[1] = 0.0;
+  return r;
+}
+} // namespace
+
 // ---- atan (table lookup + rational polynomial, from libquadmath atanq.c) ---
 // arctan(t) = t + t^3 * P(t^2) / Q(t^2),  |t| <= 0.09375
 // Argument reduced via 87-entry table: arctan(x) = atantbl[k] + arctan(t).
@@ -7,10 +20,7 @@
 //   32/3 so worst-case |t| = 3/32 = 0.09375 hits the fitted edge exactly.
 float64x2 atan_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::atan(x._limbs[0]);
-    r._limbs[1] = 0.0;
-    return r;
+    return _nonfinite_scalar_fallback(x, [](double d) { return std::atan(d); });
   }
   double ax_d = std::abs(x._limbs[0]);
   // atan(x) = x - x³/3 + …; for |x| < sqrt(3)·2⁻⁵³ ≈ 1.85e-16 the
@@ -48,10 +58,7 @@ float64x2 atan_full(float64x2 const &x) {
 // Region 3: 0.625 <= |x| < 1   — half-angle: asin(x) = pi/2 - 2*asin(sqrt((1-x)/2))
 float64x2 asin_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::asin(x._limbs[0]);
-    r._limbs[1] = 0.0;
-    return r;
+    return _nonfinite_scalar_fallback(x, [](double d) { return std::asin(d); });
   }
   double ax_d = std::abs(x._limbs[0]);
   if (ax_d > 1.0) {
@@ -97,10 +104,7 @@ float64x2 asin_full(float64x2 const &x) {
 // ---- acos (derived from asin polynomial) ------------------------------------
 float64x2 acos_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::acos(x._limbs[0]);
-    r._limbs[1] = 0.0;
-    return r;
+    return _nonfinite_scalar_fallback(x, [](double d) { return std::acos(d); });
   }
   double ax_d = std::abs(x._limbs[0]);
   if (ax_d > 1.0) {
@@ -200,10 +204,7 @@ float64x2 atan2pi_full(float64x2 const &y, float64x2 const &x) {
 // ---- asinh / acosh / atanh -------------------------------------------------
 float64x2 asinh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::asinh(x._limbs[0]);
-    r._limbs[1] = 0.0;
-    return r;
+    return _nonfinite_scalar_fallback(x, [](double d) { return std::asinh(d); });
   }
   if (std::abs(x._limbs[0]) < 0.01) {
     // 15 coefs → degree 14 → Estrin case in neval.
@@ -232,10 +233,7 @@ float64x2 asinh_full(float64x2 const &x) {
 
 float64x2 acosh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::acosh(x._limbs[0]);
-    r._limbs[1] = 0.0;
-    return r;
+    return _nonfinite_scalar_fallback(x, [](double d) { return std::acosh(d); });
   }
   if (x._limbs[0] < 1.0) {
     float64x2 r;
@@ -252,10 +250,7 @@ float64x2 acosh_full(float64x2 const &x) {
 
 float64x2 atanh_full(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::atanh(x._limbs[0]);
-    r._limbs[1] = 0.0;
-    return r;
+    return _nonfinite_scalar_fallback(x, [](double d) { return std::atanh(d); });
   }
   if (std::abs(x._limbs[0]) > 1.0) {
     float64x2 r;

@@ -83,67 +83,31 @@ template <typename T, std::size_t N> struct MultiFloat {
 
   constexpr explicit operator T() const { return _limbs[0]; }
 
-  constexpr bool operator==(MultiFloat const &rhs) const {
+  // Lexicographic three-way limb comparison. Returns -1 / 0 / +1 on the
+  // first limb where `<` (or its swap) holds; NaN on either side yields 0
+  // (fall-through — matching the original per-operator loops, which
+  // preserves the existing DD-level "unordered" semantics for NaN).
+  constexpr int _lex_compare(MultiFloat const &rhs) const {
     for (std::size_t i = 0; i < N; ++i) {
-      if (!(_limbs[i] == rhs._limbs[i])) {
-        return false;
-      }
+      if (_limbs[i] < rhs._limbs[i]) return -1;
+      if (rhs._limbs[i] < _limbs[i]) return +1;
+    }
+    return 0;
+  }
+
+  constexpr bool _equal_limbs(MultiFloat const &rhs) const {
+    for (std::size_t i = 0; i < N; ++i) {
+      if (!(_limbs[i] == rhs._limbs[i])) return false;
     }
     return true;
   }
 
-  constexpr bool operator!=(MultiFloat const &rhs) const {
-    for (std::size_t i = 0; i < N; ++i) {
-      if (_limbs[i] != rhs._limbs[i]) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  constexpr bool operator<(MultiFloat const &rhs) const {
-    for (std::size_t i = 0; i < N; ++i) {
-      if (_limbs[i] < rhs._limbs[i]) {
-        return true;
-      } else if (rhs._limbs[i] < _limbs[i]) {
-        return false;
-      }
-    }
-    return false;
-  }
-
-  constexpr bool operator>(MultiFloat const &rhs) const {
-    for (std::size_t i = 0; i < N; ++i) {
-      if (_limbs[i] > rhs._limbs[i]) {
-        return true;
-      } else if (rhs._limbs[i] > _limbs[i]) {
-        return false;
-      }
-    }
-    return false;
-  }
-
-  constexpr bool operator<=(MultiFloat const &rhs) const {
-    for (std::size_t i = 0; i < N; ++i) {
-      if (_limbs[i] < rhs._limbs[i]) {
-        return true;
-      } else if (rhs._limbs[i] < _limbs[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  constexpr bool operator>=(MultiFloat const &rhs) const {
-    for (std::size_t i = 0; i < N; ++i) {
-      if (_limbs[i] > rhs._limbs[i]) {
-        return true;
-      } else if (rhs._limbs[i] > _limbs[i]) {
-        return false;
-      }
-    }
-    return true;
-  }
+  constexpr bool operator==(MultiFloat const &rhs) const { return _equal_limbs(rhs); }
+  constexpr bool operator!=(MultiFloat const &rhs) const { return !_equal_limbs(rhs); }
+  constexpr bool operator<(MultiFloat const &rhs) const { return _lex_compare(rhs) < 0; }
+  constexpr bool operator>(MultiFloat const &rhs) const { return _lex_compare(rhs) > 0; }
+  constexpr bool operator<=(MultiFloat const &rhs) const { return _lex_compare(rhs) <= 0; }
+  constexpr bool operator>=(MultiFloat const &rhs) const { return _lex_compare(rhs) >= 0; }
 
   constexpr MultiFloat operator+() const { return *this; }
 
@@ -297,17 +261,24 @@ using float64x2 = MultiFloat<double, 2>;
 // <cmath>-style free functions (ADL on MultiFloat)
 // =============================================================================
 
+namespace detail {
+// Index of the first nonzero limb, or N if every limb is a (possibly
+// signed) zero. Used by abs / signbit to resolve the sign of non-canonical
+// DDs like (+0, -eps), where signbit(hi) alone would misclassify.
+template <typename T, std::size_t N>
+constexpr std::size_t first_nonzero_limb_index(MultiFloat<T, N> const &x) {
+  for (std::size_t i = 0; i < N; ++i) {
+    if (x._limbs[i] != T(0)) return i;
+  }
+  return N;
+}
+} // namespace detail
+
 template <typename T, std::size_t N>
 constexpr MultiFloat<T, N> abs(MultiFloat<T, N> const &x) {
-  // A DD like (+0, -eps) represents a negative value; flipping only on
-  // signbit(hi) would leave it untouched. Use the first nonzero limb to
-  // decide — matches the Fortran dd_abs path.
-  for (std::size_t i = 0; i < N; ++i) {
-    if (x._limbs[i] != T(0)) {
-      return std::signbit(x._limbs[i]) ? -x : x;
-    }
-  }
-  return x;
+  std::size_t i = detail::first_nonzero_limb_index(x);
+  if (i == N) return x;
+  return std::signbit(x._limbs[i]) ? -x : x;
 }
 
 template <typename T, std::size_t N>
@@ -332,12 +303,8 @@ constexpr bool signbit(MultiFloat<T, N> const &x) {
   // For non-canonical zero-hi DDs (e.g. (+0, -eps)), the sign lives in
   // the first nonzero limb. Fall through to signbit(hi) when every limb
   // is a (possibly signed) zero, preserving IEEE -0 semantics.
-  for (std::size_t i = 0; i < N; ++i) {
-    if (x._limbs[i] != T(0)) {
-      return std::signbit(x._limbs[i]);
-    }
-  }
-  return std::signbit(x._limbs[0]);
+  std::size_t i = detail::first_nonzero_limb_index(x);
+  return std::signbit(x._limbs[i == N ? 0 : i]);
 }
 
 template <typename T, std::size_t N>
@@ -385,6 +352,7 @@ constexpr MultiFloat<T, N> ldexp(MultiFloat<T, N> const &x, int n) {
 
 template <typename T, std::size_t N>
 constexpr MultiFloat<T, N> scalbn(MultiFloat<T, N> const &x, int n) {
+  // POSIX alias of ldexp for FLT_RADIX == 2 (which is guaranteed by IEEE 754).
   return ldexp(x, n);
 }
 

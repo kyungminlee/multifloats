@@ -1,5 +1,17 @@
 // ---- exp2 / exp / log2 / log / log10 ---------------------------------------
 
+namespace {
+// exp / exp2 non-finite handling: +inf → +inf, -inf → 0, NaN → NaN, lo=0.
+inline float64x2 _exp_nonfinite(double hi) {
+  float64x2 r;
+  if (hi > 0.0) r._limbs[0] = hi;        // +inf
+  else if (hi < 0.0) r._limbs[0] = 0.0;  // -inf → 0
+  else r._limbs[0] = hi;                 // NaN
+  r._limbs[1] = 0.0;
+  return r;
+}
+} // namespace
+
 // Compute 2^(n_d + rh + rl), given |rh + rl| ≲ 0.5 and n_d an integer-valued
 // double. The fractional part is further split as k/256 + s with k ∈
 // [-128, 128] and |s| ≲ 1/512 from a 257-entry table of 2^(k/256). A
@@ -61,16 +73,10 @@ float64x2 exp2_kernel(float64x2 const &x) {
 }
 
 float64x2 exp2_full(float64x2 const &x) {
-  float64x2 r;
-  if (!std::isfinite(x._limbs[0])) {
-    if (x._limbs[0] > 0.0) r._limbs[0] = x._limbs[0]; // +inf
-    else if (x._limbs[0] < 0.0) r._limbs[0] = 0.0;    // -inf → 0
-    else r._limbs[0] = x._limbs[0];                    // NaN
-    r._limbs[1] = 0.0;
-    return r;
-  }
+  if (!std::isfinite(x._limbs[0])) return _exp_nonfinite(x._limbs[0]);
   if (x._limbs[0] < exp2_min) return float64x2();
   if (x._limbs[0] > exp2_max) {
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::infinity();
     r._limbs[1] = 0.0;
     return r;
@@ -79,15 +85,9 @@ float64x2 exp2_full(float64x2 const &x) {
 }
 
 float64x2 exp_full(float64x2 const &x) {
-  float64x2 r;
-  if (!std::isfinite(x._limbs[0])) {
-    if (x._limbs[0] > 0.0) r._limbs[0] = x._limbs[0];            // +inf
-    else if (x._limbs[0] < 0.0) r._limbs[0] = 0.0;               // -inf -> 0
-    else r._limbs[0] = x._limbs[0];                              // NaN
-    r._limbs[1] = 0.0;
-    return r;
-  }
+  if (!std::isfinite(x._limbs[0])) return _exp_nonfinite(x._limbs[0]);
   if (x._limbs[0] > exp_max) {
+    float64x2 r;
     r._limbs[0] = std::numeric_limits<double>::infinity();
     r._limbs[1] = 0.0;
     return r;

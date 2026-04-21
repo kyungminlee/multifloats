@@ -226,13 +226,7 @@ void sincos_full(float64x2 const &x, float64x2 &s, float64x2 &c) {
 }
 
 float64x2 sin_full(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
-    return r;
-  }
-  if (trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
+  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
@@ -245,13 +239,7 @@ float64x2 sin_full(float64x2 const &x) {
 }
 
 float64x2 cos_full(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
-    return r;
-  }
-  if (trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
+  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
@@ -264,13 +252,7 @@ float64x2 cos_full(float64x2 const &x) {
 }
 
 float64x2 tan_full(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
-    float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
-    return r;
-  }
-  if (trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
+  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
