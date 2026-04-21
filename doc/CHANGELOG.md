@@ -106,6 +106,18 @@ Dates are ISO-8601 UTC.
   inheriting the Kahan `log1p(4a/den)` form and the unit-circle
   `dd_x2y2m1` denominator. Bench cost: ~6% slower (0.0016 → 0.0017 s
   / 4096 ops).
+- `casindd` used the textbook `−i·log(iz + sqrt(1 − z²))` which lost
+  ~3 decimals near the real-axis branch cuts because `1 − z²` cancels
+  catastrophically when `|Re z| ≈ 1`. Now delegates to `casinhdd` via
+  `asin(z) = −i·asinh(iz)`, inheriting the libquadmath-ported 10-region
+  branch schedule. max_rel on cdd_asin_re dropped from 7.5e-29 to
+  4.0e-32, cdd_asin_im from 7.6e-29 to 4.2e-32 (≈1800× better worst
+  case). `cacosdd` = π/2 − casin inherits the Im-part fix, so
+  cdd_acos_im also improved from 7.6e-29 to 4.2e-32; cdd_acos_re is
+  unchanged (bottlenecked by the π/2 subtraction, not casindd).
+  Bench cost: none (0.0034 → 0.0033 s / 4096 ops, within noise).
+  casinhdd's own signed-zero trailer reproduces the C99 G.6.2.2
+  branch-cut sign fixup for `|Re z| > 1 ± 0` (#16.4 still covered).
 - `catanhdd(±1 + 0i)` returned NaN; now short-circuits at the
   branch-point singularity to `(copysign(inf, re), +0)` (#16.3).
 - `casindd` / `cacosdd` lost the signed-zero imag-part sign because

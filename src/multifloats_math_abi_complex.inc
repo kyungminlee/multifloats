@@ -448,37 +448,18 @@ complex64x2_t ctandd(complex64x2_t z) {
   return { to((sa * ca) / den), to((sb * cb) / den) };
 }
 
-// asin(z) = −i · log(i·z + sqrt(1 − z²)). Cuts on real axis for |a|>1.
+// asin(z) = −i · asinh(i·z). Delegating to casinhdd inherits its
+// libquadmath-ported 10-region branch schedule; the old textbook
+// `−i · log(iz + sqrt(1 − z²))` loses precision near the real-axis
+// branch cuts because 1 − z² cancels catastrophically when |Re z| ≈ 1.
+// casinhdd's signed-zero trailer already reproduces C99 G.6.2.2 for
+// |Re z| > 1 ± 0: i·z swaps limbs (a → Im, −b → Re) via exact DD
+// negation, so sign(Im asin) = sign(Im z) carries through symmetrically.
+// cacosdd = π/2 − casin inherits the fix for free.
 complex64x2_t casindd(complex64x2_t z) {
-  float64x2 a = from(z.re), b = from(z.im);
-  // 1 − z² : Re = 1 − a² + b², Im = −2ab
-  complex64x2_t one_mz2 = { to(float64x2(1.0) - a * a + b * b), to(-(a * b + a * b)) };
-  complex64x2_t root = csqrtdd(one_mz2);
-  float64x2 rr = from(root.re), ri = from(root.im);
-  // i·z + root : (−b + rr) + i·(a + ri)
-  complex64x2_t arg = { to(-b + rr), to(a + ri) };
-  complex64x2_t l = clogdd(arg);
-  // −i · (lr + i·li) = li − i·lr
-  complex64x2_t r = { l.im, to(-from(l.re)) };
-  // Branch-cut fixup for real-axis inputs with |Re z| > 1 (C99 G.6.2.2):
-  // the sign of Im(result) must mirror the sign of Im(input), including
-  // ±0. DD multiply doesn't preserve signed zero (2 * -0 → +0), so the
-  // sign is lost through the (a*b + a*b) chain. If the result ended up
-  // with the wrong sign, negate the WHOLE DD (both limbs) — a simple
-  // copysign-per-limb would corrupt the pair because a typical DD lo
-  // has the opposite sign from hi (representing the rounding residual).
-  // Use a DD-aware sign: for (hi=±0, lo≠0) the hi-limb signbit does not
-  // reflect the value's actual sign, so fall through to the lo limb.
-  // Route to the lo limb only when hi is an exact zero AND lo carries a
-  // nonzero value. For (hi=±0, lo=0) we keep signbit(hi) so ±0 is preserved.
-  auto dd_signbit = [](double hi, double lo) {
-    return (hi == 0.0 && lo != 0.0) ? std::signbit(lo) : std::signbit(hi);
-  };
-  if (dd_signbit(r.im.hi, r.im.lo) != dd_signbit(b._limbs[0], b._limbs[1])) {
-    r.im.hi = -r.im.hi;
-    r.im.lo = -r.im.lo;
-  }
-  return r;
+  complex64x2_t iz = { to(-from(z.im)), z.re };
+  complex64x2_t w = casinhdd(iz);
+  return { w.im, to(-from(w.re)) };
 }
 
 // acos(z) = π/2 − asin(z). Uses DD-precision π/2; the generic <complex>
