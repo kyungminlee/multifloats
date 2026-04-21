@@ -89,6 +89,6 @@ default classifier: full-DD ops must stay at ~1 ulp of the ~106-bit DD
 format, compound transcendentals (gamma, lgamma) loosen to ~1 ulp of
 `double`, and libm-quality scalars fall somewhere in between.
 
-See `doc/developer/AUDIT_NOTES.md` for the per-op precision envelope
+See `doc/developer/INTERNALS.md` for the per-op precision envelope
 the tolerance thresholds pin against, and for the deferred items that
 are intentionally out of scope.

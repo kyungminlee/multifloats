@@ -226,16 +226,12 @@ complex64x2_t clog1pdd(complex64x2_t z) {
 // absolute, so `1 + expm1(a)` delivers only double precision relative
 // to |exp(a)| ≪ 1. Cost: one extra scalar exp.
 //
-// Re worst case grows ~linearly with fuzz_mpfr sample count (184 ulp at
-// N=10^5, 1078 ulp at N=10^7). Attempt at TD internals (exp_full_td +
-// mock TD cos) regressed rather than improved: the DD-precision
-// constants (log2e, exp2 coefs/table, DD cos) floor the TD output at
-// 2⁻¹⁰⁵ absolute, same ceiling as the DD half-angle form, and the
-// `e^a·cos(b) − 1` identity has worse rounding than the half-angle
-// form at equal arithmetic precision. See
-// doc/developer/PLAN-cexpm1-td-internals.md decision-gate section for
-// the analysis. A true fix requires upgrading every exp/cos constant
-// to TD (~159-bit) — a much larger scope than planned.
+// Re worst case on the DD-only half-angle form grows ~linearly with
+// fuzz_mpfr sample count (184 ulp at N=10^5, 1078 ulp at N=10^7). The
+// shipped TD Re path below lifts that ceiling; see
+// doc/developer/TRIPLE_DOUBLE.md for why the arithmetic alone is not
+// enough and the constants (log2e, exp2 coefs/table, sin/cos Taylor,
+// π/2 split) must be TD too.
 // expm1(z) = e^z - 1. The half-angle DD form
 //   Re = expm1(a)·cos(b) − 2·sin²(b/2),  Im = e^a·sin(b)
 // gives full DD precision *except* on the cancellation surface

@@ -1,14 +1,20 @@
-# Audit Notes
+# Library internals
 
-Durable guidance distilled from the April-2026 source-tree audit of
-`src/` and `fsrc/`. The original item-by-item roadmap (with
-resolutions, measurements, and commit hashes for every fix) is
-preserved in git history as `doc/developer/AUDIT_TODO.md`; this file
-keeps only the portable lessons a future contributor needs.
+Cross-cutting reference for contributors working on the DD kernels,
+build, and test surface. Distilled from the April-2026 source-tree
+audit and the precision-improvement tiers that followed; the
+item-by-item roadmap with resolutions, measurements, and commit
+hashes lives in git history as the prior `doc/developer/AUDIT_TODO.md`
+and `doc/developer/PROGRESS-PRECISION.md`.
+
+Companion: `doc/developer/TRIPLE_DOUBLE.md` covers the narrow TD path
+(`float64x3`, `exp_full_td`, `sincos_full_td`, `cexpm1dd` regime
+split). This file points into it wherever the TD infrastructure is
+the answer to a question raised here.
 
 Source anchors `C1`–`C6`, `P1`–`P11b`, `S1`–`S4`, `M1`–`M6` in code
-comments correspond to that historical file — use
-`git log --follow doc/developer/AUDIT_NOTES.md` to retrieve the
+comments correspond to the historical roadmap — use
+`git log --follow doc/developer/INTERNALS.md` to retrieve the
 investigation behind any one of them.
 
 ---
@@ -158,8 +164,19 @@ you hit exactly the right input.
   `fuzz.f90::check` normalizes by `|q|`; for dot-products where
   `|result| = 10⁻⁸·|inputs|`, any residual ε becomes `ε / |result|` ulp.
   Verify suspected blowups against `|inputs|` before rewriting kernels.
-  The matmul "288 ulp" in `PROGRESS-PRECISION.md` is the canonical
-  example.
+  The matmul dot-product "288 DD ulp" observed during precision tiering
+  was the canonical example: at 100k trials a witness reports max
+  12194 DD ulp, but normalizing by `|inputs|` instead of `|result|`
+  shows max 0.447 DD ulp — the kernel was already at the `eps²` bound.
+- **DD → DD complex transcendentals can collapse on the near-axis.**
+  The textbook `casinh(z) = log(z + √(1 + z²))` loses all precision for
+  `|Re z|` tiny relative to `|Im z|` because `|arg|² = 1` at the clog
+  call. `catanh`'s `log((1+z)/(1−z))` has the same shape for `z` near
+  the unit circle. Both were fixed by porting libquadmath's branching
+  (`casinhdd`, `catanhdd` in `multifloats_math_abi_complex.inc`): a
+  regime-picked `log1p` of a small positive sum replaces the
+  cancelling `log`. Apply the same template before attempting TD
+  internals on a complex transcendental.
 
 ## 6. Code landmarks
 
@@ -177,6 +194,9 @@ Entry points for contributors trying to find the subtle pieces.
 | `tgamma_stirling_direct` (special.inc)  | Direct Stirling for `x ≥ 13.5`, avoiding the `exp(lgamma)` amplification. Mirrors libquadmath `tgammaq`. |
 | `lgamma_positive` shift recurrence      | For `13.5 ≤ x < 25`, accumulates `Γ(x) = Γ(x+N) / (x·(x+1)·…·(x+N−1))` so Stirling runs at `x+N ≥ 25` where 13 terms converge. |
 | Matmul `renorm_interval`                | Keeps compensated-FMA lo-limb bounded for large k. `ri = 8` is near-optimal; `README.md` table shows the trade-off. |
+| `fmoddd` gap-aware reduction            | `gap = ilogb(r) − ilogb(y)` selects between scalar `trunc(r_hi/y_hi)` (gap ≤ 53) and DD-level `trunc(r/y)` (gap > 53). The DD path carries ~106 integer bits per step and converges even for huge gaps. Residual floor ~2.5e9 DD ulp is intrinsic to DD when gap > 106 — fixing it requires TD/QD, out of scope. |
+| `casinhdd` / `catanhdd` branch schedules | Ported from libquadmath `__quadmath_kernel_casinhq` / `catanhq`. Each picks between ~8–10 regions on `(|Re|, |Im|)` and uses `log1p` of a positive sum (via `dd_x2y2m1` / `dd_cross_diff`) instead of `log(z + √(1+z²))` where the textbook form would collapse. `cacosh` / `cpow` on the unit circle share the `dd_x2y2m1` helper. |
+| `float64x3` + `td_mul_td` (multifloats.hh) | Triple-double primitives for kernels whose DD intermediates cancel. Consumers today: `cexpm1dd` Re path via `exp_full_td` (`exp_log.inc`) + `sincos_full_td` (`trig.inc`). See `TRIPLE_DOUBLE.md` for the "constants must also be TD" rule and the `kCancelThresh` regime-split pattern. |
 
 ## 7. How to validate a precision or speed change
 
@@ -226,9 +246,10 @@ pay off but have not crossed the cost threshold yet.
   assume contiguous column-major with canonical shape. Extending
   requires a new set of panel dispatchers; tracked in `README.md` and
   `multifloats_c.h` as a future release item.
-- **`cexpm1dd` Re path cancellation surface.** Unbounded relative error
-  near `cos(b)·e^a = 1`; the plan lives in
-  `doc/developer/PLAN-cexpm1-td-internals.md`.
+The `cexpm1dd` Re cancellation surface (`cos(b)·e^a = 1`, formerly
+deferred) has been resolved by the TD path — see
+`TRIPLE_DOUBLE.md` for the shipped regime split and the
+precision / speed numbers.
 
 ---
 

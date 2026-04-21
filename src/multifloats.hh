@@ -280,7 +280,7 @@ constexpr std::size_t first_nonzero_limb_index(MultiFloat<T, N> const &x) {
 // — just enough primitives to carry a residue through a single
 // TD × TD → TD ⊖ 1 pipeline and fold back to DD at the output.
 //
-// See doc/developer/PLAN-cexpm1-td-internals.md.
+// See doc/developer/TRIPLE_DOUBLE.md.
 struct float64x3 {
   double _limbs[3] = {0.0, 0.0, 0.0};
   constexpr float64x3() = default;
@@ -1196,7 +1196,7 @@ MultiFloat<T, N> sqrt(MultiFloat<T, N> const &x) {
     // correction reduces the DD residual to a scalar via
     // `residual._limbs[0] * (0.5/s)`, so the residual's lo limb is
     // dropped on the floor. Two higher-fidelity variants were measured
-    // (see doc/developer/AUDIT_NOTES.md anchor P1):
+    // (see doc/developer/INTERNALS.md anchor P1):
     //   (a) full DD divide `residual / (2*s_dd)` — sqrt worst case near
     //       perfect squares goes 0.76 → 0.39 ulp, but sqrt bench drops
     //       ~55% and hypot/acosh take a 10–25% hit.

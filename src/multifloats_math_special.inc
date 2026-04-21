@@ -6,7 +6,7 @@
 //   * erfc asymptotic uses the Clenshaw–Burrus split
 //     exp(-x²) ≈ exp(-s²-0.5625)·exp((s-ax)(s+ax)+p) where s is ax truncated
 //     to 35 bits, so (s-ax)(s+ax) is exact in double (see P4 in
-//     doc/developer/AUDIT_NOTES.md for the reference analysis).
+//     doc/developer/INTERNALS.md for the reference analysis).
 //   * tgamma switches to a direct-Stirling path at x ≥ 13.5 (see P11/P11b)
 //     instead of exp(lgamma), to keep the exp-argument small and avoid the
 //     cube-amplification floor of exp_full at large arguments.

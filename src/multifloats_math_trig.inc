@@ -269,9 +269,9 @@ float64x2 tan_full(float64x2 const &x) {
 // Mirror of reduce_pi_half / sincos_full that carries ~159 bits through
 // the range reduction and Taylor evaluation. Every constant (π/2 split
 // cw1..cw4, pi_quarter, inv_sqrt2, sin_taylor, cos_taylor) is lifted to
-// TD precision in dd_constants.hh. See doc/developer/PLAN-cexpm1-td-
-// internals.md Phase B for motivation — the mock-TD-cos prototype
-// stalled at the DD-cos floor of 2⁻¹⁰⁵, which this kernel removes.
+// TD precision in dd_constants.hh — a TD kernel over DD constants
+// would still floor at the DD-cos `2⁻¹⁰⁵` ceiling. See
+// doc/developer/TRIPLE_DOUBLE.md §2 "constants must be TD".
 
 void reduce_pi_half_td(float64x2 const &x, float64x3 &r, int &n_mod4) {
   double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);

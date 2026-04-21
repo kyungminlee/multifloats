@@ -658,7 +658,7 @@ static void test_huge_argument_trig(Stats &stats) {
 // cancellation. For the classic witness a = (1, ε), b = (-1, ε) the
 // true imaginary part is 0 exactly; 4-mul returns 0, Karatsuba returns
 // −ε². See "Designs measured and rejected" in
-// doc/developer/AUDIT_NOTES.md for the A/B study that rejected Karatsuba.
+// doc/developer/INTERNALS.md for the A/B study that rejected Karatsuba.
 static void test_complex_mul_cancellation() {
   mf::float64x2 const one(1.0), neg_one(-1.0);
   mf::float64x2 eps;
@@ -1284,7 +1284,7 @@ static void test_atan_cutover(Stats &stats) {
 // — under that constraint, sum-preserving primitives (three_sum,
 // td_add_double, td_add_dd, …) must match bit-exactly; td_mul_td is
 // allowed qp-ulp rounding on the final-limb absorb. See
-// doc/developer/PLAN-cexpm1-td-internals.md step 1.
+// doc/developer/TRIPLE_DOUBLE.md §3.
 
 // Exact DD → qp: (q_t)(h) + (q_t)(m) + (q_t)(l) is exact when the limb
 // span stays below 113 bits. Normalized TDs from our producers span at
@@ -1551,7 +1551,7 @@ int main() {
   print_stats("td primitives", tdp);
 
   // ----------------------------------------------------------------
-  // Tolerance sensitivity ratchet (see §7 of doc/developer/AUDIT_NOTES.md).
+  // Tolerance sensitivity ratchet (see §7 of doc/developer/INTERNALS.md).
   // ----------------------------------------------------------------
   // Pins observed max_rel for each category between [1/20×, 20×] of a
   // recorded expected value. Either direction fails:

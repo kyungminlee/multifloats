@@ -89,8 +89,8 @@ float64x2 exp2_full(float64x2 const &x) {
 // internals throughout — every constant (log2_e, exp2_coefs, exp2_table,
 // ln2_cw1..cw4) is lifted to TD precision from dd_constants.hh so the
 // output genuinely carries ~158 bits rather than being capped at the
-// DD-constant floor. See doc/developer/PLAN-cexpm1-td-internals.md
-// "Decision-gate outcome" for why the DD-constant prototype failed.
+// DD-constant floor. See doc/developer/TRIPLE_DOUBLE.md §2
+// for why TD arithmetic over DD constants stays capped at 2⁻¹⁰⁵.
 //
 // `exp_full_td(x) |> td_to_dd` matches `exp_full(x)` within one DD ulp.
 // The TD pair (em, el) carries the residue used by the Re path of

@@ -219,7 +219,7 @@ MULTIFLOATS_API float64x2_t   cimagdd(complex64x2_t z);
  * storage with the canonical shape. Adding transposed / strided / in-
  * place-accumulating variants is plausible but would require a new set
  * of panel dispatchers — tracked under "Deferred work" in
- * doc/developer/AUDIT_NOTES.md.
+ * doc/developer/INTERNALS.md.
  *
  * renorm_interval: if > 0, renormalize accumulators every N reductions
  * (matches DD_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo
