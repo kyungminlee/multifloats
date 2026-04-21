@@ -137,7 +137,19 @@ mf_add_fortran_executable(fortran_abi_equivalence ./test/abi_equivalence.f90
     LINK dd-bindc)
 add_test(NAME precision_abi_equivalence COMMAND fortran_abi_equivalence)
 
-mf_add_fortran_executable(fortran_bench ./test/bench.f90)
+# fortran_bench is generated from a fypp template. The .fypp file uses
+# BENCH / BENCHC / BENCHARR macros to collapse per-op scaffolding (tick /
+# loop / elapsed × 2 + report) to one line per op.
+set(_BENCH_F90 ${CMAKE_CURRENT_BINARY_DIR}/test/bench.f90)
+add_custom_command(
+    OUTPUT ${_BENCH_F90}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/test
+    COMMAND ${FYPP_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/bench.fypp
+        ${_BENCH_F90}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/bench.fypp
+    VERBATIM)
+mf_add_fortran_executable(fortran_bench ${_BENCH_F90})
 
 # BLAS extensions (not installed)
 add_library(blas-multifloat STATIC

@@ -1,0 +1,641 @@
+#! Benchmark every kernel category exercised by test/fuzz.f90, comparing
+#! float64x2 / complex64x2 against REAL(16) / COMPLEX(16). Each op block
+#! is ~12 lines of identical scaffolding (tick / loop / elapsed × 2 +
+#! report); fypp macros below collapse them to one line per op.
+#!
+#! Macros:
+#!   @:BENCH(name, reps, qexpr, fexpr, qfb, ffb)
+#!       Generic: explicit per-element expressions. Handles operators
+#!       (add/sub/mul/div/pow) and ops with asymmetric legs (e.g. sinpi's
+#!       qp-side `sin(pi*x)` vs DD-side `sinpi(x)`).
+#!   @:BENCH1(name, reps, qarr, farr)
+#!       Symmetric unary: same Fortran intrinsic name applied to both
+#!       legs' workspaces.
+#!   @:BENCH2(name, reps, qa, fa, qb, fb)
+#!       Symmetric binary: intrinsic(qa, qb) vs intrinsic(fa, fb).
+#!   @:BENCH3(name, reps, qa, fa, qb, fb, qc, fc)
+#!       Symmetric ternary (min3, max3).
+#!   @:BENCHC(name, reps, qexpr, fexpr)
+#!       Complex counterpart of BENCH: cqres/cfres workspaces + cqfeed/cffeed.
+#!   @:BENCHC1(name, reps)
+#!       Complex unary, emits label `cdd_<name>`.
+#!   @:BENCHC2_OP(name, reps, op)
+#!       Complex binary via an operator token (+, -, *, /).
+#!   @:BENCHARR(name, qexpr, fexpr)
+#!       Array reduction with qacc/facc accumulator.
+#!
+#! All macros emit into the current scope; the enclosing subroutine
+#! supplies locals (i, r, t0, n_ops, tq, tf) and uses module-level
+#! workspaces (q1/f1/... / cq1/cf1/...).
+
+#:def BENCH(name, reps, qexpr, fexpr, qfb, ffb)
+    call tick(t0)
+    do r = 1, ${reps}$
+      do i = 1, N; qres(i) = ${qexpr}$; end do
+      call qfeed(${qfb}$)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, ${reps}$
+      do i = 1, N; fres(i) = ${fexpr}$; end do
+      call ffeed(${ffb}$)
+    end do
+    tf = elapsed(t0)
+    call report("${name}$", n_ops, tq, tf)
+#:enddef
+
+#:def BENCH1(name, reps, qarr, farr)
+@:BENCH(${name}$, ${reps}$, ${name}$(${qarr}$(i)), ${name}$(${farr}$(i)), ${qarr}$, ${farr}$)
+#:enddef
+
+#:def BENCH2(name, reps, qa, fa, qb, fb)
+@:BENCH(${name}$, ${reps}$, ${name}$(${qa}$(i), ${qb}$(i)), ${name}$(${fa}$(i), ${fb}$(i)), ${qa}$, ${fa}$)
+#:enddef
+
+#:def BENCH3(name, reps, qa, fa, qb, fb, qc, fc)
+@:BENCH(${name}$, ${reps}$, ${name}$(${qa}$(i), ${qb}$(i), ${qc}$(i)), ${name}$(${fa}$(i), ${fb}$(i), ${fc}$(i)), ${qa}$, ${fa}$)
+#:enddef
+
+#:def BENCHC(name, reps, qexpr, fexpr)
+    call tick(t0)
+    do r = 1, ${reps}$
+      do i = 1, N; cqres(i) = ${qexpr}$; end do
+      call cqfeed(cq1)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, ${reps}$
+      do i = 1, N; cfres(i) = ${fexpr}$; end do
+      call cffeed(cf1)
+    end do
+    tf = elapsed(t0)
+    call report("${name}$", n_ops, tq, tf)
+#:enddef
+
+#:def BENCHC1(name, reps)
+@:BENCHC(cdd_${name}$, ${reps}$, ${name}$(cq1(i)), ${name}$(cf1(i)))
+#:enddef
+
+#:def BENCHC2_OP(name, reps, op)
+@:BENCHC(cdd_${name}$, ${reps}$, cq1(i) ${op}$ cq2(i), cf1(i) ${op}$ cf2(i))
+#:enddef
+
+#:def BENCHARR(name, qexpr, fexpr)
+    call tick(t0)
+    qacc = 0.0_qp
+    do r = 1, REPS_ARR
+      qacc = qacc + ${qexpr}$
+      qa(1) = qa(1) + qacc * 1.0e-30_qp
+    end do
+    tq = elapsed(t0)
+    q_sink = q_sink + qacc
+    call tick(t0)
+    facc = float64x2(0.0_dp)
+    do r = 1, REPS_ARR
+      facc = facc + ${fexpr}$
+      a(1)%limbs(1) = a(1)%limbs(1) + facc%limbs(1) * 1.0e-30_dp
+    end do
+    tf = elapsed(t0)
+    f_sink = f_sink + facc
+    call report("${name}$", n_ops, tq, tf)
+#:enddef
+
+program multifloat_bench
+  ! Benchmark every kernel category exercised by test/fuzz.f90, comparing
+  ! the multifloats float64x2 / complex64x2 implementations against the
+  ! REAL(KIND=16) / COMPLEX(KIND=16) reference.
+  !
+  ! Anti–dead-code-elimination strategy:
+  !   - Each rep computes the entire output array.
+  !   - At the end of each rep we read the FULL output via a NOINLINE
+  !     drain (qfeed/ffeed/cqfeed/cffeed) that sums into a scalar
+  !     accumulator and feeds it back into one input-element.
+  !   - The drain cost is the same in both legs (≈N adds per rep) so
+  !     the qp/dd ratio is meaningful even for single-add ops.
+  use multifloats
+  use, intrinsic :: iso_fortran_env, only: int64, real64
+  implicit none
+
+  integer, parameter :: qp = 16
+  integer, parameter :: dp = 8
+
+  ! Batch size and rep counts. Per-op total work = N * REPS, chosen so
+  ! the fastest ops still take ~tens of ms in either leg.
+  integer, parameter :: N = 1024
+  integer, parameter :: REPS_FAST       = 400   ! +, -, *, /, abs, neg, ...
+  integer, parameter :: REPS_TRIG       = 40    ! exp, log, sin, cos, ...
+  integer, parameter :: REPS_VERY_SLOW  = 4     ! gamma, bessel, complex
+  integer, parameter :: REPS_ARR        = 200000  ! sum, dot, matmul, ...
+
+  real(qp), allocatable :: q1(:), q2(:), q3(:), qpos(:), qsmall(:), qbnd(:), qres(:)
+  type(float64x2), allocatable :: f1(:), f2(:), f3(:), fpos(:), fsmall(:), fbnd(:), fres(:)
+  complex(qp), allocatable :: cq1(:), cq2(:), cqres(:)
+  type(complex64x2), allocatable :: cf1(:), cf2(:), cfres(:)
+
+  real(qp) :: q_sink = 0.0_qp
+  type(float64x2) :: f_sink
+  complex(qp) :: cq_sink = (0.0_qp, 0.0_qp)
+  type(complex64x2) :: cf_sink
+
+  call init_data()
+  f_sink     = float64x2(0.0_dp)
+  cf_sink%re = float64x2(0.0_dp)
+  cf_sink%im = float64x2(0.0_dp)
+
+  print '(a)',         "================================================================"
+  print '(a,i0,a,i0)', " multifloats benchmark — N=", N, " elements per rep, batched"
+  print '(a)',         "================================================================"
+  print '(a)',         ""
+  print '(a)', " op                       n_ops      qp [s]      dd [s]    speedup"
+  print '(a)', " ----------------------------------------------------------------"
+
+  call bench_arith()
+  call bench_unary_basic()
+  call bench_minmax_binary()
+  call bench_exp_log()
+  call bench_trig()
+  call bench_inv_trig()
+  call bench_hyperbolic()
+  call bench_inv_hyperbolic()
+  call bench_erf_gamma()
+  call bench_bessel()
+  call bench_misc()
+  call bench_complex()
+  call bench_arrays()
+
+  print '(a)', " ----------------------------------------------------------------"
+  print '(a,es12.4,a,es12.4)', " sinks (must remain live): qp_sink=", &
+      real(q_sink, dp), "  dd_sink=", f_sink%limbs(1) + f_sink%limbs(2)
+  print '(a,es12.4,a,es12.4)', "                           cqp_re= ", &
+      real(real(cq_sink, dp), dp), "  cmf_re=", cf_sink%re%limbs(1) + cf_sink%re%limbs(2)
+
+contains
+
+  ! ----------------------------------------------------------------
+  ! Plumbing
+  ! ----------------------------------------------------------------
+
+  type(float64x2) function to_f64x2(q)
+    real(qp), intent(in) :: q
+    real(dp) :: h, l, s, b
+    h = real(q, dp)
+    l = real(q - real(h, qp), dp)
+    s = h + l
+    b = s - h
+    to_f64x2%limbs(1) = s
+    to_f64x2%limbs(2) = l - b
+  end function
+
+  subroutine init_data()
+    integer :: i
+    real(dp) :: r(3)
+    allocate(q1(N), q2(N), q3(N), qpos(N), qsmall(N), qbnd(N), qres(N))
+    allocate(f1(N), f2(N), f3(N), fpos(N), fsmall(N), fbnd(N), fres(N))
+    allocate(cq1(N), cq2(N), cqres(N))
+    allocate(cf1(N), cf2(N), cfres(N))
+
+    call random_seed()
+    do i = 1, N
+      call random_number(r)
+      q1(i) = real((r(1) - 0.5_dp) * 8.0_dp + sign(0.25_dp, r(1) - 0.5_dp), qp)
+      q2(i) = real((r(2) - 0.5_dp) * 8.0_dp + sign(0.25_dp, r(2) - 0.5_dp), qp)
+      q3(i) = real((r(3) - 0.5_dp) * 8.0_dp + sign(0.25_dp, r(3) - 0.5_dp), qp)
+      qpos(i)   = real(0.1_dp + 9.9_dp * r(1), qp)
+      qsmall(i) = real((r(2) - 0.5_dp) * 6.0_dp, qp)
+      qbnd(i)   = real((r(3) - 0.5_dp) * 1.8_dp, qp)
+    end do
+    do i = 1, N
+      f1(i)    = to_f64x2(q1(i))
+      f2(i)    = to_f64x2(q2(i))
+      f3(i)    = to_f64x2(q3(i))
+      fpos(i)  = to_f64x2(qpos(i))
+      fsmall(i)= to_f64x2(qsmall(i))
+      fbnd(i)  = to_f64x2(qbnd(i))
+      cq1(i)   = cmplx(qbnd(i), qsmall(i), qp)
+      cq2(i)   = cmplx(qsmall(i), qbnd(i), qp)
+      cf1(i)   = complex64x2(fbnd(i), fsmall(i))
+      cf2(i)   = complex64x2(fsmall(i), fbnd(i))
+    end do
+  end subroutine
+
+  subroutine tick(t)
+    integer(int64), intent(out) :: t
+    call system_clock(t)
+  end subroutine
+
+  real(real64) function elapsed(t0)
+    integer(int64), intent(in) :: t0
+    integer(int64) :: t1, rate
+    call system_clock(t1, rate)
+    elapsed = real(t1 - t0, real64) / real(rate, real64)
+  end function
+
+  subroutine report(name, n_ops, tq, tf)
+    character(*), intent(in) :: name
+    integer(int64), intent(in) :: n_ops
+    real(real64), intent(in) :: tq, tf
+    real(real64) :: speed
+    if (tf > 0.0_real64) then
+      speed = tq / tf
+    else
+      speed = 0.0_real64
+    end if
+    write(*, '(1x, a22, 1x, i12, 1x, f10.4, 1x, f10.4, 1x, f9.2, "x")') &
+        name, n_ops, tq, tf, speed
+  end subroutine
+
+  subroutine qfeed(q_in)
+    !GCC$ ATTRIBUTES NOINLINE :: qfeed
+    real(qp), intent(inout) :: q_in(:)
+    real(dp) :: s
+    integer :: i
+    s = 0.0_dp
+    do i = 1, size(qres)
+      s = s + real(qres(i), dp)
+    end do
+    q_in(1) = q_in(1) + real(s, qp) * 1.0e-30_qp
+    q_sink = q_sink + real(s, qp)
+  end subroutine
+
+  subroutine ffeed(f_in)
+    !GCC$ ATTRIBUTES NOINLINE :: ffeed
+    type(float64x2), intent(inout) :: f_in(:)
+    real(dp) :: s
+    integer :: i
+    s = 0.0_dp
+    do i = 1, size(fres)
+      s = s + fres(i)%limbs(1)
+    end do
+    f_in(1)%limbs(1) = f_in(1)%limbs(1) + s * 1.0e-30_dp
+    f_sink%limbs(1) = f_sink%limbs(1) + s
+  end subroutine
+
+  subroutine cqfeed(cq_in)
+    !GCC$ ATTRIBUTES NOINLINE :: cqfeed
+    complex(qp), intent(inout) :: cq_in(:)
+    real(dp) :: sr, si
+    integer :: i
+    sr = 0.0_dp; si = 0.0_dp
+    do i = 1, size(cqres)
+      sr = sr + real(real(cqres(i),  dp), dp)
+      si = si + real(aimag(cqres(i)), dp)
+    end do
+    cq_in(1) = cq_in(1) + cmplx(real(sr, qp) * 1.0e-30_qp, 0.0_qp, qp)
+    cq_sink = cq_sink + cmplx(real(sr, qp), real(si, qp), qp)
+  end subroutine
+
+  subroutine cffeed(cf_in)
+    !GCC$ ATTRIBUTES NOINLINE :: cffeed
+    type(complex64x2), intent(inout) :: cf_in(:)
+    real(dp) :: sr, si
+    integer :: i
+    sr = 0.0_dp; si = 0.0_dp
+    do i = 1, size(cfres)
+      sr = sr + cfres(i)%re%limbs(1)
+      si = si + cfres(i)%im%limbs(1)
+    end do
+    cf_in(1)%re%limbs(1) = cf_in(1)%re%limbs(1) + sr * 1.0e-30_dp
+    cf_sink%re%limbs(1) = cf_sink%re%limbs(1) + sr
+    cf_sink%im%limbs(1) = cf_sink%im%limbs(1) + si
+  end subroutine
+
+  ! ================================================================
+  ! Arithmetic
+  ! ================================================================
+
+  subroutine bench_arith()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_FAST, int64)
+
+    @:BENCH(add,  REPS_FAST, q1(i) + q2(i),    f1(i) + f2(i),    q1, f1)
+    @:BENCH(sub,  REPS_FAST, q1(i) - q2(i),    f1(i) - f2(i),    q1, f1)
+    @:BENCH(mul,  REPS_FAST, q1(i) * q2(i),    f1(i) * f2(i),    q1, f1)
+    @:BENCH(div,  REPS_FAST, q1(i) / q2(i),    f1(i) / f2(i),    q1, f1)
+    @:BENCH1(sqrt, REPS_FAST, qpos, fpos)
+
+    ! mixed-mode add (dd + dp) — scalar `d` on both sides, custom scaffolding.
+    block
+      real(dp) :: d
+      call tick(t0)
+      do r = 1, REPS_FAST
+        d = real(q2(1), dp)
+        do i = 1, N; qres(i) = q1(i) + real(d, qp); end do
+        call qfeed(q1)
+      end do
+      tq = elapsed(t0)
+      call tick(t0)
+      do r = 1, REPS_FAST
+        d = f2(1)%limbs(1)
+        do i = 1, N; fres(i) = f1(i) + d; end do
+        call ffeed(f1)
+      end do
+      tf = elapsed(t0)
+      call report("add (dd+dp)", n_ops, tq, tf)
+    end block
+
+    ! mixed-mode mul (dp * dd)
+    block
+      real(dp) :: d
+      call tick(t0)
+      do r = 1, REPS_FAST
+        d = real(q1(1), dp)
+        do i = 1, N; qres(i) = real(d, qp) * q2(i); end do
+        call qfeed(q2)
+      end do
+      tq = elapsed(t0)
+      call tick(t0)
+      do r = 1, REPS_FAST
+        d = f1(1)%limbs(1)
+        do i = 1, N; fres(i) = d * f2(i); end do
+        call ffeed(f2)
+      end do
+      tf = elapsed(t0)
+      call report("mul (dp*dd)", n_ops, tq, tf)
+    end block
+  end subroutine
+
+  ! ================================================================
+  ! Unary basics
+  ! ================================================================
+
+  subroutine bench_unary_basic()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_FAST, int64)
+
+    @:BENCH1(abs,      REPS_FAST, q1, f1)
+    @:BENCH(neg,       REPS_FAST, -q1(i), -f1(i), q1, f1)
+    @:BENCH1(aint,     REPS_FAST, q1, f1)
+    @:BENCH1(anint,    REPS_FAST, q1, f1)
+    @:BENCH1(fraction, REPS_FAST, q1, f1)
+  end subroutine
+
+  ! ================================================================
+  ! min / max / sign / dim / mod / modulo / hypot / min3 / max3
+  ! ================================================================
+
+  subroutine bench_minmax_binary()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_FAST, int64)
+
+    @:BENCH2(min,    REPS_FAST, q1, f1, q2, f2)
+    @:BENCH2(max,    REPS_FAST, q1, f1, q2, f2)
+    @:BENCH2(sign,   REPS_FAST, q1, f1, q2, f2)
+    @:BENCH2(dim,    REPS_FAST, q1, f1, q2, f2)
+    @:BENCH2(mod,    REPS_FAST, q1, f1, q2, f2)
+    @:BENCH2(modulo, REPS_FAST, q1, f1, q2, f2)
+    @:BENCH2(hypot,  REPS_FAST, q1, f1, q2, f2)
+    ! min3 / max3: 3-arg min/max intrinsic, reported under the "min3"/"max3" label.
+    @:BENCH(min3, REPS_FAST, min(q1(i), q2(i), q3(i)), min(f1(i), f2(i), f3(i)), q1, f1)
+    @:BENCH(max3, REPS_FAST, max(q1(i), q2(i), q3(i)), max(f1(i), f2(i), f3(i)), q1, f1)
+  end subroutine
+
+  ! ================================================================
+  ! exp / log / log10 / pow / pow_int
+  ! ================================================================
+
+  subroutine bench_exp_log()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_TRIG, int64)
+
+    @:BENCH1(exp,   REPS_TRIG, qsmall, fsmall)
+    @:BENCH1(log,   REPS_TRIG, qpos, fpos)
+    @:BENCH1(log10, REPS_TRIG, qpos, fpos)
+    @:BENCH(pow,     REPS_TRIG, qpos(i) ** qbnd(i), fpos(i) ** fbnd(i), qpos, fpos)
+    @:BENCH(pow_int, REPS_TRIG, q1(i) ** 3,         f1(i) ** 3,         q1,   f1)
+  end subroutine
+
+  ! ================================================================
+  ! sin / cos / sinpi / cospi / tan / tanpi
+  ! ================================================================
+
+  subroutine bench_trig()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_TRIG, int64)
+
+    @:BENCH1(sin,   REPS_TRIG, qsmall, fsmall)
+    @:BENCH1(cos,   REPS_TRIG, qsmall, fsmall)
+    @:BENCH(sinpi,  REPS_TRIG, sin(qsmall(i) * acos(-1.0_qp)), sinpi(fsmall(i)), qsmall, fsmall)
+    @:BENCH(cospi,  REPS_TRIG, cos(qsmall(i) * acos(-1.0_qp)), cospi(fsmall(i)), qsmall, fsmall)
+    @:BENCH(tanpi,  REPS_TRIG, tan(qbnd(i)   * acos(-1.0_qp)), tanpi(fbnd(i)),   qbnd,   fbnd)
+    @:BENCH1(tan,   REPS_TRIG, qbnd, fbnd)
+  end subroutine
+
+  ! ================================================================
+  ! asin / asinpi / acos / acospi / atan / atanpi / atan2
+  ! ================================================================
+
+  subroutine bench_inv_trig()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_TRIG, int64)
+
+    @:BENCH1(asin,   REPS_TRIG, qbnd, fbnd)
+    @:BENCH(asinpi,  REPS_TRIG, asin(qbnd(i)) / acos(-1.0_qp), asinpi(fbnd(i)), qbnd, fbnd)
+    @:BENCH1(acos,   REPS_TRIG, qbnd, fbnd)
+    @:BENCH(acospi,  REPS_TRIG, acos(qbnd(i)) / acos(-1.0_qp), acospi(fbnd(i)), qbnd, fbnd)
+    @:BENCH1(atan,   REPS_TRIG, q1, f1)
+    @:BENCH(atanpi,  REPS_TRIG, atan(q1(i))   / acos(-1.0_qp), atanpi(f1(i)),   q1,   f1)
+    @:BENCH2(atan2,  REPS_TRIG, q1, f1, q2, f2)
+  end subroutine
+
+  ! ================================================================
+  ! sinh / cosh / tanh
+  ! ================================================================
+
+  subroutine bench_hyperbolic()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_TRIG, int64)
+
+    @:BENCH1(sinh, REPS_TRIG, qsmall, fsmall)
+    @:BENCH1(cosh, REPS_TRIG, qsmall, fsmall)
+    @:BENCH1(tanh, REPS_TRIG, qsmall, fsmall)
+  end subroutine
+
+  ! ================================================================
+  ! asinh / acosh (needs x ≥ 1) / atanh
+  ! ================================================================
+
+  subroutine bench_inv_hyperbolic()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_TRIG, int64)
+
+    @:BENCH1(asinh, REPS_TRIG, q1, f1)
+    @:BENCH(acosh,  REPS_TRIG, acosh(1.0_qp + qpos(i)), acosh(1.0_dp + fpos(i)), qpos, fpos)
+    @:BENCH1(atanh, REPS_TRIG, qbnd, fbnd)
+  end subroutine
+
+  ! ================================================================
+  ! erf / erfc / erfc_scaled / gamma / log_gamma
+  ! ================================================================
+
+  subroutine bench_erf_gamma()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_VERY_SLOW, int64)
+
+    @:BENCH1(erf,         REPS_VERY_SLOW, q1, f1)
+    @:BENCH1(erfc,        REPS_VERY_SLOW, q1, f1)
+    @:BENCH1(erfc_scaled, REPS_VERY_SLOW, q1, f1)
+    @:BENCH1(gamma,       REPS_VERY_SLOW, qpos, fpos)
+    @:BENCH1(log_gamma,   REPS_VERY_SLOW, qpos, fpos)
+  end subroutine
+
+  ! ================================================================
+  ! Bessel j0/j1/jn/y0/y1/yn
+  ! ================================================================
+
+  subroutine bench_bessel()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_VERY_SLOW, int64)
+
+    @:BENCH1(bessel_j0, REPS_VERY_SLOW, q1, f1)
+    @:BENCH1(bessel_j1, REPS_VERY_SLOW, q1, f1)
+    @:BENCH(bessel_jn(3,.), REPS_VERY_SLOW, bessel_jn(3, q1(i)),   bessel_jn(3, f1(i)),   q1,   f1)
+    @:BENCH1(bessel_y0, REPS_VERY_SLOW, qpos, fpos)
+    @:BENCH1(bessel_y1, REPS_VERY_SLOW, qpos, fpos)
+    @:BENCH(bessel_yn(3,.), REPS_VERY_SLOW, bessel_yn(3, qpos(i)), bessel_yn(3, fpos(i)), qpos, fpos)
+  end subroutine
+
+  ! ================================================================
+  ! Misc: scale, set_exponent
+  ! ================================================================
+
+  subroutine bench_misc()
+    integer :: i, r
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    n_ops = int(N, int64) * int(REPS_FAST, int64)
+
+    @:BENCH(scale,        REPS_FAST, scale(q1(i), 5),        scale(f1(i), 5),        q1, f1)
+    @:BENCH(set_exponent, REPS_FAST, set_exponent(q1(i), 5), set_exponent(f1(i), 5), q1, f1)
+  end subroutine
+
+  ! ================================================================
+  ! Complex arithmetic + transcendentals
+  ! ================================================================
+
+  subroutine bench_complex()
+    integer :: i, r
+    integer(int64) :: t0, n_ops, n_ops_fast, n_ops_slow
+    real(real64) :: tq, tf
+    n_ops_fast = int(N, int64) * int(REPS_FAST, int64)
+    n_ops_slow = int(N, int64) * int(REPS_VERY_SLOW, int64)
+
+    n_ops = n_ops_fast
+    @:BENCHC2_OP(add,   REPS_FAST, +)
+    @:BENCHC2_OP(sub,   REPS_FAST, -)
+    @:BENCHC2_OP(mul,   REPS_FAST, *)
+    @:BENCHC2_OP(div,   REPS_FAST, /)
+    @:BENCHC1(conjg, REPS_FAST)
+
+    ! cdd_abs: complex → real. Unique scaffolding — output is qres/fres,
+    ! not cqres/cfres, so BENCHC doesn't fit.
+    block
+      real(qp) :: qs
+      type(float64x2) :: fs
+      call tick(t0)
+      do r = 1, REPS_FAST
+        do i = 1, N; qres(i) = abs(cq1(i)); end do
+        qs = sum(qres)
+        q_sink = q_sink + qs
+        cq1(1) = cq1(1) + cmplx(qs * 1.0e-30_qp, 0.0_qp, qp)
+      end do
+      tq = elapsed(t0)
+      call tick(t0)
+      do r = 1, REPS_FAST
+        do i = 1, N; fres(i) = abs(cf1(i)); end do
+        fs = sum(fres)
+        f_sink = f_sink + fs
+        cf1(1)%re%limbs(1) = cf1(1)%re%limbs(1) + fs%limbs(1) * 1.0e-30_dp
+      end do
+      tf = elapsed(t0)
+      call report("cdd_abs", n_ops_fast, tq, tf)
+    end block
+
+    n_ops = n_ops_slow
+    @:BENCHC1(sqrt,  REPS_VERY_SLOW)
+    @:BENCHC1(exp,   REPS_VERY_SLOW)
+    @:BENCHC1(log,   REPS_VERY_SLOW)
+    @:BENCHC1(sin,   REPS_VERY_SLOW)
+    @:BENCHC1(cos,   REPS_VERY_SLOW)
+    @:BENCHC1(tan,   REPS_VERY_SLOW)
+    @:BENCHC1(sinh,  REPS_VERY_SLOW)
+    @:BENCHC1(cosh,  REPS_VERY_SLOW)
+    @:BENCHC1(tanh,  REPS_VERY_SLOW)
+    @:BENCHC1(asin,  REPS_VERY_SLOW)
+    @:BENCHC1(acos,  REPS_VERY_SLOW)
+    @:BENCHC1(atan,  REPS_VERY_SLOW)
+    @:BENCHC1(asinh, REPS_VERY_SLOW)
+    @:BENCHC1(acosh, REPS_VERY_SLOW)
+    @:BENCHC1(atanh, REPS_VERY_SLOW)
+  end subroutine
+
+  ! ================================================================
+  ! Array reductions: sum / product / maxval / minval / dot_product / norm2 / matmul
+  ! ================================================================
+
+  subroutine bench_arrays()
+    integer, parameter :: NN = 8
+    integer :: r, k
+    integer(int64) :: t0, n_ops
+    real(real64) :: tq, tf
+    real(qp) :: qa(NN), qb(NN), qm(NN, NN), qmv(NN), qacc
+    type(float64x2) :: a(NN), b(NN), m(NN, NN), mv(NN), facc
+
+    n_ops = int(NN, int64) * int(REPS_ARR, int64)
+
+    do k = 1, NN
+      qa(k) = q1(k); qb(k) = q2(k)
+      a(k) = f1(k); b(k) = f2(k)
+    end do
+    do k = 1, NN
+      qm(:, k) = q1(k * NN + 1 : k * NN + NN)
+      m(:, k)  = f1(k * NN + 1 : k * NN + NN)
+    end do
+
+    @:BENCHARR(arr_sum (n=8),     sum(qa),             sum(a))
+    @:BENCHARR(arr_product (n=8), product(qa),         product(a))
+    @:BENCHARR(arr_maxval (n=8),  maxval(qa),          maxval(a))
+    @:BENCHARR(arr_minval (n=8),  minval(qa),          minval(a))
+    @:BENCHARR(arr_dot (n=8),     dot_product(qa, qb), dot_product(a, b))
+    @:BENCHARR(arr_norm2 (n=8),   norm2(qa),           norm2(a))
+
+    ! matmul (8×8 · 8): NN² muls per call. Custom scaffolding — output is
+    ! a vector (qmv/mv), not a scalar, so BENCHARR doesn't fit.
+    n_ops = int(NN, int64) * int(NN, int64) * int(REPS_ARR, int64)
+    call tick(t0)
+    do r = 1, REPS_ARR
+      qmv = matmul(qm, qa)
+      qa(1) = qa(1) + qmv(1) * 1.0e-30_qp
+    end do
+    tq = elapsed(t0)
+    q_sink = q_sink + sum(qmv)
+    call tick(t0)
+    do r = 1, REPS_ARR
+      mv = matmul(m, a)
+      a(1)%limbs(1) = a(1)%limbs(1) + mv(1)%limbs(1) * 1.0e-30_dp
+    end do
+    tf = elapsed(t0)
+    f_sink = f_sink + sum(mv)
+    call report("arr_matmul (8x8*8)", n_ops, tq, tf)
+  end subroutine
+
+end program
