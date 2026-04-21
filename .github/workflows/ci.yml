@@ -18,8 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install fypp
-        run: pip install fypp
+      - name: Install fypp and mpmath
+        run: pip install fypp mpmath
 
       - name: Install GCC 14
         run: |
