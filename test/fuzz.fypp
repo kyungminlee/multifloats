@@ -1,3 +1,54 @@
+#! Property-based fuzz: for each iteration, generate a (q1, q2) pair and
+#! project to DD inputs (f1, f2), then compare the DD leg against the qp
+#! oracle through every op that multifloats exposes.
+#!
+#! Per-op boilerplate was three variants — single-line unary, pre-compute
+#! for operators, and a complex-specific check_cdd variant — each repeated
+#! 30-50 times. Fypp macros below collapse them. All macros reference
+#! f1/q1/f2/q2/cf1/cq1/cf2/cq2/qres/fres/cqres/cfres/num_errors/errs from
+#! the enclosing scope.
+
+#! Symmetric unary: same intrinsic name on both legs.
+#!   @:CHK1(sin) → call check(sin(f1), sin(q1), "sin", q1, 0.0_qp, num_errors)
+#:def CHK1(op)
+call check(${op}$(f1), ${op}$(q1), "${op}$", q1, 0.0_qp, num_errors)
+#:enddef
+
+#! Unary with label override (when the label differs from the Fortran
+#! intrinsic — e.g. bessel_j0 reports under "bj0").
+#:def CHK1_L(label, op)
+call check(${op}$(f1), ${op}$(q1), "${label}$", q1, 0.0_qp, num_errors)
+#:enddef
+
+#! Symmetric binary: intrinsic(f1, f2) vs intrinsic(q1, q2).
+#:def CHK2(op)
+call check(${op}$(f1, f2), ${op}$(q1, q2), "${op}$", q1, q2, num_errors)
+#:enddef
+
+#! Operator form with pre-computed qres/fres. Used for +, -, *, /, **.
+#! Optional i1/i2 override the check() input-magnitude args.
+#:def CHK_OP(label, qexpr, fexpr, i1="q1", i2="q2")
+qres = ${qexpr}$
+fres = ${fexpr}$
+call check(fres, qres, "${label}$", ${i1}$, ${i2}$, num_errors)
+#:enddef
+
+#! Complex unary via check_cdd (splits into _re/_im rows). Default input-
+#! magnitude quad is (q1, q2, 0, 0).
+#:def CHKC1(op, inputs="q1, q2, 0.0_qp, 0.0_qp")
+cfres = ${op}$(cf1)
+cqres = ${op}$(cq1)
+call check_cdd(cfres, cqres, "cdd_${op}$", ${inputs}$, errs)
+#:enddef
+
+#! Complex binary via operator. Default input-magnitude quad is the
+#! (q1, q2, q2, q1) used by the existing cdd_add/sub/mul/div tests.
+#:def CHKC_OP(label, qexpr, fexpr, inputs="q1, q2, q2, q1")
+cqres = ${qexpr}$
+cfres = ${fexpr}$
+call check_cdd(cfres, cqres, "cdd_${label}$", ${inputs}$, errs)
+#:enddef
+
 program multifloat_fuzz
   use multifloats
   use, intrinsic :: ieee_arithmetic
@@ -52,228 +103,175 @@ program multifloat_fuzz
     d1 = real(q1, 8)
     d2 = real(q2, 8)
 
-    ! ----------------------------------------------------------------
-    ! Hot loop: arithmetic + sqrt + comparisons + unary basics
-    ! ----------------------------------------------------------------
-
-    qres = q1 + q2
-    fres = f1 + f2
-    call check(fres, qres, "add", q1, q2, num_errors)
-
-    qres = q1 - q2
-    fres = f1 - f2
-    call check(fres, qres, "sub", q1, q2, num_errors)
-
-    qres = q1 * q2
-    fres = f1 * f2
-    call check(fres, qres, "mul", q1, q2, num_errors)
+    ! -------------- arithmetic + sqrt + unary basics --------------
+    @:CHK_OP(add, q1 + q2, f1 + f2)
+    @:CHK_OP(sub, q1 - q2, f1 - f2)
+    @:CHK_OP(mul, q1 * q2, f1 * f2)
 
     if (q2 /= 0.0_qp) then
-      qres = q1 / q2
-      fres = f1 / f2
-      call check(fres, qres, "div", q1, q2, num_errors)
+      @:CHK_OP(div, q1 / q2, f1 / f2)
     end if
 
     if (q1 >= 0.0_qp) then
-      qres = sqrt(q1)
-      fres = sqrt(f1)
-      call check(fres, qres, "sqrt", q1, 0.0_qp, num_errors)
+      @:CHK_OP(sqrt, sqrt(q1), sqrt(f1), i2=0.0_qp)
     end if
 
-    qres = abs(q1)
-    fres = abs(f1)
-    call check(fres, qres, "abs", q1, 0.0_qp, num_errors)
+    @:CHK_OP(abs, abs(q1), abs(f1), i2=0.0_qp)
+    @:CHK_OP(neg, -q1,     -f1,      i2=0.0_qp)
 
-    qres = -q1
-    fres = -f1
-    call check(fres, qres, "neg", q1, 0.0_qp, num_errors)
-
-    ! Bit-exact rounding/manipulation (full DD)
+    ! Bit-exact rounding/manipulation (full DD).
     if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1.0e15_qp) then
-      call check(aint(f1), aint(q1), "aint", q1, 0.0_qp, num_errors)
-      call check(anint(f1), anint(q1), "anint", q1, 0.0_qp, num_errors)
+      @:CHK1(aint)
+      @:CHK1(anint)
     end if
     if (ieee_is_finite(real(q1, 8)) .and. q1 /= 0.0_qp) then
-      call check(fraction(f1), fraction(q1), "fraction", q1, 0.0_qp, num_errors)
+      @:CHK1(fraction)
     end if
 
     call check_comp(f1, f2, q1, q2, num_errors)
 
-    ! ----------------------------------------------------------------
-    ! Periodic (every 10): mixed mode + binary functions
-    ! ----------------------------------------------------------------
+    ! -------------- every 10: mixed-mode + binary --------------
     if (mod(i, 10) == 0 .and. &
         ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
-       qres = q1 + real(d2, qp)
-       fres = f1 + d2
-       call check(fres, qres, "add_fd", q1, real(d2, qp), num_errors)
+      @:CHK_OP(add_fd, q1 + real(d2, qp), f1 + d2, i2=real(d2, qp))
+      @:CHK_OP(mul_df, real(d1, qp) * q2, d1 * f2, i1=real(d1, qp))
 
-       qres = real(d1, qp) * q2
-       fres = d1 * f2
-       call check(fres, qres, "mul_df", real(d1, qp), q2, num_errors)
+      @:CHK2(min)
+      @:CHK2(max)
+      @:CHK2(sign)
+      @:CHK2(dim)
 
-       ! min, max
-       call check(min(f1, f2), min(q1, q2), "min", q1, q2, num_errors)
-       call check(max(f1, f2), max(q1, q2), "max", q1, q2, num_errors)
+      ! mod, modulo (only for finite divisors away from 0)
+      if (q2 /= 0.0_qp .and. abs(q1) < 1e20_qp .and. abs(q2) > 1e-20_qp) then
+        @:CHK2(mod)
+        @:CHK2(modulo)
+      end if
 
-       ! sign, dim
-       call check(sign(f1, f2), sign(q1, q2), "sign", q1, q2, num_errors)
-       call check(dim(f1, f2), dim(q1, q2), "dim", q1, q2, num_errors)
-
-       ! mod, modulo (only for finite divisors away from 0)
-       if (q2 /= 0.0_qp .and. abs(q1) < 1e20_qp .and. abs(q2) > 1e-20_qp) then
-         call check(mod(f1, f2), mod(q1, q2), "mod", q1, q2, num_errors)
-         call check(modulo(f1, f2), modulo(q1, q2), "modulo", q1, q2, num_errors)
-       end if
-
-       ! hypot
-       call check(hypot(f1, f2), hypot(q1, q2), "hypot", q1, q2, num_errors)
+      @:CHK2(hypot)
     end if
 
-    ! ----------------------------------------------------------------
-    ! Periodic (every 100): unary and binary transcendentals
-    ! ----------------------------------------------------------------
+    ! -------------- every 100: unary + binary transcendentals --------------
     if (mod(i, 100) == 0) then
-       ! exp / log already in this block
-       if (ieee_is_finite(real(q1, 8))) then
-         qres = exp(q1)
-         fres = exp(f1)
-         if (ieee_is_finite(real(qres, 8))) call check(fres, qres, "exp", q1, 0.0_qp, num_errors)
-       end if
+      if (ieee_is_finite(real(q1, 8))) then
+        qres = exp(q1)
+        fres = exp(f1)
+        if (ieee_is_finite(real(qres, 8))) call check(fres, qres, "exp", q1, 0.0_qp, num_errors)
+      end if
 
-       if (q1 > 0.0_qp .and. ieee_is_finite(real(q1, 8))) then
-         qres = log(q1)
-         fres = log(f1)
-         call check(fres, qres, "log", q1, 0.0_qp, num_errors)
+      if (q1 > 0.0_qp .and. ieee_is_finite(real(q1, 8))) then
+        @:CHK1(log)
+        @:CHK1(log10)
+      end if
 
-         qres = log10(q1)
-         fres = log10(f1)
-         call check(fres, qres, "log10", q1, 0.0_qp, num_errors)
-       end if
+      ! Trig: keep magnitudes moderate so ULP-of-input doesn't dominate.
+      if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1e6_qp) then
+        @:CHK1(sin)
+        @:CHK1(cos)
+        if (abs(cos(q1)) > 1e-12_qp) then
+          @:CHK1(tan)
+        end if
+      end if
+      ! Note: sinpi / cospi / tanpi / {asin,acos,atan}pi are validated in
+      ! test/fuzz_mpfr.cc via a 200-bit mpreal reference — the qp oracle
+      ! burns ~1 qp ulp on the π-multiply.
 
-       ! Trig: keep magnitudes moderate so ULP-of-input doesn't dominate
-       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1e6_qp) then
-         call check(sin(f1), sin(q1), "sin", q1, 0.0_qp, num_errors)
-         call check(cos(f1), cos(q1), "cos", q1, 0.0_qp, num_errors)
-         if (abs(cos(q1)) > 1e-12_qp) then
-           call check(tan(f1), tan(q1), "tan", q1, 0.0_qp, num_errors)
-         end if
-       end if
-       ! Note: sinpi / cospi / tanpi / {asin,acos,atan}pi are validated in
-       ! test/fuzz_mpfr.cc via a 200-bit mpreal reference. The natural qp
-       ! oracle (sinq(pi_q * q1) etc.) burns ~1 qp ulp on the π-multiply,
-       ! which blows up relative error near zeros of sin — the kernel is
-       ! full DD, but the qp oracle cannot prove it.
+      if (ieee_is_finite(real(q1, 8)) .and. abs(q1) <= 1.0_qp) then
+        @:CHK1(asin)
+        @:CHK1(acos)
+      end if
+      if (ieee_is_finite(real(q1, 8))) then
+        @:CHK1(atan)
+      end if
 
-       ! Inverse trig
-       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) <= 1.0_qp) then
-         call check(asin(f1), asin(q1), "asin", q1, 0.0_qp, num_errors)
-         call check(acos(f1), acos(q1), "acos", q1, 0.0_qp, num_errors)
-       end if
-       if (ieee_is_finite(real(q1, 8))) then
-         call check(atan(f1), atan(q1), "atan", q1, 0.0_qp, num_errors)
-       end if
+      if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 700.0_qp) then
+        @:CHK1(sinh)
+        @:CHK1(cosh)
+        @:CHK1(tanh)
+      end if
+      if (ieee_is_finite(real(q1, 8))) then
+        @:CHK1(asinh)
+      end if
+      if (ieee_is_finite(real(q1, 8)) .and. q1 >= 1.0_qp) then
+        @:CHK1(acosh)
+      end if
+      if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1.0_qp) then
+        @:CHK1(atanh)
+      end if
 
-       ! Hyperbolic (avoid overflow region)
-       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 700.0_qp) then
-         call check(sinh(f1), sinh(q1), "sinh", q1, 0.0_qp, num_errors)
-         call check(cosh(f1), cosh(q1), "cosh", q1, 0.0_qp, num_errors)
-         call check(tanh(f1), tanh(q1), "tanh", q1, 0.0_qp, num_errors)
-       end if
-       if (ieee_is_finite(real(q1, 8))) then
-         call check(asinh(f1), asinh(q1), "asinh", q1, 0.0_qp, num_errors)
-       end if
-       if (ieee_is_finite(real(q1, 8)) .and. q1 >= 1.0_qp) then
-         call check(acosh(f1), acosh(q1), "acosh", q1, 0.0_qp, num_errors)
-       end if
-       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1.0_qp) then
-         call check(atanh(f1), atanh(q1), "atanh", q1, 0.0_qp, num_errors)
-       end if
+      if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 100.0_qp) then
+        @:CHK1(erf)
+        @:CHK1(erfc)
+        @:CHK1(erfc_scaled)
+      end if
+      if (ieee_is_finite(real(q1, 8)) .and. q1 > 0.0_qp .and. q1 < 100.0_qp) then
+        @:CHK1(gamma)
+        @:CHK1_L(lgamma, log_gamma)
+      end if
 
-       ! Error / gamma family
-       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 100.0_qp) then
-         call check(erf(f1), erf(q1), "erf", q1, 0.0_qp, num_errors)
-         call check(erfc(f1), erfc(q1), "erfc", q1, 0.0_qp, num_errors)
-         call check(erfc_scaled(f1), erfc_scaled(q1), "erfc_scaled", q1, 0.0_qp, num_errors)
-       end if
-       if (ieee_is_finite(real(q1, 8)) .and. q1 > 0.0_qp .and. q1 < 100.0_qp) then
-         call check(gamma(f1), gamma(q1), "gamma", q1, 0.0_qp, num_errors)
-         call check(log_gamma(f1), log_gamma(q1), "lgamma", q1, 0.0_qp, num_errors)
-       end if
+      ! Bessel — label differs from intrinsic (bessel_j0 → "bj0").
+      if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1e3_qp) then
+        @:CHK1_L(bj0, bessel_j0)
+        @:CHK1_L(bj1, bessel_j1)
+        call check(bessel_jn(3, f1), bessel_jn(3, q1), "bjn", q1, 0.0_qp, num_errors)
+        if (q1 > 0.0_qp) then
+          @:CHK1_L(by0, bessel_y0)
+          @:CHK1_L(by1, bessel_y1)
+          call check(bessel_yn(3, f1), bessel_yn(3, q1), "byn", q1, 0.0_qp, num_errors)
+        end if
+      end if
 
-       ! Bessel (gfortran intrinsics; expect single-double precision)
-       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1e3_qp) then
-         call check(bessel_j0(f1), bessel_j0(q1), "bj0", q1, 0.0_qp, num_errors)
-         call check(bessel_j1(f1), bessel_j1(q1), "bj1", q1, 0.0_qp, num_errors)
-         call check(bessel_jn(3, f1), bessel_jn(3, q1), "bjn", q1, 0.0_qp, num_errors)
-         if (q1 > 0.0_qp) then
-           call check(bessel_y0(f1), bessel_y0(q1), "by0", q1, 0.0_qp, num_errors)
-           call check(bessel_y1(f1), bessel_y1(q1), "by1", q1, 0.0_qp, num_errors)
-           call check(bessel_yn(3, f1), bessel_yn(3, q1), "byn", q1, 0.0_qp, num_errors)
-         end if
-       end if
+      @:CHK2(atan2)
 
-       ! atan2 (works for any pair, including non-finite)
-       call check(atan2(f1, f2), atan2(q1, q2), "atan2", q1, q2, num_errors)
+      ! Power operator: x**y for positive base, modest exponent. Range chosen
+      ! so q1**q2 stays inside dp range — otherwise the kernel under/overflows.
+      if (ieee_is_finite(real(q1, 8)) .and. q1 > 1.0e-3_qp .and. q1 < 1.0e3_qp .and. &
+          ieee_is_finite(real(q2, 8)) .and. abs(q2) < 30.0_qp) then
+        @:CHK_OP(pow,    q1 ** q2,          f1 ** f2)
+        @:CHK_OP(pow_md, q1 ** real(q2, 8), f1 ** real(q2, 8))
+        @:CHK_OP(pow_dm, real(q1, 8) ** q2, real(q1, 8) ** f2)
+      end if
+      if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1e10_qp) then
+        @:CHK_OP(pow_int, q1 ** 3, f1 ** 3, i2=3.0_qp)
+      end if
 
-       ! Power operator: x**y for positive base, modest exponent.
-       ! Range chosen so q1**q2 stays well inside dp range, otherwise
-       ! the kernel under/overflows and the recorded rel_err is ~1.
-       if (ieee_is_finite(real(q1, 8)) .and. q1 > 1.0e-3_qp .and. q1 < 1.0e3_qp .and. &
-           ieee_is_finite(real(q2, 8)) .and. abs(q2) < 30.0_qp) then
-         call check(f1 ** f2, q1 ** q2, "pow", q1, q2, num_errors)
-         ! Mixed-type pow: dd**dp, dp**dd
-         call check(f1 ** real(q2, 8), q1 ** real(q2, 8), "pow_md", q1, q2, num_errors)
-         call check(real(q1, 8) ** f2, real(q1, 8) ** q2, "pow_dm", q1, q2, num_errors)
-       end if
-       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 1e10_qp) then
-         call check(f1 ** 3, q1 ** 3, "pow_int", q1, 3.0_qp, num_errors)
-       end if
+      ! scale / set_exponent: cast the dp reference up to qp so check()
+      ! compares in its native type.
+      if (ieee_is_finite(real(q1, 8))) then
+        call check(scale(f1, 5), real(scale(real(q1, 8), 5), qp), &
+            "scale", q1, 0.0_qp, num_errors)
+        if (q1 /= 0.0_qp) then
+          call check(set_exponent(f1, 5), &
+              real(set_exponent(real(q1, 8), 5), qp), &
+              "set_exponent", q1, 0.0_qp, num_errors)
+        end if
+      end if
 
-       ! scale(x, k) = x * 2^k — exact, full DD. Note: cast the dp
-       ! reference up to qp so check() can compare in its native type.
-       if (ieee_is_finite(real(q1, 8))) then
-         call check(scale(f1, 5), real(scale(real(q1, 8), 5), qp), &
-             "scale", q1, 0.0_qp, num_errors)
-         if (q1 /= 0.0_qp) then
-           call check(set_exponent(f1, 5), &
-               real(set_exponent(real(q1, 8), 5), qp), &
-               "set_exponent", q1, 0.0_qp, num_errors)
-         end if
-       end if
-
-       ! 3-argument min/max
-       if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
-         block
-           type(float64x2) :: f3
-           real(qp) :: q3
-           q3 = (q1 + q2) * 0.5_qp
-           f3 = to_f64x2(q3)
-           call check(min(f1, f2, f3), min(q1, q2, q3), "min3", q1, q2, num_errors)
-           call check(max(f1, f2, f3), max(q1, q2, q3), "max3", q1, q2, num_errors)
-         end block
-       end if
+      ! 3-arg min/max
+      if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
+        block
+          type(float64x2) :: f3
+          real(qp) :: q3
+          q3 = (q1 + q2) * 0.5_qp
+          f3 = to_f64x2(q3)
+          call check(min(f1, f2, f3), min(q1, q2, q3), "min3", q1, q2, num_errors)
+          call check(max(f1, f2, f3), max(q1, q2, q3), "max3", q1, q2, num_errors)
+        end block
+      end if
     end if
 
-    ! ----------------------------------------------------------------
-    ! Periodic (every 200): complex arithmetic and transcendentals
-    ! ----------------------------------------------------------------
+    ! -------------- every 200: complex --------------
     if (mod(i, 200) == 0) then
-       call fuzz_complex(f1, f2, q1, q2, num_errors)
+      call fuzz_complex(f1, f2, q1, q2, num_errors)
     end if
 
-    ! ----------------------------------------------------------------
-    ! Periodic (every 1000): small-array reductions
-    ! ----------------------------------------------------------------
+    ! -------------- every 1000: small-array reductions --------------
     if (mod(i, 1000) == 0) then
-       call fuzz_arrays(num_errors)
+      call fuzz_arrays(num_errors)
     end if
 
-    ! ----------------------------------------------------------------
-    ! Periodic (every 100): assignment-operator round-trips
-    ! ----------------------------------------------------------------
+    ! -------------- every 100: assignment-operator round-trips --------------
     if (mod(i, 100) == 0 .and. ieee_is_finite(real(q1, 8))) then
-       call fuzz_assignments(f1, q1, num_errors)
+      call fuzz_assignments(f1, q1, num_errors)
     end if
 
     if (mod(i, 100000) == 0) print *, "Completed", i, "iterations..."
@@ -338,7 +336,6 @@ contains
     real(8) :: r(4)
     call random_number(r)
 
-    ! Strategy for interesting cases
     select case (int(r(1) * 10))
     case (0) ! Non-finite
       q1 = pick_nonfinite(r(2))
@@ -485,15 +482,11 @@ contains
         if (is_full_dd(op)) then
           tol = 1e-26_qp
         else if (is_compound(op)) then
-          ! Compound transcendentals (pow, bessel, complex non-elementary)
-          ! chain two derivative-corrected steps and are subject to
-          ! cancellation; allow ~1e-10 relative.
           tol = 1e-10_qp
         else
           tol = 1e-15_qp
         end if
       else
-        ! For results near zero, use error relative to input magnitude.
         rel_err = diff / input_mag
         if (is_full_dd(op)) then
           tol = 1e-28_qp
@@ -518,8 +511,7 @@ contains
             (abs(q) < tiny(1.0d0) .and. abs(q) > 0.0_qp)) return
         ! When |x| < 2^-970 ≈ 1e-292, the dp ulp at x becomes subnormal,
         ! so the DD low limb cannot hold a full 53-bit error term and the
-        ! effective DD precision degrades to single-double. Skip the
-        ! precision check (NaN/Inf propagation has already been verified).
+        ! effective DD precision degrades to single-double.
         if ((abs(i1) > 0.0_qp .and. abs(i1) < 1.0e-290_qp) .or. &
             (abs(i2) > 0.0_qp .and. abs(i2) < 1.0e-290_qp) .or. &
             (abs(q) > 0.0_qp .and. abs(q) < 1.0e-290_qp)) return
@@ -563,37 +555,23 @@ contains
     cq1 = cmplx(q1, q2, qp)
     cq2 = cmplx(q2, q1, qp)
 
-    cqres = cq1 + cq2
-    cfres = cf1 + cf2
-    call check_cdd(cfres, cqres, "cdd_add", q1, q2, q2, q1, errs)
+    @:CHKC_OP(add, cq1 + cq2, cf1 + cf2)
+    @:CHKC_OP(sub, cq1 - cq2, cf1 - cf2)
 
-    cqres = cq1 - cq2
-    cfres = cf1 - cf2
-    call check_cdd(cfres, cqres, "cdd_sub", q1, q2, q2, q1, errs)
-
-    ! Skip cdd_mul on non-finite inputs: for ±inf/NaN components,
-    ! libquadmath's __mulxc3 applies C99 Annex G infinity-rescue
-    ! logic inconsistently (the LTO'd build of the reference reports
-    ! (NaN, inf) while the non-LTO build reports (NaN, NaN) for the
-    ! same formula). The DD kernel gives the plain IEEE result; the
-    ! test shouldn't be chasing a compiler/libquadmath quirk.
+    ! Skip cdd_mul on non-finite inputs: libquadmath's __mulxc3 applies
+    ! C99 Annex G infinity-rescue logic inconsistently across LTO/non-LTO
+    ! builds; the DD kernel gives the plain IEEE result.
     if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
-      cqres = cq1 * cq2
-      cfres = cf1 * cf2
-      call check_cdd(cfres, cqres, "cdd_mul", q1, q2, q2, q1, errs)
+      @:CHKC_OP(mul, cq1 * cq2, cf1 * cf2)
     end if
 
     if (cq2 /= cmplx(0, 0, qp) .and. ieee_is_finite(real(q1, 8)) .and. &
         ieee_is_finite(real(q2, 8))) then
-      cqres = cq1 / cq2
-      cfres = cf1 / cf2
-      call check_cdd(cfres, cqres, "cdd_div", q1, q2, q2, q1, errs)
+      @:CHKC_OP(div, cq1 / cq2, cf1 / cf2)
     end if
 
     if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
-      cfres = sqrt(cf1)
-      cqres = sqrt(cq1)
-      call check_cdd(cfres, cqres, "cdd_sqrt", q1, q2, 0.0_qp, 0.0_qp, errs)
+      @:CHKC1(sqrt)
 
       if (abs(q1) < 100.0_qp .and. abs(q2) < 100.0_qp) then
         cfres = exp(cf1)
@@ -605,84 +583,46 @@ contains
       end if
 
       if (cq1 /= cmplx(0, 0, qp)) then
-        cfres = log(cf1)
-        cqres = log(cq1)
-        call check_cdd(cfres, cqres, "cdd_log", q1, q2, 0.0_qp, 0.0_qp, errs)
+        @:CHKC1(log)
       end if
 
       if (abs(q1) < 100.0_qp .and. abs(q2) < 100.0_qp) then
-        cfres = sin(cf1)
-        cqres = sin(cq1)
-        call check_cdd(cfres, cqres, "cdd_sin", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = cos(cf1)
-        cqres = cos(cq1)
-        call check_cdd(cfres, cqres, "cdd_cos", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = sinh(cf1)
-        cqres = sinh(cq1)
-        call check_cdd(cfres, cqres, "cdd_sinh", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = cosh(cf1)
-        cqres = cosh(cq1)
-        call check_cdd(cfres, cqres, "cdd_cosh", q1, q2, 0.0_qp, 0.0_qp, errs)
+        @:CHKC1(sin)
+        @:CHKC1(cos)
+        @:CHKC1(sinh)
+        @:CHKC1(cosh)
 
         ! tan/tanh: skip when sinh(b)/cosh(b) overwhelms the leading
         ! limb so the real-part cancellation isn't catastrophic.
         if (abs(q1) < 3.0_qp .and. abs(q2) < 3.0_qp .and. &
             abs(cos(real(q2, 8))) > 0.01d0) then
-          cfres = tan(cf1)
-          cqres = tan(cq1)
-          call check_cdd(cfres, cqres, "cdd_tan", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-          cfres = tanh(cf1)
-          cqres = tanh(cq1)
-          call check_cdd(cfres, cqres, "cdd_tanh", q1, q2, 0.0_qp, 0.0_qp, errs)
+          @:CHKC1(tan)
+          @:CHKC1(tanh)
         end if
       end if
 
       ! Inverse trig / hyperbolic — small but non-tiny input range to
-      ! avoid the cancellation regimes near branch cuts and near zero
-      ! that the first-order derivative correction can't follow.
+      ! avoid cancellation regimes near branch cuts and near zero.
       if (abs(q1) < 0.5_qp .and. abs(q2) < 0.5_qp .and. &
           max(abs(q1), abs(q2)) > 0.05_qp) then
-        cfres = atan(cf1)
-        cqres = atan(cq1)
-        call check_cdd(cfres, cqres, "cdd_atan", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = asin(cf1)
-        cqres = asin(cq1)
-        call check_cdd(cfres, cqres, "cdd_asin", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = acos(cf1)
-        cqres = acos(cq1)
-        call check_cdd(cfres, cqres, "cdd_acos", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = asinh(cf1)
-        cqres = asinh(cq1)
-        call check_cdd(cfres, cqres, "cdd_asinh", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = acosh(cf1)
-        cqres = acosh(cq1)
-        call check_cdd(cfres, cqres, "cdd_acosh", q1, q2, 0.0_qp, 0.0_qp, errs)
-
-        cfres = atanh(cf1)
-        cqres = atanh(cq1)
-        call check_cdd(cfres, cqres, "cdd_atanh", q1, q2, 0.0_qp, 0.0_qp, errs)
+        @:CHKC1(atan)
+        @:CHKC1(asin)
+        @:CHKC1(acos)
+        @:CHKC1(asinh)
+        @:CHKC1(acosh)
+        @:CHKC1(atanh)
       end if
 
-      ! conjg, abs, aimag — full DD
-      cfres = conjg(cf1)
-      cqres = conjg(cq1)
-      call check_cdd(cfres, cqres, "cdd_conjg", q1, q2, 0.0_qp, 0.0_qp, errs)
+      @:CHKC1(conjg)
 
-      call check(abs(cf1), abs(cq1), "cdd_abs", q1, q2, errs)
+      call check(abs(cf1),   abs(cq1),   "cdd_abs",   q1, q2, errs)
       call check(aimag(cf1), aimag(cq1), "cdd_aimag", q1, q2, errs)
     end if
   end subroutine
 
   ! Assignment-operator round-trips. Each direction must match the
-  ! semantics of the equivalent dp ↔ X assignment.
+  ! semantics of the equivalent dp ↔ X assignment. Kept explicit — each
+  ! call uses a different intermediate type so no macro pattern fits.
   subroutine fuzz_assignments(f, q, errs)
     type(float64x2), intent(in) :: f
     real(qp), intent(in) :: q
@@ -765,7 +705,6 @@ contains
     if (abs(hi) < 1.0e18_dp) then
       out_i64 = f
       q_trunc = int(hi, int64)
-      ! Adjust for the lo limb the same way the assignment kernel does.
       if (hi == real(q_trunc, dp)) then
         if (q_trunc > 0_int64 .and. f%limbs(2) < 0.0_dp) q_trunc = q_trunc - 1_int64
         if (q_trunc < 0_int64 .and. f%limbs(2) > 0.0_dp) q_trunc = q_trunc + 1_int64
@@ -815,15 +754,12 @@ contains
       ztmp = complex64x2(cmplx(hi, 2.5_dp, dp))
       call check(ztmp%re, real(hi, qp), "ctor_cdd_cdp_re", q, 0.0_qp, errs)
       call check(ztmp%im, 2.5_qp, "ctor_cdd_cdp_im", q, 0.0_qp, errs)
-      ! Two-arg matching kinds
       ztmp = complex64x2(hi, hi)
       call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_dp_re", q, 0.0_qp, errs)
       call check(ztmp%im, real(hi, qp), "ctor_cdd_dp_dp_im", q, 0.0_qp, errs)
-      ! Mixed (dd, dp)
       ztmp = complex64x2(f, hi)
       call check(ztmp%re, real(hi, qp), "ctor_cdd_dd_dp_re", q, 0.0_qp, errs)
       call check(ztmp%im, real(hi, qp), "ctor_cdd_dd_dp_im", q, 0.0_qp, errs)
-      ! Mixed (dp, dd)
       ztmp = complex64x2(hi, f)
       call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_dd_re", q, 0.0_qp, errs)
       call check(ztmp%im, real(hi, qp), "ctor_cdd_dp_dd_im", q, 0.0_qp, errs)
@@ -857,14 +793,13 @@ contains
       end do
     end do
 
-    call check(sum(a), sum(qa), "arr_sum", maxval(abs(qa)), 0.0_qp, errs)
-    call check(product(a), product(qa), "arr_prod", &
-               maxval(abs(qa))**nn, 0.0_qp, errs)
-    call check(maxval(a), maxval(qa), "arr_max", maxval(abs(qa)), 0.0_qp, errs)
-    call check(minval(a), minval(qa), "arr_min", maxval(abs(qa)), 0.0_qp, errs)
+    call check(sum(a),     sum(qa),     "arr_sum",  maxval(abs(qa)), 0.0_qp, errs)
+    call check(product(a), product(qa), "arr_prod", maxval(abs(qa))**nn, 0.0_qp, errs)
+    call check(maxval(a),  maxval(qa),  "arr_max",  maxval(abs(qa)), 0.0_qp, errs)
+    call check(minval(a),  minval(qa),  "arr_min",  maxval(abs(qa)), 0.0_qp, errs)
     call check(dot_product(a, b), dot_product(qa, qb), "arr_dot", &
                maxval(abs(qa)) * maxval(abs(qb)) * nn, 0.0_qp, errs)
-    call check(norm2(a), norm2(qa), "arr_norm2", maxval(abs(qa)), 0.0_qp, errs)
+    call check(norm2(a),   norm2(qa),   "arr_norm2", maxval(abs(qa)), 0.0_qp, errs)
 
     mvres = matmul(m, a)
     qmvres = matmul(qm, qa)
@@ -879,21 +814,21 @@ contains
     real(qp), intent(in) :: q1, q2
     integer, intent(inout) :: errs
     real(qp) :: diff, mag
-    
+
     if (ieee_is_nan(q1) .or. ieee_is_nan(q2)) return
 
     diff = abs(q1 - q2)
     mag = max(abs(q1), abs(q2), 1e-300_qp)
 
     if ((f1 < f2) .neqv. (q1 < q2)) then
-       if (diff > mag*1e-20_qp .and. diff > 1e-32_qp) then
-         call report_comp_fail("lt", q1, q2, f1 < f2, q1 < q2, errs)
-       end if
+      if (diff > mag*1e-20_qp .and. diff > 1e-32_qp) then
+        call report_comp_fail("lt", q1, q2, f1 < f2, q1 < q2, errs)
+      end if
     end if
     if ((f1 == f2) .neqv. (q1 == q2)) then
-       if (diff > mag*1e-20_qp .and. diff > 1e-32_qp) then
-         call report_comp_fail("eq", q1, q2, f1 == f2, q1 == q2, errs)
-       end if
+      if (diff > mag*1e-20_qp .and. diff > 1e-32_qp) then
+        call report_comp_fail("eq", q1, q2, f1 == f2, q1 == q2, errs)
+      end if
     end if
   end subroutine
 

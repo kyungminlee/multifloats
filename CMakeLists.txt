@@ -120,7 +120,19 @@ add_test(NAME precision_fortran COMMAND fortran_precision)
 mf_add_fortran_executable(fortran_test ./test/test.f90)
 add_test(NAME precision_fortran_unit COMMAND fortran_test)
 
-mf_add_fortran_executable(fortran_fuzz ./test/fuzz.f90)
+# fortran_fuzz is generated from a fypp template. The .fypp file uses
+# CHK1 / CHK2 / CHK_OP / CHKC1 / CHKC_OP macros to collapse per-op
+# scaffolding (same pattern as test/bench.fypp).
+set(_FUZZ_F90 ${CMAKE_CURRENT_BINARY_DIR}/test/fuzz.f90)
+add_custom_command(
+    OUTPUT ${_FUZZ_F90}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/test
+    COMMAND ${FYPP_EXECUTABLE}
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/fuzz.fypp
+        ${_FUZZ_F90}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/fuzz.fypp
+    VERBATIM)
+mf_add_fortran_executable(fortran_fuzz ${_FUZZ_F90})
 add_test(NAME fuzz_fortran COMMAND fortran_fuzz)
 
 # Fortran-side seed determinism (seed is hardcoded to 42 inside fuzz.f90;
