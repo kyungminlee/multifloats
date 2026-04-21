@@ -38,6 +38,7 @@ def _finite(v) -> bool:
 
 
 _DD_ULP = 2.0 ** -105  # ~2.46e-32; 1 ulp of a ~106-bit DD significand
+_QP_ULP = 2.0 ** -112  # ~1.93e-34; 1 ulp of a 113-bit __float128 significand
 
 
 def _format_max_rel(v: float) -> str:
@@ -51,8 +52,20 @@ def _format_max_rel(v: float) -> str:
     return f"{u:.0f} ulp"
 
 
+def _format_qp_err(v: float) -> str:
+    """Format quadmath-vs-MPFR rel-err in qp ulps."""
+    if not _finite(v) or v < 0.0:
+        return EMDASH
+    if v == 0.0:
+        return "exact"
+    u = v / _QP_ULP
+    if u < 10:
+        return f"{u:.1f} qp ulp"
+    return f"{u:.0f} qp ulp"
+
+
 def err_filter(op: ops_mod.Op, system: dict, lang: str) -> str:
-    """Render the err cell for one op × one system."""
+    """Render the DD-vs-MPFR err cell for one op × one system."""
     spec = op.fuzz
     if spec is None:
         return EMDASH
@@ -64,7 +77,6 @@ def err_filter(op: ops_mod.Op, system: dict, lang: str) -> str:
         if not entry or not _finite(entry.get("max_rel")):
             return EMDASH
         return _format_max_rel(entry["max_rel"])
-    # list of (label, key) tuples for split re/im reporting
     parts: list[str] = []
     for label, key in spec:
         entry = fuzz_data.get(key)
@@ -73,6 +85,32 @@ def err_filter(op: ops_mod.Op, system: dict, lang: str) -> str:
     if not parts:
         return EMDASH
     return " / ".join(parts)
+
+
+def qp_err_filter(op: ops_mod.Op, systems: list[dict]) -> str:
+    """Render the quadmath-vs-MPFR reference err cell for one op.
+
+    System-independent — qp precision is the same on every machine. Pulls
+    `max_qp` from the first system that has an entry.
+    """
+    spec = op.fuzz
+    if spec is None or spec == "exact":
+        return EMDASH
+    for sys in systems:
+        fuzz_data = (sys.get("c") or sys.get("cpp") or {}).get("fuzz") or {}
+        if isinstance(spec, str):
+            entry = fuzz_data.get(spec)
+            if entry and _finite(entry.get("max_qp")):
+                return _format_qp_err(entry["max_qp"])
+        else:
+            parts: list[str] = []
+            for label, key in spec:
+                entry = fuzz_data.get(key)
+                if entry and _finite(entry.get("max_qp")):
+                    parts.append(f"{_format_qp_err(entry['max_qp'])} ({label})")
+            if parts:
+                return " / ".join(parts)
+    return EMDASH
 
 
 def _format_speedup_number(v: float) -> str:
@@ -104,7 +142,8 @@ def load_systems(paths: list[Path]) -> list[dict]:
         sysrec = {
             **blob.get("system", {}),
             "fortran": blob.get("fortran", {}),
-            "cpp": blob.get("cpp", {}),
+            # Accept both the new "c" key and the legacy "cpp" key.
+            "c": blob.get("c") or blob.get("cpp", {}),
         }
         # Ensure short_name is present for the template.
         if "short_name" not in sysrec:
@@ -123,11 +162,14 @@ def render(systems: list[dict], template_path: Path) -> str:
     )
     env.filters["err"] = err_filter
     env.filters["speedup"] = speedup_filter
+    # qp_err is a template-global helper (single-arg, system-independent).
+    env.globals["qp_err"] = lambda op: qp_err_filter(op, systems)
     tmpl = env.get_template(template_path.name)
     return tmpl.render(
         systems=systems,
         fortran_sections=ops_mod.FORTRAN_SECTIONS,
-        cpp_sections=ops_mod.CPP_SECTIONS,
+        c_sections=ops_mod.C_SECTIONS,
+        qp_ref_ops=ops_mod.qp_reference_ops(),
     )
 
 

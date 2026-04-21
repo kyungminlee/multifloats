@@ -714,6 +714,20 @@ contains
 
     call tick(t0)
     do r = 1, REPS_TRIG
+      do i = 1, N; qres(i) = tan(qbnd(i) * acos(-1.0_qp)); end do
+      call qfeed(qbnd)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; fres(i) = tanpi(fbnd(i)); end do
+      call ffeed(fbnd)
+    end do
+    tf = elapsed(t0)
+    call report("tanpi", n_ops, tq, tf)
+
+    call tick(t0)
+    do r = 1, REPS_TRIG
       do i = 1, N; qres(i) = tan(qbnd(i)); end do
       call qfeed(qbnd)
     end do
@@ -753,6 +767,20 @@ contains
 
     call tick(t0)
     do r = 1, REPS_TRIG
+      do i = 1, N; qres(i) = asin(qbnd(i)) / acos(-1.0_qp); end do
+      call qfeed(qbnd)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; fres(i) = asinpi(fbnd(i)); end do
+      call ffeed(fbnd)
+    end do
+    tf = elapsed(t0)
+    call report("asinpi", n_ops, tq, tf)
+
+    call tick(t0)
+    do r = 1, REPS_TRIG
       do i = 1, N; qres(i) = acos(qbnd(i)); end do
       call qfeed(qbnd)
     end do
@@ -767,6 +795,20 @@ contains
 
     call tick(t0)
     do r = 1, REPS_TRIG
+      do i = 1, N; qres(i) = acos(qbnd(i)) / acos(-1.0_qp); end do
+      call qfeed(qbnd)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; fres(i) = acospi(fbnd(i)); end do
+      call ffeed(fbnd)
+    end do
+    tf = elapsed(t0)
+    call report("acospi", n_ops, tq, tf)
+
+    call tick(t0)
+    do r = 1, REPS_TRIG
       do i = 1, N; qres(i) = atan(q1(i)); end do
       call qfeed(q1)
     end do
@@ -778,6 +820,20 @@ contains
     end do
     tf = elapsed(t0)
     call report("atan", n_ops, tq, tf)
+
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; qres(i) = atan(q1(i)) / acos(-1.0_qp); end do
+      call qfeed(q1)
+    end do
+    tq = elapsed(t0)
+    call tick(t0)
+    do r = 1, REPS_TRIG
+      do i = 1, N; fres(i) = atanpi(f1(i)); end do
+      call ffeed(f1)
+    end do
+    tf = elapsed(t0)
+    call report("atanpi", n_ops, tq, tf)
 
     call tick(t0)
     do r = 1, REPS_TRIG

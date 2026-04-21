@@ -301,8 +301,9 @@ _FUZZ_MPFR_ROW_RE = re.compile(
 
 
 def parse_fuzz_mpfr(stdout: str) -> dict[str, dict]:
-    """Parse cpp_fuzz_mpfr's 3-way report. Returns {op: {n, max_rel, mean_rel}}
-    where max/mean_rel are DD-vs-mpreal (the ground truth at 200 bits)."""
+    """Parse cpp_fuzz_mpfr's 3-way report. Returns per-op dicts with
+    ``max_rel`` / ``mean_rel`` (DD-vs-mpreal) AND ``max_qp`` / ``mean_qp``
+    (quadmath-vs-mpreal, kept for the BENCHMARK.md reference table)."""
     results: dict[str, dict] = {}
     in_report = False
     for line in stdout.splitlines():
@@ -323,8 +324,10 @@ def parse_fuzz_mpfr(stdout: str) -> dict[str, dict]:
             continue
         results[op] = {
             "n": int(m.group("n")),
-            "max_rel": float(m.group("max_dd")),
+            "max_rel":  float(m.group("max_dd")),
             "mean_rel": float(m.group("mean_dd")),
+            "max_qp":   float(m.group("max_q")),
+            "mean_qp":  float(m.group("mean_q")),
         }
     return results
 
@@ -354,15 +357,11 @@ def main() -> int:
     targets: list[str] = []
     if not args.skip_fortran:
         targets += ["fortran_bench"]
-        if not args.skip_fuzz:
-            targets += ["fortran_fuzz"]
     if not args.skip_cpp:
         targets += ["cpp_bench"]
-        if not args.skip_fuzz:
-            targets += ["cpp_fuzz"]
-    # If the MPFR fuzz target was configured, build + run it too. The build
-    # falls through with no warning when BUILD_MPFR_TESTS is off.
-    if not args.skip_fuzz and (args.build_dir / "CMakeFiles" / "cpp_fuzz_mpfr.dir").exists():
+    # MPFR fuzz is the sole precision oracle. Require it unless the caller
+    # explicitly opted out.
+    if not args.skip_fuzz:
         targets += ["cpp_fuzz_mpfr"]
 
     if not args.no_build:
@@ -378,38 +377,30 @@ def main() -> int:
             "build": args.build or detect_build(args.build_dir),
         },
         "fortran": {},
-        "cpp": {},
+        "c": {},
     }
 
     if not args.skip_fortran:
         data["fortran"]["bench"] = parse_bench(run_exe(args.build_dir / "fortran_bench"))
-        if not args.skip_fuzz:
-            data["fortran"]["fuzz"] = parse_fuzz(run_exe(args.build_dir / "fortran_fuzz"))
     if not args.skip_cpp:
-        data["cpp"]["bench"] = parse_bench(run_exe(args.build_dir / "cpp_bench"))
-        if not args.skip_fuzz:
-            data["cpp"]["fuzz"] = parse_fuzz(run_exe(args.build_dir / "cpp_fuzz"))
+        data["c"]["bench"] = parse_bench(run_exe(args.build_dir / "cpp_bench"))
 
-    # MPFR-backed precision fuzz. Only built when BUILD_MPFR_TESTS=ON was
-    # passed to cmake. Its mpreal @ 200-bit oracle is ~70 bits cleaner than
-    # libquadmath, so its DD max_rel numbers supersede whatever the qp-oracle
-    # fuzz reports for the same op — notably sinpi/cospi/tanpi, where the qp
-    # oracle burns a ulp on the implicit π-multiply. When both are present,
-    # MPFR values take precedence; when MPFR is absent, qp-oracle rules as
-    # before.
-    mpfr_exe = args.build_dir / "cpp_fuzz_mpfr"
-    if not args.skip_fuzz and mpfr_exe.exists():
-        # 1 M iterations matches the qp-oracle fuzz runs so pi-family ops
-        # see enough near-integer arguments to exercise the hardest cases.
+    # MPFR-backed precision fuzz — sole oracle. The mpreal @ 200-bit
+    # reference is ~70 bits cleaner than libquadmath and handles ops
+    # (pi-family, complex) that the qp oracle cannot measure faithfully.
+    if not args.skip_fuzz:
+        mpfr_exe = args.build_dir / "cpp_fuzz_mpfr"
+        if not mpfr_exe.exists():
+            print(f"error: {mpfr_exe} not found. Build with -DBUILD_MPFR_TESTS=ON.",
+                  file=sys.stderr)
+            return 1
         mpfr_fuzz = parse_fuzz_mpfr(run_exe(mpfr_exe, "1000000", "42"))
-        # C ABI exercises the shared kernel, so MPFR values apply to both
-        # the Fortran and the C++ surface equally.
-        for lang in ("fortran", "cpp"):
-            fuzz = data.get(lang, {}).get("fuzz")
-            if fuzz is None:
+        # C ABI kernels are shared by both language surfaces, so MPFR values
+        # apply to both.
+        for lang in ("fortran", "c"):
+            if data.get(lang) is None:
                 continue
-            for op, entry in mpfr_fuzz.items():
-                fuzz[op] = entry
+            data[lang]["fuzz"] = dict(mpfr_fuzz)
 
     slug = args.slug or slugify(args.name)
     out_path = args.output_dir / f"benchmark-{slug}.json"

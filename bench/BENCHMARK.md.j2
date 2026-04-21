@@ -1,12 +1,16 @@
 {#- Jinja2 template for BENCHMARK.md. Rendered by bench/build_benchmark_md.py.
     Exposed variables:
       systems            : list of per-system result dicts (see run_benchmarks.py)
-      fortran_sections   : list of ops.Section (Fortran, float64x2 vs real(16))
-      cpp_sections       : list of ops.Section (C++, MultiFloat<double,2> vs __float128)
+      fortran_sections   : list of ops.Section (Fortran elemental surface)
+      c_sections         : list of ops.Section (C ABI surface, incl. complex)
+      qp_ref_ops         : flat list of ops.Op for the qp-vs-MPFR reference table
 
     Custom filters (registered in build_benchmark_md.py):
-      err(op, system, lang)   : formats the err cell for one op × one system
-      speedup(op, system, lang) : formats the speedup cell (with bolding)
+      err(op, system, lang)     : DD-vs-MPFR err cell for one op × one system
+      speedup(op, system, lang) : speedup cell (with bolding when ≥ 2×)
+
+    Global helper:
+      qp_err(op)                : quadmath-vs-MPFR err cell (system-independent)
 -#}
 # Benchmark Results
 
@@ -28,9 +32,9 @@ Short names are used as column labels throughout.
 
 ## Precision key
 
-Precision is measured as the maximum relative error vs the quad-precision
-(`real(16)`) reference over ~1M random inputs (fixed seed 42), reported in
-**DD ulps** (1 ulp ≈ 2⁻¹⁰⁵ ≈ 2.46e-32 for the ~106-bit DD significand):
+Precision is the maximum relative error vs an **mpreal @ 200-bit** oracle
+over ~1M random inputs (fixed seed 42), reported in **DD ulps** (1 ulp ≈
+2⁻¹⁰⁵ ≈ 2.46e-32 for the ~106-bit DD significand):
 
 | Label | err (DD ulp) | Meaning |
 |---|---|---|
@@ -47,14 +51,58 @@ Precision is measured as the maximum relative error vs the quad-precision
 | **original** | Developed for this project |
 | **sample** | Ad-hoc implementation in the benchmark harness, not exported from the library |
 
+## Reference: quadmath vs MPFR
+
+Baseline for reading the DD err numbers below. This table shows the
+**quadmath leg's own** relative error against the same mpreal @ 200-bit
+oracle, in **qp ulps** (1 qp ulp ≈ 2⁻¹¹² ≈ 1.93e-34 for the 113-bit
+`__float128` significand). System-independent — qp precision is identical
+on every machine.
+
+Read the main tables as: *the DD kernel lands at N DD ulps vs the same
+200-bit reference that puts quadmath at ~M qp ulps.* When the DD number
+is close to its expected "full DD" band and the qp number is close to ½
+qp ulp, both legs are behaving as specified.
+
+| op | qp-vs-MPFR err |
+|---|---|
+{%- for op in qp_ref_ops %}
+| {{ op.display }} | {{ qp_err(op) }} |
+{%- endfor %}
+
+## C: C ABI vs `__float128`
+
+Ops timed through the **C ABI** entry points (`sindd`, `cdd_muldd`, `j0dd`,
+…) — the register-return convention a C or Fortran-`bind(c)` caller sees,
+not the C++ header-only inline path. Scope: every function in
+`src/multifloats_c.h` (scalars, π-family, Bessel, complex arithmetic,
+complex transcendentals). Shared ops also appear in the Fortran section
+below under the Fortran elemental wrapper; the delta is the hidden-
+pointer Fortran ABI overhead.
+
+Each op is timed over 1024 elements × 400 repetitions (fast ops) or fewer
+reps (transcendentals), with a NOINLINE drain after each rep to prevent
+dead-code elimination. **×** = speedup (`qp_time / dd_time`, values > 1×
+mean multifloats is faster); **err** = DD error in DD ulps from the 1M-
+input MPFR fuzz run.
+{% for section in c_sections %}
+### {{ section.title }}
+
+| op |{% for s in systems %} {{ s.short_name }} err |{% endfor %}{% for s in systems %} {{ s.short_name }} × |{% endfor %} approach |
+|---|{% for s in systems %}---|{% endfor %}{% for s in systems %}---|{% endfor %}---|
+{%- for op in section.ops %}
+| {{ op.display }} |{% for s in systems %} {{ op|err(s, "c") }} |{% endfor %}{% for s in systems %} {{ op|speedup(s, "c") }} |{% endfor %} {{ op.approach }} |
+{%- endfor %}
+{% endfor %}
 ## Fortran: `float64x2` vs `real(16)`
 
-Each operation is timed over 1024 elements × 400 repetitions (fast ops)
-or fewer reps (transcendentals), with a NOINLINE drain after each rep to
-prevent dead-code elimination. **×** = speedup (`qp_time / dd_time`,
-values > 1× mean multifloats is faster); **err** = error in DD ulps
-(1 ulp ≈ 2⁻¹⁰⁵ ≈ 2.46e-32) from the 1M-input fuzz run; **prec** =
-precision label.
+Ops timed through the **Fortran elemental wrappers** on a `sequence`-
+derived-type DD. gfortran passes/returns these via hidden pointers
+(not FP registers), adding ~1.5× overhead vs the C ABI column even
+after LTO. Scope: the full Fortran module surface — everything in the
+C section above **plus** Fortran-only ops (array reductions, numeric
+inquiry). **prec** column carries the precision label for the shared
+surface; C-section duplicates omit it for table width.
 {% for section in fortran_sections %}
 ### {{ section.title }}
 
@@ -62,25 +110,6 @@ precision label.
 |---|---|{% for s in systems %}---|{% endfor %}{% for s in systems %}---|{% endfor %}---|
 {%- for op in section.ops %}
 | {{ op.display }} | {{ op.prec }} |{% for s in systems %} {{ op|err(s, "fortran") }} |{% endfor %}{% for s in systems %} {{ op|speedup(s, "fortran") }} |{% endfor %} {{ op.approach }} |
-{%- endfor %}
-{% endfor %}
-## C++: `MultiFloat<double,2>` vs `__float128`
-
-Header-only — all kernels inline into the call site. No LTO needed.
-See the Fortran tables for `prec` labels.
-
-**Methodology.** Precision and timing are measured separately, mirroring
-the Fortran split (`fortran_fuzz` / `fortran_bench`):
-
-- **err** columns come from `cpp_fuzz` at 1M iterations, fixed seed 42.
-- **×** columns come from `cpp_bench` at 1024 elements × reps.
-{% for section in cpp_sections %}
-### {{ section.title }}
-
-| op |{% for s in systems %} {{ s.short_name }} err |{% endfor %}{% for s in systems %} {{ s.short_name }} × |{% endfor %} approach |
-|---|{% for s in systems %}---|{% endfor %}{% for s in systems %}---|{% endfor %}---|
-{%- for op in section.ops %}
-| {{ op.display }} |{% for s in systems %} {{ op|err(s, "cpp") }} |{% endfor %}{% for s in systems %} {{ op|speedup(s, "cpp") }} |{% endfor %} {{ op.approach }} |
 {%- endfor %}
 {% endfor %}
 ## Notes
@@ -97,7 +126,7 @@ the Fortran split (`fortran_fuzz` / `fortran_bench`):
   For |x| > ~1e15, a Payne–Hanek reduction with a multi-word 2/π table
   would be needed.
 
-- **tgamma / lgamma** (both C++ and Fortran) use a native double-double
+- **tgamma / lgamma** (both C and Fortran) use a native double-double
   Stirling kernel shifting the argument up to x ≥ 25 via a product
   accumulator so a single `logdd(prod)` absorbs the recurrence. Small
   arguments (x < 0.5) use the reflection identity.
@@ -112,9 +141,9 @@ the Fortran split (`fortran_fuzz` / `fortran_bench`):
 
 - The **Fortran** multifloats module uses `elemental` functions on a
   `sequence` derived type. gfortran's ABI passes/returns these via hidden
-  pointers (not in FP registers), adding ~1.5× overhead vs the C++ header-
-  only version even with LTO inlining. See the performance note at the top
-  of `fsrc/multifloats.fypp` for details and the `bind(c)` escape hatch.
+  pointers (not in FP registers), adding ~1.5× overhead vs the C ABI
+  leg. See the performance note at the top of `fsrc/multifloats.fypp`
+  for details and the `bind(c)` escape hatch.
 
 - **Array reductions** (`dot_product`, `matmul`) use a fused multiply-
   accumulate kernel that computes the product's error-free representation
