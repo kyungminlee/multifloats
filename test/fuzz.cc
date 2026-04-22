@@ -449,6 +449,14 @@ static void report_fail(char const *op, char const *detail) {
     CHK("c" #STEM, ::c##STEM##dd(zd1, zd2), c##STEM##q(zq1, zq2), \
         mag, (q_t)0, c##STEM##mp(zm1, zm2))
 
+// Gated-call variants: `CHK1_IF(sin, cond)` expands to the equivalent of
+// `if (cond) CHK1(sin);` but wrapped in `do { } while (0)` so a stray
+// dangling `else` at an outer call site can't bind to the inner `if`.
+#define CHK1_IF(NAME, COND)    do { if (COND) CHK1(NAME); }    while (0)
+#define CHK2_IF(NAME, COND)    do { if (COND) CHK2(NAME); }    while (0)
+#define CHK_C1_IF(STEM, COND)  do { if (COND) CHK_C1(STEM); }  while (0)
+#define CHK_C2_IF(STEM, COND)  do { if (COND) CHK_C2(STEM); }  while (0)
+
 static void check(char const *op, mf::float64x2 const &got, q_t expected,
                   q_t i1, q_t i2 MP_PARAM(mp_t const &expected_mp)) {
   // NaN: leading limb must be NaN.
@@ -777,11 +785,11 @@ int main(int argc, char **argv) {
     CHK("sub", f1 - f2, q1 - q2, q1, q2, m1 - m2);
     if (both_finite) CHK("mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
     if (both_finite && q2 != (q_t)0) CHK("div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
-    if (q_isfinite(q1) && q1 >= (q_t)0) CHK1(sqrt);
+    CHK1_IF(sqrt, q_isfinite(q1) && q1 >= (q_t)0);
     CHK("abs", mf::abs(f1), q1 < 0 ? -q1 : q1, q1, (q_t)0, mpfr::abs(m1));
     CHK("neg", -f1, -q1, q1, (q_t)0, -m1);
-    if (q_isfinite(q1) && aq1 < (q_t)1e15q) CHK1(trunc);
-    if (q_isfinite(q1) && aq1 < (q_t)1e15q) CHK1(round);
+    CHK1_IF(trunc, q_isfinite(q1) && aq1 < (q_t)1e15q);
+    CHK1_IF(round, q_isfinite(q1) && aq1 < (q_t)1e15q);
 
     check_comp(f1, f2, q1, q2);
 
@@ -800,7 +808,7 @@ int main(int argc, char **argv) {
       CHK2(hypot);
 
       q_t aq2 = q2 < 0 ? -q2 : q2;
-      if (q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q) CHK2(fmod);
+      CHK2_IF(fmod, q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q);
 
       // fmadd(a, b, c) = a·b + c. Use d1 as the third input (DD-
       // representable) so the qp reference is exactly fmaq(q1, q2, d1).
@@ -816,7 +824,7 @@ int main(int argc, char **argv) {
     if (i % 100 == 0) {
       if (q_isfinite(q1)) {
         q_t qe = expq(q1);
-        if (q_isfinite(qe)) CHK1(exp);
+        CHK1_IF(exp, q_isfinite(qe));
       }
       if (q_isfinite(q1) && q1 > (q_t)0) {
         CHK1(log);
@@ -824,9 +832,9 @@ int main(int argc, char **argv) {
       }
       if (q_isfinite(q1)) {
         q_t qem = expm1q(q1);
-        if (q_isfinite(qem)) CHK1(expm1);
+        CHK1_IF(expm1, q_isfinite(qem));
       }
-      if (q_isfinite(q1) && q1 > (q_t)-1) CHK1(log1p);
+      CHK1_IF(log1p, q_isfinite(q1) && q1 > (q_t)-1);
 
       if (q_isfinite(q1)) {
         q_t qe2 = exp2q(q1);
@@ -844,7 +852,7 @@ int main(int argc, char **argv) {
       if (q_isfinite(q1) && aq1 < (q_t)1e6q) {
         CHK1(sin);
         CHK1(cos);
-        if (fabsq(cosq(q1)) > (q_t)1e-12q) CHK1(tan);
+        CHK1_IF(tan, fabsq(cosq(q1)) > (q_t)1e-12q);
 
         // Fused sincos: one range-reduction feeds both outputs.
         float64x2_t sc_s, sc_c;
@@ -858,7 +866,7 @@ int main(int argc, char **argv) {
         CHK1(asin);
         CHK1(acos);
       }
-      if (q_isfinite(q1)) CHK1(atan);
+      CHK1_IF(atan, q_isfinite(q1));
 
       if (q_isfinite(q1) && aq1 < (q_t)700) {
         CHK1(sinh);
@@ -872,10 +880,9 @@ int main(int argc, char **argv) {
             q1, (q_t)0, mpfr::sinh(m1));
         CHK("sinhcosh_c", mf::detail::from_f64x2(hc_c), coshq(q1),
             q1, (q_t)0, mpfr::cosh(m1));
-      }
-      if (q_isfinite(q1)) CHK1(asinh);
-      if (q_isfinite(q1) && q1 >= (q_t)1) CHK1(acosh);
-      if (q_isfinite(q1) && aq1 <  (q_t)1) CHK1(atanh);
+      }      CHK1_IF(asinh, q_isfinite(q1));
+      CHK1_IF(acosh, q_isfinite(q1) && q1 >= (q_t)1);
+      CHK1_IF(atanh, q_isfinite(q1) && aq1 <  (q_t)1);
 
       if (q_isfinite(q1) && aq1 < (q_t)100) {
         CHK1(erf);
@@ -1061,7 +1068,7 @@ int main(int argc, char **argv) {
           CHK_C2(add);
           CHK_C2(sub);
           CHK_C2(mul);
-          if (mag2 > (q_t)0) CHK_C2(div);
+          CHK_C2_IF(div, mag2 > (q_t)0);
           CHK("cabs",
               mf::detail::from_f64x2(::cabsdd(zd1)), cabsq(zq1),
               mag, (q_t)0, cabsmp(zm1));
@@ -1156,8 +1163,8 @@ int main(int argc, char **argv) {
           // division inside the oracle to blow up. Gate on oracle magnitude.
           __complex128 ccz  = ccosq(zq1);
           __complex128 ccsh = ccoshq(zq1);
-          if (cabsq(ccz)  > (q_t)1e-10q) CHK_C1(tan);
-          if (cabsq(ccsh) > (q_t)1e-10q) CHK_C1(tanh);
+          CHK_C1_IF(tan,  cabsq(ccz)  > (q_t)1e-10q);
+          CHK_C1_IF(tanh, cabsq(ccsh) > (q_t)1e-10q);
 
           CHK_C1(asin);
           CHK_C1(acos);
