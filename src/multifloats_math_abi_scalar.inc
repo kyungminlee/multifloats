@@ -1,78 +1,106 @@
 
-// Arithmetic
-float64x2_t adddd(float64x2_t a, float64x2_t b) { return to(from(a) + from(b)); }
-float64x2_t subdd(float64x2_t a, float64x2_t b) { return to(from(a) - from(b)); }
-float64x2_t muldd(float64x2_t a, float64x2_t b) { return to(from(a) * from(b)); }
-float64x2_t divdd(float64x2_t a, float64x2_t b) { return to(from(a) / from(b)); }
-float64x2_t negdd(float64x2_t a)  { return to(-from(a)); }
-float64x2_t fabsdd(float64x2_t a)  { return to(multifloats::abs(from(a))); }
-float64x2_t sqrtdd(float64x2_t a) { return to(multifloats::sqrt(from(a))); }
+// Every `NAMEdd` here is a thin marshaling shim around the matching
+// `multifloats::NAME` free function (defined in multifloats_math.cc via
+// the per-topic .inc files). They cross `float64x2_t` ↔ `float64x2` at
+// the boundary using the file-scope `from` / `to` helpers and otherwise
+// don't add behavior. The MF_ABI_* macros collapse the boilerplate;
+// shims that don't fit the pattern (multi-output fused kernels, range
+// sweeps, matmul, integer-first Bessel) stay explicit below.
+
+#define MF_ABI_UNARY(NAME) \
+  float64x2_t NAME##dd(float64x2_t a) { return to(multifloats::NAME(from(a))); }
+#define MF_ABI_UNARY_AS(CNAME, CXXNAME) \
+  float64x2_t CNAME(float64x2_t a) { return to(multifloats::CXXNAME(from(a))); }
+#define MF_ABI_BINARY(NAME) \
+  float64x2_t NAME##dd(float64x2_t a, float64x2_t b) { \
+    return to(multifloats::NAME(from(a), from(b))); \
+  }
+#define MF_ABI_BINARY_OP(NAME, OP) \
+  float64x2_t NAME##dd(float64x2_t a, float64x2_t b) { \
+    return to(from(a) OP from(b)); \
+  }
+#define MF_ABI_CMP(NAME, OP) \
+  int NAME##dd(float64x2_t a, float64x2_t b) { \
+    return from(a) OP from(b) ? 1 : 0; \
+  }
+
+// Arithmetic — C++ operators, not free functions.
+MF_ABI_BINARY_OP(add, +)
+MF_ABI_BINARY_OP(sub, -)
+MF_ABI_BINARY_OP(mul, *)
+MF_ABI_BINARY_OP(div, /)
+
+// Unary
+float64x2_t negdd(float64x2_t a) { return to(-from(a)); }
+MF_ABI_UNARY_AS(fabsdd, abs)  // C's fabs is C++'s abs
+MF_ABI_UNARY(sqrt)
 
 // Rounding (Fortran AINT / ANINT delegate here)
-float64x2_t truncdd(float64x2_t a) { return to(multifloats::trunc(from(a))); }
-float64x2_t rounddd(float64x2_t a) { return to(multifloats::round(from(a))); }
+MF_ABI_UNARY(trunc)
+MF_ABI_UNARY(round)
 
 // Binary
-float64x2_t fmindd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmin(from(a), from(b))); }
-float64x2_t fmaxdd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmax(from(a), from(b))); }
-float64x2_t hypotdd(float64x2_t a, float64x2_t b)    { return to(multifloats::hypot(from(a), from(b))); }
-float64x2_t powdd(float64x2_t a, float64x2_t b)      { return to(multifloats::pow(from(a), from(b))); }
-float64x2_t fmoddd(float64x2_t a, float64x2_t b)     { return to(multifloats::fmod(from(a), from(b))); }
-float64x2_t fdimdd(float64x2_t a, float64x2_t b)     { return to(multifloats::fdim(from(a), from(b))); }
-float64x2_t copysigndd(float64x2_t a, float64x2_t b) { return to(multifloats::copysign(from(a), from(b))); }
-float64x2_t fmadd(float64x2_t a, float64x2_t b, float64x2_t c) { return to(multifloats::fma(from(a), from(b), from(c))); }
+MF_ABI_BINARY(fmin)
+MF_ABI_BINARY(fmax)
+MF_ABI_BINARY(hypot)
+MF_ABI_BINARY(pow)
+MF_ABI_BINARY(fmod)
+MF_ABI_BINARY(fdim)
+MF_ABI_BINARY(copysign)
+float64x2_t fmadd(float64x2_t a, float64x2_t b, float64x2_t c) {
+  return to(multifloats::fma(from(a), from(b), from(c)));
+}
 
 // Exponential / logarithmic
-float64x2_t expdd(float64x2_t a)   { return to(multifloats::exp(from(a))); }
-float64x2_t exp2dd(float64x2_t a)  { return to(multifloats::exp2(from(a))); }
-float64x2_t expm1dd(float64x2_t a) { return to(multifloats::expm1(from(a))); }
-float64x2_t logdd(float64x2_t a)   { return to(multifloats::log(from(a))); }
-float64x2_t log2dd(float64x2_t a)  { return to(multifloats::log2(from(a))); }
-float64x2_t log10dd(float64x2_t a) { return to(multifloats::log10(from(a))); }
-float64x2_t log1pdd(float64x2_t a) { return to(multifloats::log1p(from(a))); }
+MF_ABI_UNARY(exp)
+MF_ABI_UNARY(exp2)
+MF_ABI_UNARY(expm1)
+MF_ABI_UNARY(log)
+MF_ABI_UNARY(log2)
+MF_ABI_UNARY(log10)
+MF_ABI_UNARY(log1p)
 
 // Trigonometric
-float64x2_t sindd(float64x2_t a)   { return to(multifloats::sin(from(a))); }
-float64x2_t cosdd(float64x2_t a)   { return to(multifloats::cos(from(a))); }
-float64x2_t tandd(float64x2_t a)   { return to(multifloats::tan(from(a))); }
-float64x2_t asindd(float64x2_t a)  { return to(multifloats::asin(from(a))); }
-float64x2_t acosdd(float64x2_t a)  { return to(multifloats::acos(from(a))); }
-float64x2_t atandd(float64x2_t a)  { return to(multifloats::atan(from(a))); }
-float64x2_t atan2dd(float64x2_t a, float64x2_t b) { return to(multifloats::atan2(from(a), from(b))); }
+MF_ABI_UNARY(sin)
+MF_ABI_UNARY(cos)
+MF_ABI_UNARY(tan)
+MF_ABI_UNARY(asin)
+MF_ABI_UNARY(acos)
+MF_ABI_UNARY(atan)
+MF_ABI_BINARY(atan2)
 
 // π-scaled trig: fn_pi(x) = fn(π·x) or fn(x)/π.
-float64x2_t sinpidd(float64x2_t a)  { return to(multifloats::sinpi(from(a))); }
-float64x2_t cospidd(float64x2_t a)  { return to(multifloats::cospi(from(a))); }
-float64x2_t tanpidd(float64x2_t a)  { return to(multifloats::tanpi(from(a))); }
-float64x2_t asinpidd(float64x2_t a) { return to(multifloats::asinpi(from(a))); }
-float64x2_t acospidd(float64x2_t a) { return to(multifloats::acospi(from(a))); }
-float64x2_t atanpidd(float64x2_t a) { return to(multifloats::atanpi(from(a))); }
-float64x2_t atan2pidd(float64x2_t a, float64x2_t b) { return to(multifloats::atan2pi(from(a), from(b))); }
+MF_ABI_UNARY(sinpi)
+MF_ABI_UNARY(cospi)
+MF_ABI_UNARY(tanpi)
+MF_ABI_UNARY(asinpi)
+MF_ABI_UNARY(acospi)
+MF_ABI_UNARY(atanpi)
+MF_ABI_BINARY(atan2pi)
 
 // Hyperbolic
-float64x2_t sinhdd(float64x2_t a)  { return to(multifloats::sinh(from(a))); }
-float64x2_t coshdd(float64x2_t a)  { return to(multifloats::cosh(from(a))); }
-float64x2_t tanhdd(float64x2_t a)  { return to(multifloats::tanh(from(a))); }
-float64x2_t asinhdd(float64x2_t a) { return to(multifloats::asinh(from(a))); }
-float64x2_t acoshdd(float64x2_t a) { return to(multifloats::acosh(from(a))); }
-float64x2_t atanhdd(float64x2_t a) { return to(multifloats::atanh(from(a))); }
+MF_ABI_UNARY(sinh)
+MF_ABI_UNARY(cosh)
+MF_ABI_UNARY(tanh)
+MF_ABI_UNARY(asinh)
+MF_ABI_UNARY(acosh)
+MF_ABI_UNARY(atanh)
 
 // Error functions
-float64x2_t erfdd(float64x2_t a)   { return to(multifloats::erf(from(a))); }
-float64x2_t erfcdd(float64x2_t a)  { return to(multifloats::erfc(from(a))); }
-float64x2_t erfcxdd(float64x2_t a) { return to(multifloats::erfcx(from(a))); }
+MF_ABI_UNARY(erf)
+MF_ABI_UNARY(erfc)
+MF_ABI_UNARY(erfcx)
 
 // Gamma functions
-float64x2_t tgammadd(float64x2_t a) { return to(multifloats::tgamma(from(a))); }
-float64x2_t lgammadd(float64x2_t a) { return to(multifloats::lgamma(from(a))); }
+MF_ABI_UNARY(tgamma)
+MF_ABI_UNARY(lgamma)
 
 // Bessel functions (math.h naming: j0, j1, y0, y1). Route to the
-// order-specific C++ fast-path kernels j0/j1 and y0/y1 declared in
-// multifloats.hh (same names; the C ABI just adds the `dd` suffix).
-float64x2_t j0dd(float64x2_t a) { return to(multifloats::j0(from(a))); }
-float64x2_t j1dd(float64x2_t a) { return to(multifloats::j1(from(a))); }
-float64x2_t y0dd(float64x2_t a) { return to(multifloats::y0(from(a))); }
-float64x2_t y1dd(float64x2_t a) { return to(multifloats::y1(from(a))); }
+// order-specific C++ fast-path kernels in multifloats.hh.
+MF_ABI_UNARY(j0)
+MF_ABI_UNARY(j1)
+MF_ABI_UNARY(y0)
+MF_ABI_UNARY(y1)
 
 // Integer-order Bessel functions (recurrence from j0/j1, y0/y1).
 float64x2_t jndd(int n, float64x2_t a) { return to(multifloats::jn(n, from(a))); }
@@ -142,10 +170,16 @@ void matmuldd_vm(const float64x2_t *x, const float64x2_t *b,
       k, n, renorm_interval);
 }
 
-// Comparison
-int eqdd(float64x2_t a, float64x2_t b) { return from(a) == from(b) ? 1 : 0; }
-int nedd(float64x2_t a, float64x2_t b) { return from(a) != from(b) ? 1 : 0; }
-int ltdd(float64x2_t a, float64x2_t b) { return from(a) <  from(b) ? 1 : 0; }
-int ledd(float64x2_t a, float64x2_t b) { return from(a) <= from(b) ? 1 : 0; }
-int gtdd(float64x2_t a, float64x2_t b) { return from(a) >  from(b) ? 1 : 0; }
-int gedd(float64x2_t a, float64x2_t b) { return from(a) >= from(b) ? 1 : 0; }
+// Comparison (return int: 1 = true, 0 = false)
+MF_ABI_CMP(eq, ==)
+MF_ABI_CMP(ne, !=)
+MF_ABI_CMP(lt, <)
+MF_ABI_CMP(le, <=)
+MF_ABI_CMP(gt, >)
+MF_ABI_CMP(ge, >=)
+
+#undef MF_ABI_UNARY
+#undef MF_ABI_UNARY_AS
+#undef MF_ABI_BINARY
+#undef MF_ABI_BINARY_OP
+#undef MF_ABI_CMP
