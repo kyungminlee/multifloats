@@ -364,20 +364,23 @@ static void report_fail(char const *op, char const *detail) {
   }
 }
 
-// CHK1 / CHK2 / CHK1_IF / CHK2_IF collapse the common guard+check pattern.
-// Expand inside the main loop where the locals `q1`, `q2`, `f1`, `f2`, and
-// the 1-arg `(q_t)0` tail are all in scope. The explicit `i1, i2` trailing
-// args on `check()` drive the input-magnitude floor inside check() itself.
-// `mp_expr` is the mpreal oracle expression; it is dropped by MP_ARG when
-// USE_MPFR is off, so call sites stay identical across modes.
-#define CHK1(op, mf_expr, q_expr, mp_expr) \
-    check(op, (mf_expr), (q_expr), q1, (q_t)0 MP_ARG(mp_expr))
-#define CHK2(op, mf_expr, q_expr, mp_expr) \
-    check(op, (mf_expr), (q_expr), q1, q2 MP_ARG(mp_expr))
-#define CHK1_IF(cond, op, mf_expr, q_expr, mp_expr) \
-    do { if (cond) CHK1(op, mf_expr, q_expr, mp_expr); } while (0)
-#define CHK2_IF(cond, op, mf_expr, q_expr, mp_expr) \
-    do { if (cond) CHK2(op, mf_expr, q_expr, mp_expr); } while (0)
+// CHK is the single check-site macro. Absorbs MP_ARG internally so the
+// mpreal oracle expression never appears at a call site — keeping callers
+// identical across USE_MPFR on/off.
+//
+// The mp slot is variadic (`...` / `__VA_ARGS__`), not a named positional
+// arg: a call site like `CHK("cdd_expm1", ..., mag, (q_t)0, CMp{a, b})`
+// has a comma inside the `CMp{...}` brace list that would otherwise get
+// consumed by CHK itself (splitting the expression into two macro args).
+// __VA_ARGS__ captures everything after the first five named slots as one
+// unit, mirroring MP_ARG's own variadic contract.
+//
+// The expansion is a single `check(...)` expression-statement-ish call
+// followed by the caller's `;`, so `if (cond) CHK(...);` is safe — no
+// dangling-else hazard, no compound-statement wrapping needed. Keep it
+// that way if you touch this.
+#define CHK(op, mf_expr, q_expr, i1, i2, ...) \
+    check(op, (mf_expr), (q_expr), (i1), (i2) MP_ARG(__VA_ARGS__))
 
 static void check(char const *op, mf::float64x2 const &got, q_t expected,
                   q_t i1, q_t i2 MP_PARAM(mp_t const &expected_mp)) {
@@ -599,9 +602,14 @@ static void print_all_stats() {
 // is_full_dd picks them up and so downstream tooling can key on component.
 // =============================================================================
 
-static void check_cplx(char const *op, complex64x2_t const &got,
-                       __complex128 expected, q_t input_mag
-                       MP_PARAM(CMp const &expected_mp)) {
+// Complex overload of check(). Splits the complex result into _re / _im
+// components and dispatches each to the scalar overload. i1 carries the
+// complex-input magnitude; i2 is unused in practice and set to (q_t)0 at
+// call sites, but kept in the signature for uniformity with the scalar
+// overload so a single CHK macro drives both.
+static void check(char const *op, complex64x2_t const &got,
+                  __complex128 expected, q_t i1, q_t i2
+                  MP_PARAM(CMp const &expected_mp)) {
   mf::float64x2 got_re = mf::detail::from_f64x2(got.re);
   mf::float64x2 got_im = mf::detail::from_f64x2(got.im);
   q_t exp_re = crealq(expected);
@@ -609,9 +617,9 @@ static void check_cplx(char const *op, complex64x2_t const &got,
 
   char key[32];
   std::snprintf(key, sizeof(key), "%s_re", op);
-  check(key, got_re, exp_re, input_mag, (q_t)0 MP_ARG(expected_mp.re));
+  check(key, got_re, exp_re, i1, i2 MP_ARG(expected_mp.re));
   std::snprintf(key, sizeof(key), "%s_im", op);
-  check(key, got_im, exp_im, input_mag, (q_t)0 MP_ARG(expected_mp.im));
+  check(key, got_im, exp_im, i1, i2 MP_ARG(expected_mp.im));
 }
 
 // Convert an mf::float64x2 pair to a C-ABI complex64x2_t for dispatching
@@ -698,18 +706,18 @@ int main(int argc, char **argv) {
     bool const both_finite = q_isfinite(q1) && q_isfinite(q2);
     q_t aq1 = q1 < 0 ? -q1 : q1;
 
-    CHK2("add", f1 + f2, q1 + q2, m1 + m2);
-    CHK2("sub", f1 - f2, q1 - q2, m1 - m2);
-    CHK2_IF(both_finite, "mul", f1 * f2, q1 * q2, m1 * m2);
-    CHK2_IF(both_finite && q2 != (q_t)0, "div", f1 / f2, q1 / q2, m1 / m2);
-    CHK1_IF(q_isfinite(q1) && q1 >= (q_t)0, "sqrt",
-            mf::sqrt(f1), sqrtq(q1), mpfr::sqrt(m1));
-    CHK1("abs", mf::abs(f1), q1 < 0 ? -q1 : q1, mpfr::abs(m1));
-    CHK1("neg", -f1, -q1, -m1);
-    CHK1_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "trunc",
-            mf::trunc(f1), truncq(q1), mpfr::trunc(m1));
-    CHK1_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "round",
-            mf::round(f1), roundq(q1), mpfr::round(m1));
+    CHK("add", f1 + f2, q1 + q2, q1, q2, m1 + m2);
+    CHK("sub", f1 - f2, q1 - q2, q1, q2, m1 - m2);
+    if (both_finite) CHK("mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
+    if (both_finite && q2 != (q_t)0) CHK("div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
+    if (q_isfinite(q1) && q1 >= (q_t)0)
+      CHK("sqrt", mf::sqrt(f1), sqrtq(q1), q1, (q_t)0, mpfr::sqrt(m1));
+    CHK("abs", mf::abs(f1), q1 < 0 ? -q1 : q1, q1, (q_t)0, mpfr::abs(m1));
+    CHK("neg", -f1, -q1, q1, (q_t)0, -m1);
+    if (q_isfinite(q1) && aq1 < (q_t)1e15q)
+      CHK("trunc", mf::trunc(f1), truncq(q1), q1, (q_t)0, mpfr::trunc(m1));
+    if (q_isfinite(q1) && aq1 < (q_t)1e15q)
+      CHK("round", mf::round(f1), roundq(q1), q1, (q_t)0, mpfr::round(m1));
 
     check_comp(f1, f2, q1, q2);
 
@@ -717,149 +725,159 @@ int main(int argc, char **argv) {
     // route through the multiplicative or hypot kernels — share mul's
     // non-finite limitation.
     if (i % 10 == 0 && both_finite) {
-      check("add_fd", f1 + mf::float64x2(d2), q1 + (q_t)d2, q1, (q_t)d2
-            MP_ARG(m1 + to_mp(d2)));
-      check("mul_df", mf::float64x2(d1) * f2, (q_t)d1 * q2, (q_t)d1, q2
-            MP_ARG(to_mp(d1) * m2));
-      CHK2("fmin", mf::fmin(f1, f2), q1 < q2 ? q1 : q2, q1 < q2 ? m1 : m2);
-      CHK2("fmax", mf::fmax(f1, f2), q1 < q2 ? q2 : q1, q1 < q2 ? m2 : m1);
-      CHK2("copysign", mf::copysign(f1, f2), copysignq(q1, q2),
-           (m2 >= 0 ? mpfr::abs(m1) : -mpfr::abs(m1)));
-      CHK2("fdim", mf::fdim(f1, f2), fdimq(q1, q2),
-           (m1 > m2 ? m1 - m2 : mp_t(0)));
-      CHK2("hypot", mf::hypot(f1, f2), hypotq(q1, q2), mpfr::hypot(m1, m2));
+      CHK("add_fd", f1 + mf::float64x2(d2), q1 + (q_t)d2,
+          q1, (q_t)d2, m1 + to_mp(d2));
+      CHK("mul_df", mf::float64x2(d1) * f2, (q_t)d1 * q2,
+          (q_t)d1, q2, to_mp(d1) * m2);
+      CHK("fmin", mf::fmin(f1, f2), q1 < q2 ? q1 : q2, q1, q2,
+          q1 < q2 ? m1 : m2);
+      CHK("fmax", mf::fmax(f1, f2), q1 < q2 ? q2 : q1, q1, q2,
+          q1 < q2 ? m2 : m1);
+      CHK("copysign", mf::copysign(f1, f2), copysignq(q1, q2), q1, q2,
+          (m2 >= 0 ? mpfr::abs(m1) : -mpfr::abs(m1)));
+      CHK("fdim", mf::fdim(f1, f2), fdimq(q1, q2), q1, q2,
+          (m1 > m2 ? m1 - m2 : mp_t(0)));
+      CHK("hypot", mf::hypot(f1, f2), hypotq(q1, q2), q1, q2,
+          mpfr::hypot(m1, m2));
 
       q_t aq2 = q2 < 0 ? -q2 : q2;
-      CHK2_IF(q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q,
-              "fmod", mf::fmod(f1, f2), fmodq(q1, q2), mpfr::fmod(m1, m2));
+      if (q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q)
+        CHK("fmod", mf::fmod(f1, f2), fmodq(q1, q2), q1, q2, mpfr::fmod(m1, m2));
 
       // fmadd(a, b, c) = a·b + c. Use d1 as the third input (DD-
       // representable) so the qp reference is exactly fmaq(q1, q2, d1).
-      check("fmadd",
-            mf::detail::from_f64x2(::fmadd(
-                mf::detail::to_f64x2(f1),
-                mf::detail::to_f64x2(f2),
-                mf::detail::to_f64x2(mf::float64x2(d1)))),
-            fmaq(q1, q2, (q_t)d1), q1, q2
-            MP_ARG(mpfr::fma(m1, m2, to_mp(d1))));
+      CHK("fmadd",
+          mf::detail::from_f64x2(::fmadd(
+              mf::detail::to_f64x2(f1),
+              mf::detail::to_f64x2(f2),
+              mf::detail::to_f64x2(mf::float64x2(d1)))),
+          fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
     }
 
     // Periodic (every 100): transcendentals.
     if (i % 100 == 0) {
       if (q_isfinite(q1)) {
         q_t qe = expq(q1);
-        CHK1_IF(q_isfinite(qe), "exp", mf::exp(f1), qe, mpfr::exp(m1));
+        if (q_isfinite(qe)) CHK("exp", mf::exp(f1), qe, q1, (q_t)0, mpfr::exp(m1));
       }
       if (q_isfinite(q1) && q1 > (q_t)0) {
-        CHK1("log",   mf::log(f1),   logq(q1),   mpfr::log(m1));
-        CHK1("log10", mf::log10(f1), log10q(q1), mpfr::log10(m1));
+        CHK("log",   mf::log(f1),   logq(q1),   q1, (q_t)0, mpfr::log(m1));
+        CHK("log10", mf::log10(f1), log10q(q1), q1, (q_t)0, mpfr::log10(m1));
       }
       if (q_isfinite(q1)) {
         q_t qem = expm1q(q1);
-        CHK1_IF(q_isfinite(qem), "expm1", mf::expm1(f1), qem, mpfr::expm1(m1));
+        if (q_isfinite(qem))
+          CHK("expm1", mf::expm1(f1), qem, q1, (q_t)0, mpfr::expm1(m1));
       }
-      CHK1_IF(q_isfinite(q1) && q1 > (q_t)-1, "log1p",
-              mf::log1p(f1), log1pq(q1), mpfr::log1p(m1));
+      if (q_isfinite(q1) && q1 > (q_t)-1)
+        CHK("log1p", mf::log1p(f1), log1pq(q1), q1, (q_t)0, mpfr::log1p(m1));
 
       if (q_isfinite(q1)) {
         q_t qe2 = exp2q(q1);
-        CHK1_IF(q_isfinite(qe2), "exp2",
-                mf::detail::from_f64x2(::exp2dd(mf::detail::to_f64x2(f1))),
-                qe2, mpfr::exp2(m1));
+        if (q_isfinite(qe2))
+          CHK("exp2",
+              mf::detail::from_f64x2(::exp2dd(mf::detail::to_f64x2(f1))),
+              qe2, q1, (q_t)0, mpfr::exp2(m1));
       }
-      CHK1_IF(q_isfinite(q1) && q1 > (q_t)0, "log2",
-              mf::detail::from_f64x2(::log2dd(mf::detail::to_f64x2(f1))),
-              log2q(q1), mpfr::log2(m1));
+      if (q_isfinite(q1) && q1 > (q_t)0)
+        CHK("log2",
+            mf::detail::from_f64x2(::log2dd(mf::detail::to_f64x2(f1))),
+            log2q(q1), q1, (q_t)0, mpfr::log2(m1));
 
       // Trig: keep magnitudes moderate.
       if (q_isfinite(q1) && aq1 < (q_t)1e6q) {
-        CHK1("sin", mf::sin(f1), sinq(q1), mpfr::sin(m1));
-        CHK1("cos", mf::cos(f1), cosq(q1), mpfr::cos(m1));
-        CHK1_IF(fabsq(cosq(q1)) > (q_t)1e-12q, "tan",
-                mf::tan(f1), tanq(q1), mpfr::tan(m1));
+        CHK("sin", mf::sin(f1), sinq(q1), q1, (q_t)0, mpfr::sin(m1));
+        CHK("cos", mf::cos(f1), cosq(q1), q1, (q_t)0, mpfr::cos(m1));
+        if (fabsq(cosq(q1)) > (q_t)1e-12q)
+          CHK("tan", mf::tan(f1), tanq(q1), q1, (q_t)0, mpfr::tan(m1));
 
         // Fused sincos: one range-reduction feeds both outputs.
         float64x2_t sc_s, sc_c;
         ::sincosdd(mf::detail::to_f64x2(f1), &sc_s, &sc_c);
-        check("sincos_s", mf::detail::from_f64x2(sc_s), sinq(q1),
-              q1, (q_t)0 MP_ARG(mpfr::sin(m1)));
-        check("sincos_c", mf::detail::from_f64x2(sc_c), cosq(q1),
-              q1, (q_t)0 MP_ARG(mpfr::cos(m1)));
+        CHK("sincos_s", mf::detail::from_f64x2(sc_s), sinq(q1),
+            q1, (q_t)0, mpfr::sin(m1));
+        CHK("sincos_c", mf::detail::from_f64x2(sc_c), cosq(q1),
+            q1, (q_t)0, mpfr::cos(m1));
       }
       if (q_isfinite(q1) && aq1 <= (q_t)1) {
-        CHK1("asin", mf::asin(f1), asinq(q1), mpfr::asin(m1));
-        CHK1("acos", mf::acos(f1), acosq(q1), mpfr::acos(m1));
+        CHK("asin", mf::asin(f1), asinq(q1), q1, (q_t)0, mpfr::asin(m1));
+        CHK("acos", mf::acos(f1), acosq(q1), q1, (q_t)0, mpfr::acos(m1));
       }
-      CHK1_IF(q_isfinite(q1), "atan", mf::atan(f1), atanq(q1), mpfr::atan(m1));
+      if (q_isfinite(q1))
+        CHK("atan", mf::atan(f1), atanq(q1), q1, (q_t)0, mpfr::atan(m1));
 
       if (q_isfinite(q1) && aq1 < (q_t)700) {
-        CHK1("sinh", mf::sinh(f1), sinhq(q1), mpfr::sinh(m1));
-        CHK1("cosh", mf::cosh(f1), coshq(q1), mpfr::cosh(m1));
-        CHK1("tanh", mf::tanh(f1), tanhq(q1), mpfr::tanh(m1));
+        CHK("sinh", mf::sinh(f1), sinhq(q1), q1, (q_t)0, mpfr::sinh(m1));
+        CHK("cosh", mf::cosh(f1), coshq(q1), q1, (q_t)0, mpfr::cosh(m1));
+        CHK("tanh", mf::tanh(f1), tanhq(q1), q1, (q_t)0, mpfr::tanh(m1));
 
         // Fused sinhcosh.
         float64x2_t hc_s, hc_c;
         ::sinhcoshdd(mf::detail::to_f64x2(f1), &hc_s, &hc_c);
-        check("sinhcosh_s", mf::detail::from_f64x2(hc_s), sinhq(q1),
-              q1, (q_t)0 MP_ARG(mpfr::sinh(m1)));
-        check("sinhcosh_c", mf::detail::from_f64x2(hc_c), coshq(q1),
-              q1, (q_t)0 MP_ARG(mpfr::cosh(m1)));
+        CHK("sinhcosh_s", mf::detail::from_f64x2(hc_s), sinhq(q1),
+            q1, (q_t)0, mpfr::sinh(m1));
+        CHK("sinhcosh_c", mf::detail::from_f64x2(hc_c), coshq(q1),
+            q1, (q_t)0, mpfr::cosh(m1));
       }
-      CHK1_IF(q_isfinite(q1),                  "asinh",
-              mf::asinh(f1), asinhq(q1), mpfr::asinh(m1));
-      CHK1_IF(q_isfinite(q1) && q1 >= (q_t)1,  "acosh",
-              mf::acosh(f1), acoshq(q1), mpfr::acosh(m1));
-      CHK1_IF(q_isfinite(q1) && aq1 <  (q_t)1, "atanh",
-              mf::atanh(f1), atanhq(q1), mpfr::atanh(m1));
+      if (q_isfinite(q1))
+        CHK("asinh", mf::asinh(f1), asinhq(q1), q1, (q_t)0, mpfr::asinh(m1));
+      if (q_isfinite(q1) && q1 >= (q_t)1)
+        CHK("acosh", mf::acosh(f1), acoshq(q1), q1, (q_t)0, mpfr::acosh(m1));
+      if (q_isfinite(q1) && aq1 <  (q_t)1)
+        CHK("atanh", mf::atanh(f1), atanhq(q1), q1, (q_t)0, mpfr::atanh(m1));
 
       if (q_isfinite(q1) && aq1 < (q_t)100) {
-        CHK1("erf",  mf::erf(f1),  erfq(q1),  mpfr::erf(m1));
-        CHK1("erfc", mf::erfc(f1), erfcq(q1), mpfr::erfc(m1));
+        CHK("erf",  mf::erf(f1),  erfq(q1),  q1, (q_t)0, mpfr::erf(m1));
+        CHK("erfc", mf::erfc(f1), erfcq(q1), q1, (q_t)0, mpfr::erfc(m1));
       }
       // erfcx(x) = exp(x²) * erfc(x). The DD kernel is precision-preserving
       // for the tail-tail cancellation; the qp oracle is the naive product.
       // Gate |x| < 26 so exp(x²) stays well inside qp's exponent range
       // and the product stays representable.
       if (q_isfinite(q1) && aq1 < (q_t)26) {
-        CHK1("erfcx",
-             mf::detail::from_f64x2(::erfcxdd(mf::detail::to_f64x2(f1))),
-             expq(q1 * q1) * erfcq(q1),
-             mpfr::exp(m1 * m1) * mpfr::erfc(m1));
+        CHK("erfcx",
+            mf::detail::from_f64x2(::erfcxdd(mf::detail::to_f64x2(f1))),
+            expq(q1 * q1) * erfcq(q1),
+            q1, (q_t)0,
+            mpfr::exp(m1 * m1) * mpfr::erfc(m1));
       }
       if (q_isfinite(q1) && q1 > (q_t)0 && q1 < (q_t)100) {
-        CHK1("tgamma", mf::tgamma(f1), tgammaq(q1), mpfr::gamma(m1));
-        CHK1("lgamma", mf::lgamma(f1), lgammaq(q1), mpfr::lngamma(m1));
+        CHK("tgamma", mf::tgamma(f1), tgammaq(q1), q1, (q_t)0, mpfr::gamma(m1));
+        CHK("lgamma", mf::lgamma(f1), lgammaq(q1), q1, (q_t)0, mpfr::lngamma(m1));
       }
 
-      CHK2("atan2", mf::atan2(f1, f2), atan2q(q1, q2), mpfr::atan2(m1, m2));
+      CHK("atan2", mf::atan2(f1, f2), atan2q(q1, q2), q1, q2,
+          mpfr::atan2(m1, m2));
 
       // atan2pi(y, x) = atan2(y, x) / π. Division by π has low
       // amplification, so full-DD tolerance holds here (unlike forward
       // sin/cos/tanpi — see is_pi_trig).
-      CHK2("atan2pi",
-           mf::detail::from_f64x2(::atan2pidd(
-               mf::detail::to_f64x2(f1), mf::detail::to_f64x2(f2))),
-           atan2q(q1, q2) / (q_t)M_PIq,
-           mpfr::atan2(m1, m2) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+      CHK("atan2pi",
+          mf::detail::from_f64x2(::atan2pidd(
+              mf::detail::to_f64x2(f1), mf::detail::to_f64x2(f2))),
+          atan2q(q1, q2) / (q_t)M_PIq,
+          q1, q2,
+          mpfr::atan2(m1, m2) / mpfr::const_pi(multifloats_test::kMpfrPrec));
 
       // Power: positive base, modest exponent.
       q_t aq2 = q2 < 0 ? -q2 : q2;
       if (q_isfinite(q1) && q1 > (q_t)1e-3q && q1 < (q_t)1e3q &&
           q_isfinite(q2) && aq2 < (q_t)30) {
-        CHK2("pow", mf::pow(f1, f2), powq(q1, q2), mpfr::pow(m1, m2));
-        check("pow_md", mf::pow(f1, mf::float64x2(d2)), powq(q1, (q_t)d2),
-              q1, (q_t)d2 MP_ARG(mpfr::pow(m1, to_mp(d2))));
-        check("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2),
-              (q_t)d1, q2 MP_ARG(mpfr::pow(to_mp(d1), m2)));
+        CHK("pow", mf::pow(f1, f2), powq(q1, q2), q1, q2, mpfr::pow(m1, m2));
+        CHK("pow_md", mf::pow(f1, mf::float64x2(d2)), powq(q1, (q_t)d2),
+            q1, (q_t)d2, mpfr::pow(m1, to_mp(d2)));
+        CHK("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2),
+            (q_t)d1, q2, mpfr::pow(to_mp(d1), m2));
       }
       if (q_isfinite(q1) && aq1 < (q_t)1e10q) {
-        check("pow_int", mf::pow(f1, mf::float64x2(3.0)), powq(q1, (q_t)3),
-              q1, (q_t)3 MP_ARG(mpfr::pow(m1, to_mp(3.0))));
+        CHK("pow_int", mf::pow(f1, mf::float64x2(3.0)), powq(q1, (q_t)3),
+            q1, (q_t)3, mpfr::pow(m1, to_mp(3.0)));
       }
 
       // scalbn(x, 5) = x · 2^5; the ·32 is exact at any precision.
-      CHK1_IF(q_isfinite(q1), "scalbn",
-              mf::scalbn(f1, 5), scalbnq(q1, 5), m1 * mp_t(32));
+      if (q_isfinite(q1))
+        CHK("scalbn", mf::scalbn(f1, 5), scalbnq(q1, 5),
+            q1, (q_t)0, m1 * mp_t(32));
 
       // 3-argument min/max via nested fmin/fmax.
       if (both_finite) {
@@ -874,8 +892,8 @@ int main(int argc, char **argv) {
         MP_STMT(mp_t mp_min3  = min12 < q3 ? mp_min12 : m3);
         MP_STMT(mp_t mp_max12 = q1 < q2 ? m2 : m1);
         MP_STMT(mp_t mp_max3  = max12 < q3 ? m3 : mp_max12);
-        CHK2("min3", mf::fmin(mf::fmin(f1, f2), f3), q_min3, mp_min3);
-        CHK2("max3", mf::fmax(mf::fmax(f1, f2), f3), q_max3, mp_max3);
+        CHK("min3", mf::fmin(mf::fmin(f1, f2), f3), q_min3, q1, q2, mp_min3);
+        CHK("max3", mf::fmax(mf::fmax(f1, f2), f3), q_max3, q1, q2, mp_max3);
       }
 
       // Bessel of the first (j) and second (y) kind. Labels match
@@ -885,28 +903,27 @@ int main(int argc, char **argv) {
       // where the two implementations can disagree by more than the kernel
       // error alone.
       if (q_isfinite(q1) && aq1 < (q_t)200) {
-        CHK1("bj0", mf::detail::from_f64x2(::j0dd(mf::detail::to_f64x2(f1))),
-             j0q(q1), mpfr::besselj0(m1));
-        CHK1("bj1", mf::detail::from_f64x2(::j1dd(mf::detail::to_f64x2(f1))),
-             j1q(q1), mpfr::besselj1(m1));
+        CHK("bj0", mf::detail::from_f64x2(::j0dd(mf::detail::to_f64x2(f1))),
+            j0q(q1), q1, (q_t)0, mpfr::besselj0(m1));
+        CHK("bj1", mf::detail::from_f64x2(::j1dd(mf::detail::to_f64x2(f1))),
+            j1q(q1), q1, (q_t)0, mpfr::besselj1(m1));
 
         static constexpr int kBesselOrders[] = {2, 3, 5, 8};
         for (int n : kBesselOrders) {
-          check("bjn",
-                mf::detail::from_f64x2(::jndd(n, mf::detail::to_f64x2(f1))),
-                jnq(n, q1), q1, (q_t)n MP_ARG(mpfr::besseljn((long)n, m1)));
-          if (q1 > (q_t)0) {
-            check("byn",
-                  mf::detail::from_f64x2(::yndd(n, mf::detail::to_f64x2(f1))),
-                  ynq(n, q1), q1, (q_t)n MP_ARG(mpfr::besselyn((long)n, m1)));
-          }
+          CHK("bjn",
+              mf::detail::from_f64x2(::jndd(n, mf::detail::to_f64x2(f1))),
+              jnq(n, q1), q1, (q_t)n, mpfr::besseljn((long)n, m1));
+          if (q1 > (q_t)0)
+            CHK("byn",
+                mf::detail::from_f64x2(::yndd(n, mf::detail::to_f64x2(f1))),
+                ynq(n, q1), q1, (q_t)n, mpfr::besselyn((long)n, m1));
         }
 
         if (q1 > (q_t)0) {
-          CHK1("by0", mf::detail::from_f64x2(::y0dd(mf::detail::to_f64x2(f1))),
-               y0q(q1), mpfr::bessely0(m1));
-          CHK1("by1", mf::detail::from_f64x2(::y1dd(mf::detail::to_f64x2(f1))),
-               y1q(q1), mpfr::bessely1(m1));
+          CHK("by0", mf::detail::from_f64x2(::y0dd(mf::detail::to_f64x2(f1))),
+              y0q(q1), q1, (q_t)0, mpfr::bessely0(m1));
+          CHK("by1", mf::detail::from_f64x2(::y1dd(mf::detail::to_f64x2(f1))),
+              y1q(q1), q1, (q_t)0, mpfr::bessely1(m1));
 
           // yn_rangedd: single forward-recurrence sweep filling out[0..5].
           // Each output is compared individually against ynq(n, x). One
@@ -914,11 +931,10 @@ int main(int argc, char **argv) {
           // error across the entire range sweep.
           float64x2_t yn_out[6];
           ::yn_rangedd(0, 5, mf::detail::to_f64x2(f1), yn_out);
-          for (int n = 0; n <= 5; ++n) {
-            check("yn_range",
-                  mf::detail::from_f64x2(yn_out[n]), ynq(n, q1), q1, (q_t)n
-                  MP_ARG(mpfr::besselyn((long)n, m1)));
-          }
+          for (int n = 0; n <= 5; ++n)
+            CHK("yn_range",
+                mf::detail::from_f64x2(yn_out[n]), ynq(n, q1),
+                q1, (q_t)n, mpfr::besselyn((long)n, m1));
         }
       }
 
@@ -933,31 +949,37 @@ int main(int argc, char **argv) {
         q_t cp = cosq(pix);
         // sinpi fails near integer x (sin(π·n)=0); cospi fails near
         // half-integer (cos(π·(n+1/2))=0). Gate each on its own magnitude.
-        CHK1_IF(fabsq(sp) > (q_t)1e-10q, "sinpi",
-                mf::detail::from_f64x2(::sinpidd(mf::detail::to_f64x2(f1))),
-                sp, mpfr::sin(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
-        CHK1_IF(fabsq(cp) > (q_t)1e-10q, "cospi",
-                mf::detail::from_f64x2(::cospidd(mf::detail::to_f64x2(f1))),
-                cp, mpfr::cos(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
-        CHK1_IF(fabsq(cp) > (q_t)1e-10q && fabsq(sp) > (q_t)1e-10q, "tanpi",
-                mf::detail::from_f64x2(::tanpidd(mf::detail::to_f64x2(f1))),
-                sp / cp,
-                mpfr::tan(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+        if (fabsq(sp) > (q_t)1e-10q)
+          CHK("sinpi",
+              mf::detail::from_f64x2(::sinpidd(mf::detail::to_f64x2(f1))),
+              sp, q1, (q_t)0,
+              mpfr::sin(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+        if (fabsq(cp) > (q_t)1e-10q)
+          CHK("cospi",
+              mf::detail::from_f64x2(::cospidd(mf::detail::to_f64x2(f1))),
+              cp, q1, (q_t)0,
+              mpfr::cos(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+        if (fabsq(cp) > (q_t)1e-10q && fabsq(sp) > (q_t)1e-10q)
+          CHK("tanpi",
+              mf::detail::from_f64x2(::tanpidd(mf::detail::to_f64x2(f1))),
+              sp / cp, q1, (q_t)0,
+              mpfr::tan(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
       }
       if (q_isfinite(q1) && aq1 <= (q_t)1) {
-        CHK1("asinpi",
-             mf::detail::from_f64x2(::asinpidd(mf::detail::to_f64x2(f1))),
-             asinq(q1) / (q_t)M_PIq,
-             mpfr::asin(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
-        CHK1("acospi",
-             mf::detail::from_f64x2(::acospidd(mf::detail::to_f64x2(f1))),
-             acosq(q1) / (q_t)M_PIq,
-             mpfr::acos(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+        CHK("asinpi",
+            mf::detail::from_f64x2(::asinpidd(mf::detail::to_f64x2(f1))),
+            asinq(q1) / (q_t)M_PIq, q1, (q_t)0,
+            mpfr::asin(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+        CHK("acospi",
+            mf::detail::from_f64x2(::acospidd(mf::detail::to_f64x2(f1))),
+            acosq(q1) / (q_t)M_PIq, q1, (q_t)0,
+            mpfr::acos(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
       }
-      CHK1_IF(q_isfinite(q1), "atanpi",
-              mf::detail::from_f64x2(::atanpidd(mf::detail::to_f64x2(f1))),
-              atanq(q1) / (q_t)M_PIq,
-              mpfr::atan(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+      if (q_isfinite(q1))
+        CHK("atanpi",
+            mf::detail::from_f64x2(::atanpidd(mf::detail::to_f64x2(f1))),
+            atanq(q1) / (q_t)M_PIq, q1, (q_t)0,
+            mpfr::atan(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
 
       // Complex DD ops. Use narrow-magnitude inputs so the oracle's
       // re*re + im*im (in cdivq) and re*re - im*im (in cmulq) don't drift
@@ -986,41 +1008,42 @@ int main(int argc, char **argv) {
           q_t mag  = mag1 > mag2 ? mag1 : mag2;
           if (mag < (q_t)1e-300q) mag = (q_t)1e-300q;
 
-          check_cplx("cdd_add", ::cadddd(zd1, zd2), zq1 + zq2, mag
-                     MP_ARG(c_add(zm1, zm2)));
-          check_cplx("cdd_sub", ::csubdd(zd1, zd2), zq1 - zq2, mag
-                     MP_ARG(c_sub(zm1, zm2)));
-          check_cplx("cdd_mul", ::cmuldd(zd1, zd2), zq1 * zq2, mag
-                     MP_ARG(c_mul(zm1, zm2)));
-          if (mag2 > (q_t)0) {
-            check_cplx("cdd_div", ::cdivdd(zd1, zd2), zq1 / zq2, mag
-                       MP_ARG(c_div(zm1, zm2)));
-          }
-          check("cdd_abs",
-                mf::detail::from_f64x2(::cabsdd(zd1)), cabsq(zq1),
-                mag, (q_t)0 MP_ARG(c_abs(zm1)));
-          check_cplx("cdd_conjg", ::conjdd(zd1), conjq(zq1), mag
-                     MP_ARG(c_conj(zm1)));
+          CHK("cdd_add", ::cadddd(zd1, zd2), zq1 + zq2, mag, (q_t)0,
+              c_add(zm1, zm2));
+          CHK("cdd_sub", ::csubdd(zd1, zd2), zq1 - zq2, mag, (q_t)0,
+              c_sub(zm1, zm2));
+          CHK("cdd_mul", ::cmuldd(zd1, zd2), zq1 * zq2, mag, (q_t)0,
+              c_mul(zm1, zm2));
+          if (mag2 > (q_t)0)
+            CHK("cdd_div", ::cdivdd(zd1, zd2), zq1 / zq2, mag, (q_t)0,
+                c_div(zm1, zm2));
+          CHK("cdd_abs",
+              mf::detail::from_f64x2(::cabsdd(zd1)), cabsq(zq1),
+              mag, (q_t)0, c_abs(zm1));
+          CHK("cdd_conjg", ::conjdd(zd1), conjq(zq1), mag, (q_t)0,
+              c_conj(zm1));
 
-          check_cplx("cdd_sqrt", ::csqrtdd(zd1), csqrtq(zq1), mag
-                     MP_ARG(c_sqrt(zm1)));
-          check_cplx("cdd_exp",  ::cexpdd(zd1),  cexpq(zq1),  mag
-                     MP_ARG(c_exp(zm1)));
+          CHK("cdd_sqrt", ::csqrtdd(zd1), csqrtq(zq1), mag, (q_t)0,
+              c_sqrt(zm1));
+          CHK("cdd_exp",  ::cexpdd(zd1),  cexpq(zq1),  mag, (q_t)0,
+              c_exp(zm1));
 
           // cexpm1: the DD kernel preserves precision for small |z|. The
           // qp oracle (cexpq(z) - 1) loses it there, so gate |z| > 1e-5
-          // to keep the oracle meaningful.
+          // to keep the oracle meaningful. The mp oracle comes as a
+          // trailing CMp{...} — the brace list's comma is safely inside
+          // CHK's variadic tail.
           if (mag1 > (q_t)1e-5q) {
             __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
-            check_cplx("cdd_expm1", ::cexpm1dd(zd1), cexpq(zq1) - one_c, mag
-                       MP_ARG(CMp{c_exp(zm1).re - 1, c_exp(zm1).im}));
+            CHK("cdd_expm1", ::cexpm1dd(zd1), cexpq(zq1) - one_c, mag, (q_t)0,
+                CMp{c_exp(zm1).re - 1, c_exp(zm1).im});
           }
 
           // clog: guard |z| away from 0 (and away from overflow) so the
           // oracle's arg computation stays accurate.
           if (mag1 > (q_t)1e-200q && mag1 < (q_t)1e100q) {
-            check_cplx("cdd_log", ::clogdd(zd1), clogq(zq1), mag
-                       MP_ARG(c_log(zm1)));
+            CHK("cdd_log", ::clogdd(zd1), clogq(zq1), mag, (q_t)0,
+                c_log(zm1));
 
             // clog2 / clog10 / clog1p: libquadmath has no direct variants,
             // compose from clogq. Both components are divided by the real
@@ -1036,8 +1059,8 @@ int main(int argc, char **argv) {
                                         c_log(zm1).im / mpfr::log(mp_t(2))});
             MP_STMT(CMp cdd_log10_mp = {c_log(zm1).re / mpfr::log(mp_t(10)),
                                         c_log(zm1).im / mpfr::log(mp_t(10))});
-            check_cplx("cdd_log2",  ::clog2dd(zd1),  lg2,  mag MP_ARG(cdd_log2_mp));
-            check_cplx("cdd_log10", ::clog10dd(zd1), lg10, mag MP_ARG(cdd_log10_mp));
+            CHK("cdd_log2",  ::clog2dd(zd1),  lg2,  mag, (q_t)0, cdd_log2_mp);
+            CHK("cdd_log10", ::clog10dd(zd1), lg10, mag, (q_t)0, cdd_log10_mp);
           }
 
           // clog1p: oracle = clogq(1 + z). Gate |1+z| to avoid oracle
@@ -1045,18 +1068,16 @@ int main(int argc, char **argv) {
           {
             __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
             __complex128 one_plus_z = one_c + zq1;
-            if (cabsq(one_plus_z) > (q_t)1e-5q) {
-              check_cplx("cdd_log1p", ::clog1pdd(zd1), clogq(one_plus_z), mag
-                         MP_ARG(c_log({zm1.re + 1, zm1.im})));
-            }
+            if (cabsq(one_plus_z) > (q_t)1e-5q)
+              CHK("cdd_log1p", ::clog1pdd(zd1), clogq(one_plus_z), mag, (q_t)0,
+                  c_log({zm1.re + 1, zm1.im}));
           }
 
           // cpow: keep base and exponent modest — pow amplifies input
           // precision, so a wide exponent would swamp the tolerance.
-          if (mag1 > (q_t)1e-2q && mag1 < (q_t)1e2q && mag2 < (q_t)10) {
-            check_cplx("cdd_pow", ::cpowdd(zd1, zd2), cpowq(zq1, zq2), mag
-                       MP_ARG(c_exp(c_mul(zm2, c_log(zm1)))));
-          }
+          if (mag1 > (q_t)1e-2q && mag1 < (q_t)1e2q && mag2 < (q_t)10)
+            CHK("cdd_pow", ::cpowdd(zd1, zd2), cpowq(zq1, zq2), mag, (q_t)0,
+                c_exp(c_mul(zm2, c_log(zm1))));
 
           // csinpi / ccospi: forward π-scaled complex trig. Same π
           // representation mismatch as scalar {sin,cos}pi — reduced_dd
@@ -1065,47 +1086,45 @@ int main(int argc, char **argv) {
             __complex128 pi_c; __real__ pi_c = (q_t)M_PIq; __imag__ pi_c = (q_t)0;
             __complex128 pi_z = pi_c * zq1;
             MP_STMT(mp_t mpi = mpfr::const_pi(multifloats_test::kMpfrPrec));
-            check_cplx("cdd_sinpi", ::csinpidd(zd1), csinq(pi_z), mag
-                       MP_ARG(c_sin({mpi * zm1.re, mpi * zm1.im})));
-            check_cplx("cdd_cospi", ::ccospidd(zd1), ccosq(pi_z), mag
-                       MP_ARG(c_cos({mpi * zm1.re, mpi * zm1.im})));
+            CHK("cdd_sinpi", ::csinpidd(zd1), csinq(pi_z), mag, (q_t)0,
+                c_sin({mpi * zm1.re, mpi * zm1.im}));
+            CHK("cdd_cospi", ::ccospidd(zd1), ccosq(pi_z), mag, (q_t)0,
+                c_cos({mpi * zm1.re, mpi * zm1.im}));
           }
 
           // cproj: finite inputs → identity; only meaningful distinction
           // from a plain copy happens on infinite inputs (which the
           // narrow generator doesn't produce). Still worth testing to
           // pin the finite path.
-          check_cplx("cdd_proj", ::cprojdd(zd1), cprojq(zq1), mag MP_ARG(zm1));
+          CHK("cdd_proj", ::cprojdd(zd1), cprojq(zq1), mag, (q_t)0, zm1);
 
           // carg: complex → real scalar phase. Near ±π on the branch cut
           // (negative real axis) DD and qp agree as long as imag-limbs
           // sign matches, which they do for DD-representable inputs.
-          check("cdd_arg",
-                mf::detail::from_f64x2(::cargdd(zd1)), cargq(zq1), mag, (q_t)0
-                MP_ARG(c_arg(zm1)));
+          CHK("cdd_arg",
+              mf::detail::from_f64x2(::cargdd(zd1)), cargq(zq1), mag, (q_t)0,
+              c_arg(zm1));
 
-          check_cplx("cdd_sin",  ::csindd(zd1),  csinq(zq1),  mag MP_ARG(c_sin(zm1)));
-          check_cplx("cdd_cos",  ::ccosdd(zd1),  ccosq(zq1),  mag MP_ARG(c_cos(zm1)));
-          check_cplx("cdd_sinh", ::csinhdd(zd1), csinhq(zq1), mag MP_ARG(c_sinh(zm1)));
-          check_cplx("cdd_cosh", ::ccoshdd(zd1), ccoshq(zq1), mag MP_ARG(c_cosh(zm1)));
+          CHK("cdd_sin",  ::csindd(zd1),  csinq(zq1),  mag, (q_t)0, c_sin(zm1));
+          CHK("cdd_cos",  ::ccosdd(zd1),  ccosq(zq1),  mag, (q_t)0, c_cos(zm1));
+          CHK("cdd_sinh", ::csinhdd(zd1), csinhq(zq1), mag, (q_t)0, c_sinh(zm1));
+          CHK("cdd_cosh", ::ccoshdd(zd1), ccoshq(zq1), mag, (q_t)0, c_cosh(zm1));
 
           // c{tan,tanh}: zeros of the corresponding {cos,cosh} cause the
           // division inside the oracle to blow up. Gate on oracle magnitude.
           __complex128 ccz  = ccosq(zq1);
           __complex128 ccsh = ccoshq(zq1);
-          if (cabsq(ccz)  > (q_t)1e-10q) {
-            check_cplx("cdd_tan",  ::ctandd(zd1),  ctanq(zq1),  mag MP_ARG(c_tan(zm1)));
-          }
-          if (cabsq(ccsh) > (q_t)1e-10q) {
-            check_cplx("cdd_tanh", ::ctanhdd(zd1), ctanhq(zq1), mag MP_ARG(c_tanh(zm1)));
-          }
+          if (cabsq(ccz)  > (q_t)1e-10q)
+            CHK("cdd_tan",  ::ctandd(zd1),  ctanq(zq1),  mag, (q_t)0, c_tan(zm1));
+          if (cabsq(ccsh) > (q_t)1e-10q)
+            CHK("cdd_tanh", ::ctanhdd(zd1), ctanhq(zq1), mag, (q_t)0, c_tanh(zm1));
 
-          check_cplx("cdd_asin",  ::casindd(zd1),  casinq(zq1),  mag MP_ARG(c_asin(zm1)));
-          check_cplx("cdd_acos",  ::cacosdd(zd1),  cacosq(zq1),  mag MP_ARG(c_acos(zm1)));
-          check_cplx("cdd_atan",  ::catandd(zd1),  catanq(zq1),  mag MP_ARG(c_atan(zm1)));
-          check_cplx("cdd_asinh", ::casinhdd(zd1), casinhq(zq1), mag MP_ARG(c_asinh(zm1)));
-          check_cplx("cdd_acosh", ::cacoshdd(zd1), cacoshq(zq1), mag MP_ARG(c_acosh(zm1)));
-          check_cplx("cdd_atanh", ::catanhdd(zd1), catanhq(zq1), mag MP_ARG(c_atanh(zm1)));
+          CHK("cdd_asin",  ::casindd(zd1),  casinq(zq1),  mag, (q_t)0, c_asin(zm1));
+          CHK("cdd_acos",  ::cacosdd(zd1),  cacosq(zq1),  mag, (q_t)0, c_acos(zm1));
+          CHK("cdd_atan",  ::catandd(zd1),  catanq(zq1),  mag, (q_t)0, c_atan(zm1));
+          CHK("cdd_asinh", ::casinhdd(zd1), casinhq(zq1), mag, (q_t)0, c_asinh(zm1));
+          CHK("cdd_acosh", ::cacoshdd(zd1), cacoshq(zq1), mag, (q_t)0, c_acosh(zm1));
+          CHK("cdd_atanh", ::catanhdd(zd1), catanhq(zq1), mag, (q_t)0, c_atanh(zm1));
         }
       }
     }
