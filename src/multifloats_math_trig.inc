@@ -10,10 +10,15 @@
 // undefined behavior. Return NaN.
 // Forward decls for internal helpers referenced before their definition
 // further down in this file (sinpi/cospi/tanpi call sin_eval/cos_eval/
-// sincos_eval, which are defined ~150 lines later).
+// sincos_eval, which are defined ~150 lines later). The helpers live in
+// `multifloats::detail` so they don't pollute the public `multifloats::`
+// surface; the umbrella `using namespace multifloats::detail` in
+// multifloats_math.cc makes unqualified lookup still find them.
+namespace detail {
 float64x2 sin_eval(float64x2 const &r);
 float64x2 cos_eval(float64x2 const &r);
 void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c);
+} // namespace detail
 
 namespace {
 constexpr double kPiTrigArgumentCap = 0x1p52;
@@ -108,6 +113,7 @@ float64x2 tanpi(float64x2 const &x) {
 // Guards (non-finite, zero) from the public DD operator- are elided: the
 // caller (sincos etc.) pre-checks both conditions, so the kernel
 // runs on a finite non-zero accumulator.
+namespace detail {
 void reduce_pi_half(float64x2 const &x, float64x2 &r, int &n_mod4) {
   using multifloats::detail::two_sum;
   using multifloats::detail::fast_two_sum;
@@ -207,6 +213,7 @@ void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c) {
     c = (ck + sk) * inv_sqrt2;
   }
 }
+} // namespace detail
 
 // Fused sin/cos of the full-range argument — one call to reduce_pi_half
 // plus one sincos_eval, with the per-quadrant sign/swap applied last.
@@ -279,6 +286,7 @@ float64x2 tan(float64x2 const &x) {
 // TD precision in dd_constants.hh — a TD kernel over DD constants
 // would still floor at the DD-cos `2⁻¹⁰⁵` ceiling. See
 // doc/developer/TRIPLE_DOUBLE.md §2 "constants must be TD".
+namespace detail {
 
 void reduce_pi_half_td(float64x2 const &x, float64x3 &r, int &n_mod4) {
   double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);
@@ -377,3 +385,4 @@ void sincos_td(float64x2 const &x, float64x3 &s, float64x3 &c) {
     default: s = td_negate(cc);  c = ss;              break;
   }
 }
+} // namespace detail

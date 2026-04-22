@@ -18,6 +18,11 @@ inline float64x2 _exp_nonfinite(double hi) {
 // degree-9 Horner on s evaluates 2^s − 1 (next term ~6e-36 ≪ ulp_dd), and
 // one DD multiply against the table entry recombines. No cube, no 8×
 // amplification; round-off floor is ~1 ulp_dd.
+// Internal helpers live in `multifloats::detail` so they don't pollute
+// the public `multifloats::` surface; the `using namespace multifloats::
+// detail` in multifloats_math.cc lets callers in this TU skip the
+// qualification.
+namespace detail {
 float64x2 exp2_from_reduced(double n_d, double rh, double rl) {
   if (n_d > 1100.0) {
     float64x2 r;
@@ -71,6 +76,7 @@ float64x2 exp2_kernel(float64x2 const &x) {
   fast_two_sum(rh, rl, rh, rl);
   return exp2_from_reduced(n_d, rh, rl);
 }
+} // namespace detail
 
 float64x2 exp2(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) return _exp_nonfinite(x._limbs[0]);
@@ -95,6 +101,7 @@ float64x2 exp2(float64x2 const &x) {
 // `exp_full_td(x) |> td_to_dd` matches `exp(x)` within one DD ulp.
 // The TD pair (em, el) carries the residue used by the Re path of
 // `cexpm1dd` to survive the cancellation surface cos(b)·e^a = 1.
+namespace detail {
 
 float64x3 exp2_td_from_reduced(double n_d, float64x3 const &y) {
   if (n_d > 1100.0) {
@@ -187,6 +194,7 @@ float64x3 exp_full_td(float64x2 const &x) {
   float64x3 y_td = td_mul_td(rr_td, log2e_td);
   return exp2_td_from_reduced(n_d, y_td);
 }
+} // namespace detail
 
 float64x2 exp(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) return _exp_nonfinite(x._limbs[0]);
@@ -230,6 +238,7 @@ float64x2 exp(float64x2 const &x) {
   return exp2_from_reduced(n_d, y_frac._limbs[0], y_frac._limbs[1]);
 }
 
+namespace detail {
 float64x2 log2_kernel(float64x2 const &x) {
   double hi = x._limbs[0];
   if (hi > 15.0 / 16.0 && hi < 17.0 / 16.0) {
@@ -259,6 +268,7 @@ float64x2 log2_kernel(float64x2 const &x) {
   float64x2 p = horner(t_sq, log2_narrow_hi, log2_narrow_lo, 7);
   return float64x2(static_cast<double>(e), 0.0) + v + t * p;
 }
+} // namespace detail
 
 float64x2 log2(float64x2 const &x) {
   float64x2 r;

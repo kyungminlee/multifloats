@@ -200,6 +200,11 @@ float64x2 erfcx(float64x2 const &x) {
 
 // Evaluate the Stirling series for log Γ(x). Assumes x is well into the
 // asymptotic range (x ≥ ~20) — callers shift first.
+// Internal helpers live in `multifloats::detail` so the public
+// `multifloats::` surface only carries the declared lgamma/tgamma entry
+// points; the `using namespace multifloats::detail` in multifloats_math.cc
+// keeps call sites unqualified.
+namespace detail {
 float64x2 lgamma_stirling(float64x2 const &x) {
   float64x2 inv_x = float64x2(1.0) / x;
   float64x2 inv_x2 = inv_x * inv_x;
@@ -377,6 +382,7 @@ float64x2 lgamma_positive(float64x2 const &x) {
   }
   return lgamma_rational(x);
 }
+} // namespace detail
 
 float64x2 lgamma(float64x2 const &x) {
   float64x2 r;

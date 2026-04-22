@@ -27,23 +27,22 @@ set_target_properties(multifloats PROPERTIES
     CXX_VISIBILITY_PRESET    hidden
     VISIBILITY_INLINES_HIDDEN ON)
 
-# Strip leaked inline-copy C++ symbols from the static archive.
-# The compiler may emit out-of-line copies of inline header functions
-# with global linkage; we localize them so only dd_* remain exported.
-#
-# Currently disabled: the C/C++ parity refactor promoted `*_full` kernels
-# to public `multifloats::NAME` symbols, and the strip script's keep-list
-# doesn't yet know how to preserve mangled C++ names. Re-enable via
-# `-DMULTIFLOATS_STRIP_SYMBOLS=ON` once the script grows a mangled-name
-# scan + MULTIFLOATS_CXX_API visibility attributes.
+# Strip non-API symbols from the static archive. The compiler emits
+# out-of-line copies of some inline header functions + TU-internal helpers
+# with (private-)external linkage; without this step they'd be visible as
+# `T` entries in `nm libmultifloats.a` and resolvable by accident. The
+# script's keep-list comes from two sources: the `MULTIFLOATS_API` scan of
+# multifloats_c.h (C ABI) and a demangling scan of the archive itself for
+# public `multifloats::NAME(...)` and `std::NAME<multifloats::float64x2>(...)`
+# symbols. Opt out via `-DMULTIFLOATS_STRIP_SYMBOLS=OFF` for debugging.
 option(MULTIFLOATS_STRIP_SYMBOLS
-       "Localize non-ABI C++ symbols from libmultifloats.a" OFF)
+       "Localize non-API C++ symbols from libmultifloats.a" ON)
 if(MULTIFLOATS_STRIP_SYMBOLS)
     configure_file(${CMAKE_CURRENT_SOURCE_DIR}/localize_symbols.sh.in
                    ${CMAKE_CURRENT_BINARY_DIR}/localize_symbols.sh @ONLY)
     add_custom_command(TARGET multifloats POST_BUILD
         COMMAND bash ${CMAKE_CURRENT_BINARY_DIR}/localize_symbols.sh $<TARGET_FILE:multifloats>
-        COMMENT "Localizing C++ symbols in libmultifloats (keeping dd_* only)")
+        COMMENT "Localizing non-API symbols in libmultifloats")
 endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")

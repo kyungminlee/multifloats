@@ -47,13 +47,13 @@ namespace detail {
 } // namespace multifloats
 
 // Public kernels — definitions. Matching declarations live in multifloats.hh.
-// Internal helpers that happen to share namespace scope (range reducers,
-// polynomial Estrin kernels, TD variants) aren't header-declared; they leak
-// as `multifloats::NAME` symbols but nobody outside this TU calls them.
-// Once the symbol stripper is re-enabled in a follow-up commit, we'll
-// tuck them behind `multifloats::detail::` or anon-namespace wrappers.
+// Internal helpers (range reducers, polynomial Estrin kernels, TD variants)
+// are wrapped in `namespace detail { }` inside each .inc so they don't
+// pollute the public `multifloats::` surface. The `using namespace
+// multifloats::detail` below lets same-TU callers reach them without the
+// qualifier.
 namespace multifloats {
-using namespace multifloats::detail;  // neval, deval, horner, float64x3
+using namespace multifloats::detail;  // neval, deval, horner, float64x3, kernels
 #include "multifloats_math_exp_log.inc"
 #include "multifloats_math_trig.inc"
 #include "multifloats_math_hyp.inc"
@@ -66,6 +66,7 @@ using namespace multifloats::detail;  // neval, deval, horner, float64x3
 // on std::complex<float64x2>). Pulled in after <complex> is visible via
 // the inclusion of multifloats.hh at top.
 namespace multifloats {
+using namespace multifloats::detail;  // sincos_td + TD primitives
 #include "multifloats_math_abi_complex_kernels.inc"
 } // namespace multifloats
 
