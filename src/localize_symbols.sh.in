@@ -1,53 +1,90 @@
 #!/bin/bash
-# Clean up a static archive so that only the extern "C" functions declared
-# with `MULTIFLOATS_API` in multifloats_c.h remain globally visible. The
-# keep-list is parsed straight out of the header (at CMake build time) via
-# the bash code below, so adding/removing an API function in the header
-# automatically flows through — no separate list to keep in sync.
+# Clean up a static archive so only the declared C/C++ API surface remains
+# globally visible. Two keep-list sources:
 #
-# The old regex `dd(_[a-z]+)?$` would silently mislabel any future non-dd
-# export (or any unrelated symbol that happened to end in `dd`); the
-# header-derived keep-list is authoritative.
+#  (1) C ABI — every `MULTIFLOATS_API <type> <name>(` line at column 0 in
+#      multifloats_c.h. The grep+awk below pulls the names out so adding /
+#      removing an API function in the header automatically flows through.
+#  (2) C++ API — mangled names scanned from the archive itself, filtered
+#      through c++filt and a set of demangled-form rules. Keeps:
+#        - multifloats::NAME(...)                   top-level free functions
+#          (declared in multifloats.hh; internal helpers like sin_eval,
+#           reduce_pi_half, lgamma_positive live in `multifloats::detail`
+#           so they don't land in this bucket)
+#        - multifloats::operator<<, multifloats::to_string[abi:cxx11]
+#        - multifloats::detail::NAME(...)           TU-internal primitives
+#          (kept because test.cc exercises them directly; the `detail::` in
+#           the name is the conventional "don't use this" flag for consumers)
+#        - std::NAME<multifloats::float64x2>(...)   template specializations
+#          (covers std::exp, std::abs, std::arg, std::proj, etc. on our type)
+#      Rejects:
+#        - multifloats::CLASS::method(...)          inline-emitted class methods
 #
 # Every other global is localized; local symbol names are then stripped.
 # This logic is identical on Darwin and Linux by intent:
 # CXX_VISIBILITY_PRESET + VISIBILITY_INLINES_HIDDEN already mark most C++
-# inline copies hidden, but this script is the authoritative cut — an
-# unexpected leak (e.g. a newly added static helper that accidentally
-# escapes) gets localized here.
+# inline copies hidden, but this script is the authoritative cut — a newly
+# added static helper that accidentally escapes gets localized here.
 set -e
 LIB="$1"
 HEADER="@CMAKE_CURRENT_SOURCE_DIR@/multifloats_c.h"
-EXPORTS=$(mktemp)
-trap 'rm -f "$EXPORTS"' EXIT
+KEEP=$(mktemp)
+MANGLED=$(mktemp)
+DEMANGLED=$(mktemp)
+trap 'rm -f "$KEEP" "$MANGLED" "$DEMANGLED"' EXIT
 
-# Build keep-list from every `MULTIFLOATS_API <type> <name>(` line anchored
-# at column 0 in multifloats_c.h. Grep + awk gives us the symbol right
-# before the `(`. On Darwin, Mach-O nm / nmedit both want the leading
-# underscore stripped from the input list, so the list itself is plain
-# C-identifier names on both platforms; the per-platform code below adjusts.
+# Darwin `nm` prefixes every defined symbol with `_`; Linux does not. Keep
+# the keep-list in "nm-output format" (i.e. with the platform prefix intact)
+# so it can be fed straight to nmedit/objcopy without further munging.
+case "$(uname)" in
+  Darwin) NM_PREFIX="_" ;;
+  *)      NM_PREFIX=""  ;;
+esac
+
+# (1) C ABI keep-list.
 grep -oE "^MULTIFLOATS_API[^(]+\(" "$HEADER" \
-    | awk '{print $NF}' | sed 's/($//' | sort -u > "$EXPORTS"
+    | awk '{print $NF}' | sed 's/($//' | sort -u \
+    | awk -v p="$NM_PREFIX" '{print p $0}' > "$KEEP"
 
-if [ ! -s "$EXPORTS" ]; then
+if [ ! -s "$KEEP" ]; then
     echo "localize_symbols.sh: no MULTIFLOATS_API symbols found in $HEADER" >&2
     exit 1
 fi
 
+# (2) C++ API scan. `nm --defined-only` → text symbols (T) → demangle once
+# → filter. Demangling one-shot (not per-symbol) keeps the scan fast.
+nm --defined-only "$LIB" 2>/dev/null | awk '$2 == "T" {print $3}' > "$MANGLED"
+c++filt < "$MANGLED" > "$DEMANGLED"
+paste "$MANGLED" "$DEMANGLED" | awk -F'\t' '
+  # Reject class-method inline copies (e.g. `float64x2::operator/`); they
+  # belong in the header, any out-of-line copy here is a compiler leak.
+  $2 ~ /^multifloats::float64x2::/                  { next }
+  # Keep: top-level function in namespace multifloats or multifloats::detail,
+  # including operators and to_string[abi:cxx11]. The key invariant is that
+  # between the "multifloats::" (or "multifloats::detail::") prefix and the
+  # first "(", the only recognized shapes are an identifier (possibly
+  # followed by an [abi:...] tag) or an `operator...` name.
+  $2 ~ /^multifloats::(detail::)?([A-Za-z_][A-Za-z0-9_]*(\[[^]]+\])?|operator[^(]+)\(/ { print $1; next }
+  # Keep: std:: template specializations on multifloats::float64x2
+  # (std::exp<multifloats::float64x2>, std::abs<multifloats::float64x2>, …).
+  # The return-type prefix on the demangled string is harmless here.
+  $2 ~ /std::[A-Za-z_][A-Za-z0-9_]*<multifloats::float64x2>/ { print $1; next }
+' >> "$KEEP"
+
+sort -u "$KEEP" -o "$KEEP"
+
 case "$(uname)" in
   Darwin)
-    # Mach-O nm lists symbols with a leading underscore; nmedit expects
-    # the same mangling, so prefix the keep-list in a scratch file.
-    DARWIN_EXPORTS=$(mktemp)
-    trap 'rm -f "$EXPORTS" "$DARWIN_EXPORTS"' EXIT
-    awk '{print "_" $0}' "$EXPORTS" > "$DARWIN_EXPORTS"
-    nmedit -s "$DARWIN_EXPORTS" "$LIB"
+    # nmedit -s: symbols listed here stay externally visible; every other
+    # external symbol is converted to private-external (→ local after
+    # `strip -x`). Names must match nm output exactly, including the `_`
+    # platform prefix baked into $KEEP above.
+    nmedit -s "$KEEP" "$LIB"
     strip -x "$LIB"
     ;;
   Linux)
-    # ELF nm lists symbols without a leading underscore; objcopy
-    # --keep-global-symbols consumes the plain list.
-    objcopy --keep-global-symbols="$EXPORTS" "$LIB"
+    # ELF: objcopy --keep-global-symbols consumes plain nm names (no `_`).
+    objcopy --keep-global-symbols="$KEEP" "$LIB"
     strip --strip-unneeded "$LIB"
     ;;
 esac

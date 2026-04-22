@@ -77,7 +77,7 @@ static void bessel_pq1(double xinv_d, float64x2 const &z, float64x2 &p, float64x
   }
 }
 
-float64x2 bessel_j0_full(float64x2 const &x) {
+float64x2 j0(float64x2 const &x) {
   float64x2 ax = x;
   if (ax._limbs[0] < 0.0) { ax._limbs[0] = -ax._limbs[0]; ax._limbs[1] = -ax._limbs[1]; }
   double xx = ax._limbs[0];
@@ -97,7 +97,7 @@ float64x2 bessel_j0_full(float64x2 const &x) {
   // P,Q picked from 8 sub-intervals via bessel_pq0 (j0q.c fits).
   float64x2 angle = ax - float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 s, c;
-  sincos_full(angle, s, c);
+  sincos(angle, s, c);
   float64x2 xinv = float64x2(1.0) / ax;
   float64x2 z = xinv * xinv;
   float64x2 p, q;
@@ -108,7 +108,7 @@ float64x2 bessel_j0_full(float64x2 const &x) {
   return multifloats::sqrt(tpi / ax) * (p * c - q * s);
 }
 
-float64x2 bessel_j1_full(float64x2 const &x) {
+float64x2 j1(float64x2 const &x) {
   // j1 is odd, so (+0, -eps) must be detected as negative — checking
   // only the hi limb would miss that case.
   bool neg = x._limbs[0] < 0.0 || (x._limbs[0] == 0.0 && x._limbs[1] < 0.0);
@@ -128,7 +128,7 @@ float64x2 bessel_j1_full(float64x2 const &x) {
     //   J1(x) = sqrt(2/(πx)) · (P(1/x²)·cos(x-3π/4) - Q(1/x²)·sin(x-3π/4))
     float64x2 angle = ax - float64x2(three_pi_quarter_hi, three_pi_quarter_lo);
     float64x2 s, c;
-    sincos_full(angle, s, c);
+    sincos(angle, s, c);
     float64x2 xinv = float64x2(1.0) / ax;
     float64x2 z = xinv * xinv;
     float64x2 p, q;
@@ -142,7 +142,7 @@ float64x2 bessel_j1_full(float64x2 const &x) {
   return res;
 }
 
-float64x2 bessel_y0_full(float64x2 const &x) {
+float64x2 y0(float64x2 const &x) {
   double xx = x._limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
     float64x2 r;
@@ -154,7 +154,7 @@ float64x2 bessel_y0_full(float64x2 const &x) {
 
   if (xx <= 1e-17) {
     float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
-    return float64x2(bessel_u0_hi, bessel_u0_lo) + tpi * log_full(x);
+    return float64x2(bessel_u0_hi, bessel_u0_lo) + tpi * log(x);
   }
 
   if (xx <= 2.0) {
@@ -162,12 +162,12 @@ float64x2 bessel_y0_full(float64x2 const &x) {
     float64x2 p = neval(z, j0_Y0_2N_hi, j0_Y0_2N_lo, 7) /
              deval(z, j0_Y0_2D_hi, j0_Y0_2D_lo, 7);
     float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
-    return tpi * log_full(x) * bessel_j0_full(x) + p;
+    return tpi * log(x) * j0(x) + p;
   }
 
   float64x2 angle = x - float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 s, c;
-  sincos_full(angle, s, c);
+  sincos(angle, s, c);
   float64x2 xinv = float64x2(1.0) / x;
   float64x2 z = xinv * xinv;
   float64x2 p, q;
@@ -178,7 +178,7 @@ float64x2 bessel_y0_full(float64x2 const &x) {
   return multifloats::sqrt(tpi / x) * (p * s + q * c);
 }
 
-float64x2 bessel_y1_full(float64x2 const &x) {
+float64x2 y1(float64x2 const &x) {
   double xx = x._limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
     float64x2 r;
@@ -198,12 +198,12 @@ float64x2 bessel_y1_full(float64x2 const &x) {
     float64x2 p = x * neval(z, j1_Y1_2N_hi, j1_Y1_2N_lo, 7) /
                  deval(z, j1_Y1_2D_hi, j1_Y1_2D_lo, 7);
     float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
-    return tpi * (log_full(x) * bessel_j1_full(x) - float64x2(1.0) / x) + p;
+    return tpi * (log(x) * j1(x) - float64x2(1.0) / x) + p;
   }
 
   float64x2 angle = x - float64x2(three_pi_quarter_hi, three_pi_quarter_lo);
   float64x2 s, c;
-  sincos_full(angle, s, c);
+  sincos(angle, s, c);
   float64x2 xinv = float64x2(1.0) / x;
   float64x2 z = xinv * xinv;
   float64x2 p, q;
@@ -226,14 +226,15 @@ float64x2 bessel_y1_full(float64x2 const &x) {
 // Yn: forward recurrence is always stable (|Y_n| grows with n for fixed x),
 // so no Miller's algorithm is needed.
 
-static float64x2 bessel_jn_full(int n, float64x2 x) {
+float64x2 jn(int n, float64x2 const &x_in) {
   // Track sign flips from the identities
   //   J_{-n}(x) = (-1)^n J_n(x)     and     J_n(-x) = (-1)^n J_n(x).
+  float64x2 x = x_in;
   int parity = 0;
   if (n < 0) { n = -n; parity ^= (n & 1); }
-  if (n == 0) return bessel_j0_full(x);
+  if (n == 0) return j0(x);
   if (n == 1) {
-    float64x2 r = bessel_j1_full(x);
+    float64x2 r = j1(x);
     return parity ? -r : r;
   }
   if (x._limbs[0] < 0.0) { x = -x; parity ^= (n & 1); }
@@ -244,8 +245,8 @@ static float64x2 bessel_jn_full(int n, float64x2 x) {
   float64x2 result;
   if (static_cast<double>(n) <= xx) {
     // Forward recurrence.
-    float64x2 a = bessel_j0_full(x);
-    float64x2 b = bessel_j1_full(x);
+    float64x2 a = j0(x);
+    float64x2 b = j1(x);
     for (int i = 1; i < n; ++i) {
       float64x2 temp = b;
       b = float64x2(static_cast<double>(2 * i)) / x * b - a;
@@ -281,7 +282,7 @@ static float64x2 bessel_jn_full(int n, float64x2 x) {
     // Decide whether this problem size can overflow during descent.
     float64x2 v = float64x2(2.0 / xx);
     float64x2 log_arg = float64x2(static_cast<double>(n)) *
-                   log_full(multifloats::abs(v * float64x2(static_cast<double>(n))));
+                   log(multifloats::abs(v * float64x2(static_cast<double>(n))));
     bool rescale = log_arg._limbs[0] >= 1.1356e4;
     for (int i = n - 1; i >= 1; --i) {
       float64x2 temp = b;
@@ -293,8 +294,8 @@ static float64x2 bessel_jn_full(int n, float64x2 x) {
         b = float64x2(1.0);
       }
     }
-    float64x2 z0 = bessel_j0_full(x);
-    float64x2 z1 = bessel_j1_full(x);
+    float64x2 z0 = j0(x);
+    float64x2 z1 = j1(x);
     if (std::abs(z0._limbs[0]) >= std::abs(z1._limbs[0])) {
       result = t * z0 / b;
     } else {
@@ -304,7 +305,7 @@ static float64x2 bessel_jn_full(int n, float64x2 x) {
   return parity ? -result : result;
 }
 
-static float64x2 bessel_yn_full(int n, float64x2 x) {
+float64x2 yn(int n, float64x2 const &x) {
   // Y_{-n}(x) = (-1)^n Y_n(x). No x-sign identity — Y is undefined on x < 0.
   int parity = 0;
   if (n < 0) { n = -n; parity ^= (n & 1); }
@@ -317,16 +318,16 @@ static float64x2 bessel_yn_full(int n, float64x2 x) {
     return r;
   }
   if (n == 0) {
-    float64x2 r = bessel_y0_full(x);
+    float64x2 r = y0(x);
     return parity ? -r : r;
   }
   if (n == 1) {
-    float64x2 r = bessel_y1_full(x);
+    float64x2 r = y1(x);
     return parity ? -r : r;
   }
   if (!std::isfinite(xx)) return float64x2(0.0);
-  float64x2 a = bessel_y0_full(x);
-  float64x2 b = bessel_y1_full(x);
+  float64x2 a = y0(x);
+  float64x2 b = y1(x);
   for (int i = 1; i < n; ++i) {
     float64x2 temp = b;
     b = float64x2(static_cast<double>(2 * i)) / x * b - a;
@@ -336,14 +337,25 @@ static float64x2 bessel_yn_full(int n, float64x2 x) {
   return parity ? -b : b;
 }
 
+// Range variant of Jn: Jn forward-recurrence is unstable for n > x, so
+// each output needs its own Miller's backward-recurrence seed — no
+// single-sweep speedup. Loop over the scalar kernel; the .inc-inclusion
+// model means this call can be inlined by the compiler without LTO.
+// Caller guarantees out[] has room for n2−n1+1 elements.
+void jn(int n1, int n2, float64x2 const &x, float64x2 *out) {
+  int size = n2 - n1 + 1;
+  if (size <= 0) return;
+  for (int i = 0; i < size; ++i) out[i] = jn(n1 + i, x);
+}
+
 // Range variant: compute Y_{n1}, Y_{n1+1}, …, Y_{n2}(x) into `out` via a
 // single forward recurrence sweep. Cheaper than n2−n1+1 independent calls.
 // Caller guarantees out[] has room for n2−n1+1 elements.
-static void bessel_yn_range_full(int n1, int n2, float64x2 x, float64x2 *out) {
+void yn(int n1, int n2, float64x2 const &x, float64x2 *out) {
   int size = n2 - n1 + 1;
   if (size <= 0) return;
-  float64x2 a = bessel_y0_full(x);
-  float64x2 b = bessel_y1_full(x);
+  float64x2 a = y0(x);
+  float64x2 b = y1(x);
   if (n1 == 0) out[0] = a;
   if (n1 <= 1 && n2 >= 1) out[1 - n1] = b;
   for (int n = 2; n <= n2; ++n) {

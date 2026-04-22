@@ -179,12 +179,12 @@ inline mf::float64x2 sinhcosh_op(mf::float64x2 const &x) {
 }
 inline q_t sinhcosh_op(q_t x) { return ::sinhq(x) + ::coshq(x); }
 
-// yn_range: one yn_rangedd call produces 6 outputs; the qp leg runs 6
+// yn_range: one yndd_range call produces 6 outputs; the qp leg runs 6
 // separate ynq calls. Sum all 6 into one scalar so the drain consumes
 // everything and the compiler can't elide any output.
 inline mf::float64x2 yn_range_op(mf::float64x2 const &x) {
   float64x2_t out[6];
-  ::yn_rangedd(0, 5, mf::detail::to_f64x2(x), out);
+  ::yndd_range(0, 5, mf::detail::to_f64x2(x), out);
   float64x2_t acc = out[0];
   for (int k = 1; k < 6; ++k) acc = ::adddd(acc, out[k]);
   return mf::detail::from_f64x2(acc);

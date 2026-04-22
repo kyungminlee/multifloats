@@ -18,7 +18,7 @@ inline float64x2 _nonfinite_scalar_fallback(float64x2 const &x, ScalarFn fn) {
 //   worst-case |t| = 1/(16*(1 + (k/8)^2)) stays well below 0.09375.
 // Large branch (|x| >= 32/3): k = 86 (pi/2), t = -1/|x|; cutover placed at
 //   32/3 so worst-case |t| = 3/32 = 0.09375 hits the fitted edge exactly.
-float64x2 atan_full(float64x2 const &x) {
+float64x2 atan(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::atan(d); });
   }
@@ -56,7 +56,7 @@ float64x2 atan_full(float64x2 const &x) {
 // Region 1: |x| < 0.5      — asin(x) = x + x*x^2*P(x^2)/Q(x^2)
 // Region 2: 0.5 <= |x| < 0.625 — centered at 0.5625
 // Region 3: 0.625 <= |x| < 1   — half-angle: asin(x) = pi/2 - 2*asin(sqrt((1-x)/2))
-float64x2 asin_full(float64x2 const &x) {
+float64x2 asin(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::asin(d); });
   }
@@ -102,7 +102,7 @@ float64x2 asin_full(float64x2 const &x) {
 }
 
 // ---- acos (derived from asin polynomial) ------------------------------------
-float64x2 acos_full(float64x2 const &x) {
+float64x2 acos(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::acos(d); });
   }
@@ -118,7 +118,7 @@ float64x2 acos_full(float64x2 const &x) {
 
   if (ax_d <= 0.5) {
     // acos(x) = pi/2 - asin(x) — no cancellation since result ∈ [π/3, 2π/3]
-    return pi_half - asin_full(x);
+    return pi_half - asin(x);
   } else if (x._limbs[0] > 0.0) {
     // x > 0.5: acos(x) = 2*asin(sqrt((1-x)/2))
     float64x2 t = (float64x2(1.0) - x) * float64x2(0.5);
@@ -137,7 +137,7 @@ float64x2 acos_full(float64x2 const &x) {
 }
 
 // ---- atan2 ------------------------------------------------------------------
-float64x2 atan2_full(float64x2 const &y, float64x2 const &x) {
+float64x2 atan2(float64x2 const &y, float64x2 const &x) {
   if (!std::isfinite(x._limbs[0]) || !std::isfinite(y._limbs[0])) {
     float64x2 r;
     r._limbs[0] = std::atan2(y._limbs[0], x._limbs[0]);
@@ -157,7 +157,7 @@ float64x2 atan2_full(float64x2 const &y, float64x2 const &x) {
   float64x2 pi_half_dd = float64x2(pi_half_cw1, pi_half_cw2);
   float64x2 res;
   if (std::abs(x._limbs[0]) >= std::abs(y._limbs[0])) {
-    res = atan_full(y / x);
+    res = atan(y / x);
     if (x._limbs[0] < 0.0) {
       // Use signbit so y = -0 picks the −π branch (IEEE: -0 >= 0 is true,
       // so `>= 0.0` mishandles the negative-real-axis branch cut).
@@ -165,7 +165,7 @@ float64x2 atan2_full(float64x2 const &y, float64x2 const &x) {
       else res = res - pi_dd;
     }
   } else {
-    res = atan_full(x / y);
+    res = atan(x / y);
     if (y._limbs[0] > 0.0) res = pi_half_dd - res;
     else res = -pi_half_dd - res;
   }
@@ -175,16 +175,16 @@ float64x2 atan2_full(float64x2 const &y, float64x2 const &x) {
 // ---- inverse π-scaled trig -------------------------------------------------
 // fn_pi(x) = fn(x) / π via the natural path. The DD multiply by inv_pi
 // costs one DD mul (~3 FLOPs) after the main eval.
-float64x2 asinpi_full(float64x2 const &x) {
-  return asin_full(x) * float64x2(inv_pi_hi, inv_pi_lo);
+float64x2 asinpi(float64x2 const &x) {
+  return asin(x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
-float64x2 acospi_full(float64x2 const &x) {
-  return acos_full(x) * float64x2(inv_pi_hi, inv_pi_lo);
+float64x2 acospi(float64x2 const &x) {
+  return acos(x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
-// atanpi: at ±inf, atan_full bounces through std::atan and returns π/2 to
+// atanpi: at ±inf, atan bounces through std::atan and returns π/2 to
 // only dp precision — then inv_pi multiplication can't recover the missing
 // low limb. Short-circuit so atanpi(±inf) = ±0.5 exactly.
-float64x2 atanpi_full(float64x2 const &x) {
+float64x2 atanpi(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     float64x2 r;
     if (std::isnan(x._limbs[0])) {
@@ -195,14 +195,14 @@ float64x2 atanpi_full(float64x2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
-  return atan_full(x) * float64x2(inv_pi_hi, inv_pi_lo);
+  return atan(x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
-float64x2 atan2pi_full(float64x2 const &y, float64x2 const &x) {
-  return atan2_full(y, x) * float64x2(inv_pi_hi, inv_pi_lo);
+float64x2 atan2pi(float64x2 const &y, float64x2 const &x) {
+  return atan2(y, x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
 
 // ---- asinh / acosh / atanh -------------------------------------------------
-float64x2 asinh_full(float64x2 const &x) {
+float64x2 asinh(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::asinh(d); });
   }
@@ -214,7 +214,7 @@ float64x2 asinh_full(float64x2 const &x) {
   float64x2 ax = sign ? -x : x;
   if (ax._limbs[0] > 1e150) {
     // log(2|x|) asymptotic to avoid x² overflow
-    float64x2 r = log_full(ax) + float64x2(ln_2_hi, ln_2_lo);
+    float64x2 r = log(ax) + float64x2(ln_2_hi, ln_2_lo);
     return sign ? -r : r;
   }
   float64x2 axsq = ax * ax;
@@ -224,14 +224,14 @@ float64x2 asinh_full(float64x2 const &x) {
   float64x2 res;
   if (ax._limbs[0] < 1.0) {
     float64x2 rm1 = axsq / (root + float64x2(1.0));
-    res = log1p_full(ax + rm1);
+    res = log1p(ax + rm1);
   } else {
-    res = log_full(ax + root);
+    res = log(ax + root);
   }
   return sign ? -res : res;
 }
 
-float64x2 acosh_full(float64x2 const &x) {
+float64x2 acosh(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::acosh(d); });
   }
@@ -242,13 +242,13 @@ float64x2 acosh_full(float64x2 const &x) {
     return r;
   }
   if (x._limbs[0] > 1e150) {
-    return log_full(x) + float64x2(ln_2_hi, ln_2_lo);
+    return log(x) + float64x2(ln_2_hi, ln_2_lo);
   }
   float64x2 root = sqrt(x * x - float64x2(1.0));
-  return log_full(x + root);
+  return log(x + root);
 }
 
-float64x2 atanh_full(float64x2 const &x) {
+float64x2 atanh(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::atanh(d); });
   }
@@ -269,6 +269,6 @@ float64x2 atanh_full(float64x2 const &x) {
   // to log, so the same formula covers the whole remaining range.
   float64x2 den = float64x2(1.0) - x;
   float64x2 arg = (x + x) / den;
-  return float64x2(0.5, 0.0) * log1p_full(arg);
+  return float64x2(0.5, 0.0) * log1p(arg);
 }
 

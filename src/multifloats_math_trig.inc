@@ -8,6 +8,18 @@
 // mathematically indeterminate. We also need the cap to stop 2·x from
 // overflowing to ±∞, which would make the subsequent static_cast<long long>
 // undefined behavior. Return NaN.
+// Forward decls for internal helpers referenced before their definition
+// further down in this file (sinpi/cospi/tanpi call sin_eval/cos_eval/
+// sincos_eval, which are defined ~150 lines later). The helpers live in
+// `multifloats::detail` so they don't pollute the public `multifloats::`
+// surface; the umbrella `using namespace multifloats::detail` in
+// multifloats_math.cc makes unqualified lookup still find them.
+namespace detail {
+float64x2 sin_eval(float64x2 const &r);
+float64x2 cos_eval(float64x2 const &r);
+void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c);
+} // namespace detail
+
 namespace {
 constexpr double kPiTrigArgumentCap = 0x1p52;
 inline bool pi_trig_arg_too_large(double a) { return !(a < kPiTrigArgumentCap); }
@@ -31,7 +43,7 @@ inline bool trig_arg_too_large(double a) {
 }
 }
 
-float64x2 sinpi_full(float64x2 const &x) {
+float64x2 sinpi(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
   bool sign = x._limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
@@ -52,7 +64,7 @@ float64x2 sinpi_full(float64x2 const &x) {
 }
 
 // cospi is even; no sign flip on the result.
-float64x2 cospi_full(float64x2 const &x) {
+float64x2 cospi(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
   float64x2 ax = (x._limbs[0] < 0.0) ? -x : x;
   if (pi_trig_arg_too_large(ax._limbs[0])) return pi_trig_nan();
@@ -71,7 +83,7 @@ float64x2 cospi_full(float64x2 const &x) {
 
 // tanpi: fuses sin/cos eval so both come from one Taylor pair. Poles at
 // half-integers fall out naturally (sin(0)=+0 ⇒ ±c/0 = ±inf).
-float64x2 tanpi_full(float64x2 const &x) {
+float64x2 tanpi(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
   bool sign = x._limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
@@ -99,8 +111,9 @@ float64x2 tanpi_full(float64x2 const &x) {
 // ≫ |r|, e.g. sin(47.15) near 15π).
 //
 // Guards (non-finite, zero) from the public DD operator- are elided: the
-// caller (sincos_full etc.) pre-checks both conditions, so the kernel
+// caller (sincos etc.) pre-checks both conditions, so the kernel
 // runs on a finite non-zero accumulator.
+namespace detail {
 void reduce_pi_half(float64x2 const &x, float64x2 &r, int &n_mod4) {
   using multifloats::detail::two_sum;
   using multifloats::detail::fast_two_sum;
@@ -200,10 +213,11 @@ void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c) {
     c = (ck + sk) * inv_sqrt2;
   }
 }
+} // namespace detail
 
 // Fused sin/cos of the full-range argument — one call to reduce_pi_half
 // plus one sincos_eval, with the per-quadrant sign/swap applied last.
-void sincos_full(float64x2 const &x, float64x2 &s, float64x2 &c) {
+void sincos(float64x2 const &x, float64x2 &s, float64x2 &c) {
   if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) {
     float64x2 nan;
     nan._limbs[0] = std::numeric_limits<double>::quiet_NaN();
@@ -225,7 +239,7 @@ void sincos_full(float64x2 const &x, float64x2 &s, float64x2 &c) {
   }
 }
 
-float64x2 sin_full(float64x2 const &x) {
+float64x2 sin(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
@@ -238,7 +252,7 @@ float64x2 sin_full(float64x2 const &x) {
   }
 }
 
-float64x2 cos_full(float64x2 const &x) {
+float64x2 cos(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
@@ -251,7 +265,7 @@ float64x2 cos_full(float64x2 const &x) {
   }
 }
 
-float64x2 tan_full(float64x2 const &x) {
+float64x2 tan(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
@@ -266,12 +280,13 @@ float64x2 tan_full(float64x2 const &x) {
 }
 
 // ---- TD-output sincos variants --------------------------------------------
-// Mirror of reduce_pi_half / sincos_full that carries ~159 bits through
+// Mirror of reduce_pi_half / sincos that carries ~159 bits through
 // the range reduction and Taylor evaluation. Every constant (π/2 split
 // cw1..cw4, pi_quarter, inv_sqrt2, sin_taylor, cos_taylor) is lifted to
 // TD precision in dd_constants.hh — a TD kernel over DD constants
 // would still floor at the DD-cos `2⁻¹⁰⁵` ceiling. See
 // doc/developer/TRIPLE_DOUBLE.md §2 "constants must be TD".
+namespace detail {
 
 void reduce_pi_half_td(float64x2 const &x, float64x3 &r, int &n_mod4) {
   double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);
@@ -351,7 +366,7 @@ void sincos_eval_td(float64x3 const &r, float64x3 &s, float64x3 &c) {
   }
 }
 
-void sincos_full_td(float64x2 const &x, float64x3 &s, float64x3 &c) {
+void sincos_td(float64x2 const &x, float64x3 &s, float64x3 &c) {
   if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) {
     double nan = std::numeric_limits<double>::quiet_NaN();
     s = {nan, 0.0, 0.0};
@@ -370,3 +385,4 @@ void sincos_full_td(float64x2 const &x, float64x3 &s, float64x3 &c) {
     default: s = td_negate(cc);  c = ss;              break;
   }
 }
+} // namespace detail

@@ -131,15 +131,18 @@ MULTIFLOATS_API float64x2_t lgammadd(float64x2_t a);
 
 /* Bessel functions (POSIX naming). jndd / yndd: integer-order recurrence
  * seeded from j0dd / j1dd (Miller's backward recurrence for Jn when n > x).
- * yn_rangedd: single forward-recurrence sweep filling n2 − n1 + 1 outputs
- * into `out`; cheaper than n2 − n1 + 1 independent yndd calls. */
+ * Range variants fill `out[0..n2−n1]` with the order-n1 through order-n2
+ * values; yndd_range uses a single stable forward-recurrence sweep (cheaper
+ * than n2−n1+1 independent yndd calls), while jndd_range loops over jndd
+ * because Jn's forward recurrence is unstable for n > x. */
 MULTIFLOATS_API float64x2_t j0dd(float64x2_t a);
 MULTIFLOATS_API float64x2_t j1dd(float64x2_t a);
 MULTIFLOATS_API float64x2_t y0dd(float64x2_t a);
 MULTIFLOATS_API float64x2_t y1dd(float64x2_t a);
 MULTIFLOATS_API float64x2_t jndd(int n, float64x2_t a);
 MULTIFLOATS_API float64x2_t yndd(int n, float64x2_t a);
-MULTIFLOATS_API void yn_rangedd(int n1, int n2, float64x2_t a, float64x2_t *out);
+MULTIFLOATS_API void jndd_range(int n1, int n2, float64x2_t a, float64x2_t *out);
+MULTIFLOATS_API void yndd_range(int n1, int n2, float64x2_t a, float64x2_t *out);
 
 /* Fused sincos / sinhcosh. One range-reduction + Taylor pair produces
  * both outputs, roughly halving the transcendental cost for call sites
@@ -159,7 +162,7 @@ MULTIFLOATS_API complex64x2_t cdivdd(complex64x2_t a, complex64x2_t b);
  * libquadmath cexpq/clogq/csqrtq/...). Where the classic formula needs
  * both sin(y) and cos(y) or both sinh(y) and cosh(y), these use the fused
  * kernels internally so one range-reduction + Taylor pair covers both.
- * Precision and speed have been measured; the std::complex<MultiFloat<...>>
+ * Precision and speed have been measured; the std::complex<float64x2>
  * specializations in multifloats.hh delegate here where specialization
  * wins (exp, sin, cos, tan, sinh, cosh, tanh, atanh, acos). */
 MULTIFLOATS_API complex64x2_t cexpdd(complex64x2_t z);

@@ -768,7 +768,13 @@ module multifloats
             integer(c_int), value, intent(in) :: n
             type(float64x2_t), value, intent(in) :: a
         end function
-        pure subroutine c_dd_yn_range(n1, n2, a, out) bind(c, name='yn_rangedd')
+        pure subroutine c_dd_jn_range(n1, n2, a, out) bind(c, name='jndd_range')
+            import :: float64x2_t, c_int
+            integer(c_int), value, intent(in) :: n1, n2
+            type(float64x2_t), value, intent(in) :: a
+            type(float64x2_t), intent(out) :: out(*)
+        end subroutine
+        pure subroutine c_dd_yn_range(n1, n2, a, out) bind(c, name='yndd_range')
             import :: float64x2_t, c_int
             integer(c_int), value, intent(in) :: n1, n2
             type(float64x2_t), value, intent(in) :: a
@@ -1681,11 +1687,18 @@ $:dd_minmax_body(func, n)
         integer, intent(in) :: n1, n2
         type(float64x2), intent(in) :: x
         type(float64x2) :: res(max(n2 - n1 + 1, 0))
-        integer :: i
-        ! Jn forward recurrence is unstable for n > x, so use the
-        ! elemental function which handles backward recurrence correctly.
-        do i = 1, size(res)
-            res(i) = dd_bessel_jn_elem(n1 + i - 1, x)
+        type(float64x2_t), allocatable :: buf(:)
+        integer :: i, nsize
+        nsize = size(res)
+        if (nsize == 0) return
+        ! Delegate the per-output Miller backward recurrence to C, matching
+        ! the yn_range shape — Jn forward recurrence is unstable for n > x,
+        ! so the C side loops over jndd (Miller's algorithm) per output.
+        allocate(buf(nsize))
+        call c_dd_jn_range(int(n1, c_int), int(n2, c_int), &
+                           float64x2_t(x%limbs(1), x%limbs(2)), buf)
+        do i = 1, nsize
+            res(i)%limbs = [buf(i)%hi, buf(i)%lo]
         end do
     end function
 

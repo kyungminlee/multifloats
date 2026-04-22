@@ -57,9 +57,8 @@ existing quad-precision code can switch types with minimal changes.
 
 ### C++ (`src/multifloats.hh`)
 
-A single C++17 header in the `multifloats` namespace, providing
-`MultiFloat<T, N>` (`N` ∈ {1, 2}) with the same algorithmic kernels and a
-convenience alias `using float64x2 = MultiFloat<double, 2>;`.
+A single C++17 header in the `multifloats` namespace, providing the
+`float64x2` class with the same algorithmic kernels as the Fortran side.
 
 The full `<cmath>` double-name surface (`floor`, `ceil`, `trunc`, `round`,
 `nearbyint`, `rint`, `lround`, `llround`, `lrint`, `llrint`, `frexp`,
@@ -71,7 +70,7 @@ The full `<cmath>` double-name surface (`floor`, `ceil`, `trunc`, `round`,
 `abs`, `fabs`, `fmin`, `fmax`, `fpclassify`, `isfinite`, `isinf`, `isnan`,
 `isnormal`, `signbit`, `isgreater`, `isgreaterequal`, `isless`,
 `islessequal`, `islessgreater`, `isunordered`) is implemented via ADL on
-`MultiFloat`. The C++ side has zero external dependencies — `__float128`
+`float64x2`. The C++ side has zero external dependencies — `__float128`
 is only used by the test harness as a high-precision reference.
 
 ## Precision

@@ -15,7 +15,7 @@
 // Branch cuts and special-value return paths match libquadmath for
 // bit-compatible fuzz coverage against `erfq`/`erfcq`/`tgammaq`/`lgammaq`.
 // ---- erf / erfc (piecewise rational, ported from libquadmath erfq.c) -------
-float64x2 erf_full(float64x2 const &x) {
+float64x2 erf(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     float64x2 r;
     r._limbs[0] = std::erf(x._limbs[0]);
@@ -27,7 +27,7 @@ float64x2 erf_full(float64x2 const &x) {
 
   if (ax._limbs[0] >= 1.0) {
     if (ax._limbs[0] >= 16.0) return neg ? float64x2(-1.0) : float64x2(1.0);
-    float64x2 res = float64x2(1.0) - erfc_full(ax);
+    float64x2 res = float64x2(1.0) - erfc(ax);
     return neg ? -res : res;
   }
 
@@ -49,7 +49,7 @@ float64x2 erf_full(float64x2 const &x) {
   return neg ? -y : y;
 }
 
-float64x2 erfc_full(float64x2 const &x) {
+float64x2 erfc(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     float64x2 r;
     r._limbs[0] = std::erfc(x._limbs[0]);
@@ -60,7 +60,7 @@ float64x2 erfc_full(float64x2 const &x) {
   float64x2 ax = neg ? -x : x;
 
   if (ax._limbs[0] < 0.25) {
-    return float64x2(1.0) - erf_full(x);
+    return float64x2(1.0) - erf(x);
   }
 
   if (ax._limbs[0] > 107.0) {
@@ -120,9 +120,9 @@ float64x2 erfc_full(float64x2 const &x) {
     std::memcpy(&s_hi, &u, sizeof(s_hi));
     float64x2 s = float64x2(s_hi, 0.0);
 
-    float64x2 e1 = exp_full(-(s * s) - float64x2(0.5625));
+    float64x2 e1 = exp(-(s * s) - float64x2(0.5625));
     float64x2 diff_sq = (s - ax) * (s + ax);
-    float64x2 e2 = exp_full(diff_sq + p);
+    float64x2 e2 = exp(diff_sq + p);
     res = (e1 * e2) / ax;
   }
 
@@ -138,7 +138,7 @@ float64x2 erfc_full(float64x2 const &x) {
 // and exp(x²) itself can overflow; guard that.
 // For |x| < 1.25, both factors are moderate and we compute the product
 // directly.
-float64x2 erfc_scaled_full(float64x2 const &x) {
+float64x2 erfcx(float64x2 const &x) {
   if (!std::isfinite(x._limbs[0])) {
     float64x2 r;
     if (x._limbs[0] > 0.0)      r._limbs[0] = 0.0;                                            // erfc_scaled(+inf) = 0
@@ -150,7 +150,7 @@ float64x2 erfc_scaled_full(float64x2 const &x) {
   bool neg = x._limbs[0] < 0.0;
   float64x2 ax = neg ? -x : x;
   if (ax._limbs[0] < 1.25) {
-    return exp_full(x * x) * erfc_full(x);
+    return exp(x * x) * erfc(x);
   }
   // Asymptotic branch.
   float64x2 x2 = ax * ax;
@@ -168,9 +168,9 @@ float64x2 erfc_scaled_full(float64x2 const &x) {
   case 6: p = neval(z, erfc_AN7_hi, erfc_AN7_lo, 9)  / deval(z, erfc_AD7_hi, erfc_AD7_lo, 9);  break;
   default:p = neval(z, erfc_AN8_hi, erfc_AN8_lo, 9)  / deval(z, erfc_AD8_hi, erfc_AD8_lo, 8);  break;
   }
-  float64x2 res = exp_full(p - float64x2(0.5625)) / ax;
+  float64x2 res = exp(p - float64x2(0.5625)) / ax;
   if (neg) {
-    float64x2 exp_x2 = exp_full(x2);
+    float64x2 exp_x2 = exp(x2);
     if (!std::isfinite(exp_x2._limbs[0])) {
       float64x2 r;
       r._limbs[0] = std::numeric_limits<double>::infinity();
@@ -194,19 +194,24 @@ float64x2 erfc_scaled_full(float64x2 const &x) {
 //
 // Small-x paths: reflection for x < 1/2, upward shift recurrence
 // otherwise, accumulating the product x·(x+1)·...·(x+N-1) in DD and
-// subtracting a single log_full(prod).
+// subtracting a single log(prod).
 
 // Stirling/gamma constants are in dd_constants.hh (via #include above).
 
 // Evaluate the Stirling series for log Γ(x). Assumes x is well into the
 // asymptotic range (x ≥ ~20) — callers shift first.
+// Internal helpers live in `multifloats::detail` so the public
+// `multifloats::` surface only carries the declared lgamma/tgamma entry
+// points; the `using namespace multifloats::detail` in multifloats_math.cc
+// keeps call sites unqualified.
+namespace detail {
 float64x2 lgamma_stirling(float64x2 const &x) {
   float64x2 inv_x = float64x2(1.0) / x;
   float64x2 inv_x2 = inv_x * inv_x;
   float64x2 poly =
       horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13);
   float64x2 corr = poly * inv_x;
-  float64x2 logx = log_full(x);
+  float64x2 logx = log(x);
   float64x2 xm_half = x - float64x2(0.5);
   return xm_half * logx - x +
          float64x2(half_log_2pi_hi, half_log_2pi_lo) + corr;
@@ -230,20 +235,20 @@ float64x2 lgamma_rational(float64x2 const &x) {
     z = x + float64x2(1.0) - float64x2(lgam_x0_hi, lgam_x0_lo);
     p = neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
     q = deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
-    return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo) - log_full(x);
+    return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo) - log(x);
   case 1:
     if (x._limbs[0] < 0.875) {
       if (x._limbs[0] <= 0.625) {
         z = x + float64x2(1.0) - float64x2(lgam_x0_hi, lgam_x0_lo);
         p = neval(z, lgam_RN1r5_hi, lgam_RN1r5_lo, 8);
         q = deval(z, lgam_RD1r5_hi, lgam_RD1r5_lo, 8);
-        return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo) - log_full(x);
+        return z * z * (p / q) + float64x2(lgam_y0_hi, lgam_y0_lo) - log(x);
       }
       // (0.625, 0.875): z = x - 0.75, lgamma(x+1) = lgam1r75 + z*P/Q
       z = sub_exact(x, 0.75);
       p = neval(z, lgam_RN1r75_hi, lgam_RN1r75_lo, 8);
       q = deval(z, lgam_RD1r75_hi, lgam_RD1r75_lo, 8);
-      return z * (p / q) + float64x2(lgam1r75_hi, lgam1r75_lo) - log_full(x);
+      return z * (p / q) + float64x2(lgam1r75_hi, lgam1r75_lo) - log(x);
     }
     if (x._limbs[0] < 1.0) {
       z = x - float64x2(1.0);
@@ -373,12 +378,13 @@ float64x2 lgamma_positive(float64x2 const &x) {
       prod = prod * xi;
     }
     float64x2 x_shifted = x + float64x2((double)N);
-    return lgamma_stirling(x_shifted) - log_full(prod);
+    return lgamma_stirling(x_shifted) - log(prod);
   }
   return lgamma_rational(x);
 }
+} // namespace detail
 
-float64x2 lgamma_full(float64x2 const &x) {
+float64x2 lgamma(float64x2 const &x) {
   float64x2 r;
   double hi = x._limbs[0];
   if (std::isnan(hi)) {
@@ -399,10 +405,10 @@ float64x2 lgamma_full(float64x2 const &x) {
   }
   if (hi < 0.5) {
     // Reflection: log|Γ(x)| = log π - log|sin(πx)| - log|Γ(1-x)|
-    float64x2 s = multifloats::abs(sinpi_full(x));
+    float64x2 s = multifloats::abs(sinpi(x));
     float64x2 one_minus_x = float64x2(1.0) - x;
     float64x2 lgam_1mx = lgamma_positive(one_minus_x);
-    return float64x2(log_pi_hi, log_pi_lo) - log_full(s) - lgam_1mx;
+    return float64x2(log_pi_hi, log_pi_lo) - log(s) - lgam_1mx;
   }
   return lgamma_positive(x);
 }
@@ -433,12 +439,12 @@ static inline float64x2 tgamma_stirling_direct(float64x2 const &x,
   float64x2 x_frac = x - float64x2(x_int_d);
   exp2_adj = log2_e * x_int;
 
-  float64x2 pm_x = pow_full(mant, x);
-  float64x2 e2f = exp2_full(float64x2((double)log2_e) * x_frac);
+  float64x2 pm_x = pow(mant, x);
+  float64x2 e2f = exp2(float64x2((double)log2_e) * x_frac);
   float64x2 neg_x;
   neg_x._limbs[0] = -x._limbs[0];
   neg_x._limbs[1] = -x._limbs[1];
-  float64x2 emx = exp_full(neg_x);
+  float64x2 emx = exp(neg_x);
   float64x2 two_pi(2.0 * pi_dd_hi, 2.0 * pi_dd_lo);
   float64x2 sq = multifloats::sqrt(two_pi / x);
   float64x2 ret = pm_x * e2f * emx * sq;
@@ -447,7 +453,7 @@ static inline float64x2 tgamma_stirling_direct(float64x2 const &x,
   float64x2 inv_x2 = inv_x * inv_x;
   float64x2 poly = horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13);
   float64x2 S = poly * inv_x;
-  return ret + ret * expm1_full(S);
+  return ret + ret * expm1(S);
 }
 
 // Γ(x) for positive x ≥ 13.5 via shift-to-≥24 + direct Stirling.
@@ -472,7 +478,7 @@ static inline float64x2 tgamma_positive_direct(float64x2 const &x) {
   return ret;
 }
 
-float64x2 tgamma_full(float64x2 const &x) {
+float64x2 tgamma(float64x2 const &x) {
   float64x2 r;
   double hi = x._limbs[0];
   if (std::isnan(hi)) {
@@ -503,7 +509,7 @@ float64x2 tgamma_full(float64x2 const &x) {
   }
   if (hi < 0.5) {
     // Reflection: Γ(x) = π / (sin(πx) · Γ(1-x))
-    float64x2 s = sinpi_full(x);
+    float64x2 s = sinpi(x);
     float64x2 one_minus_x = float64x2(1.0) - x;
     bool neg = s._limbs[0] < 0.0;
     if (neg) {
@@ -514,7 +520,7 @@ float64x2 tgamma_full(float64x2 const &x) {
     // Γ(1-x): direct path when 1-x is in asymptotic range, else exp(lgamma).
     float64x2 g1mx = (one_minus_x._limbs[0] >= 13.5)
                        ? tgamma_positive_direct(one_minus_x)
-                       : exp_full(lgamma_positive(one_minus_x));
+                       : exp(lgamma_positive(one_minus_x));
     float64x2 out = pi_dd / (s * g1mx);
     if (neg) {
       out._limbs[0] = -out._limbs[0];
@@ -524,6 +530,6 @@ float64x2 tgamma_full(float64x2 const &x) {
   }
   if (hi >= 13.5)
     return tgamma_positive_direct(x);
-  return exp_full(lgamma_positive(x));
+  return exp(lgamma_positive(x));
 }
 
