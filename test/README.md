@@ -24,7 +24,7 @@ The optional MPFR driver raises the reference to 200 bits.
 |---|---|---|---|
 | `fuzz.cc` | `cpp_fuzz` | `fuzz_cpp` | 1 M-iteration C++ property fuzz over scalar, complex, Bessel, and π-scaled trig kernels; reports max / mean rel-err per op. |
 | `fuzz.f90` | `fortran_fuzz` | `fuzz_fortran` | Fortran counterpart; seed hard-wired to 42 for determinism. |
-| `fuzz_mpfr.cc` | `cpp_fuzz_mpfr` | `precision_mpfr_cpp` | MPFR 200-bit reference — separates DD kernel error from the `__float128` reference floor. Built only with `-DBUILD_MPFR_TESTS=ON`. |
+| `fuzz.cc` + `-DUSE_MPFR` | `cpp_fuzz_mpfr` | `precision_mpfr_cpp` | Same source as `cpp_fuzz`, recompiled with `USE_MPFR` to pull in an MPFR 200-bit reference — separates DD kernel error from the `__float128` reference floor. Built only with `-DBUILD_MPFR_TESTS=ON`. |
 
 Determinism is enforced by two extra ctest entries (`fuzz_cpp_determinism`,
 `fuzz_fortran_determinism`) that diff two back-to-back runs.
@@ -53,7 +53,7 @@ each file.
 | File | Purpose |
 |---|---|
 | `test_common.hh` | `to_q` / `from_q` / `q_rel_err` / `qstr` bridge between `multifloats::float64x2` and `__float128`. Shared across C++ test / fuzz / bench. |
-| `test_common_mpfr.hh` | Same bridge against `mpreal` at 200 bits. Included only by `fuzz_mpfr.cc`. |
+| `test_common_mpfr.hh` | Same bridge against `mpreal` at 200 bits. Pulled in by `fuzz.cc` when compiled with `-DUSE_MPFR`. |
 
 ## Running
 

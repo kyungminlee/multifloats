@@ -6,8 +6,8 @@
 // C ABI (not the C++ header-only inline path), so the timings reflect
 // what a real C or Fortran-bind-c caller sees.
 //
-// Precision measurement lives in test/fuzz_mpfr.cc; this file is
-// timing-only.
+// Precision measurement lives in test/fuzz.cc (compiled with -DUSE_MPFR);
+// this file is timing-only.
 //
 // The three function families follow a consistent suffix scheme —
 //   DD kernel      : NAMEdd     (C ABI)
@@ -75,7 +75,7 @@ WRAP_REAL_UNARY(atanh)
 WRAP_REAL_UNARY(erf)
 WRAP_REAL_UNARY(erfc)
 // erfcx: libquadmath has no direct variant; compose from erfc and exp(x²).
-// This is the same oracle fuzz.cc / fuzz_mpfr.cc use.
+// This is the same oracle fuzz.cc uses (in both its default and USE_MPFR modes).
 inline mf::float64x2 erfcx(mf::float64x2 const &x) {
   return mf::detail::from_f64x2(::erfcxdd(mf::detail::to_f64x2(x)));
 }

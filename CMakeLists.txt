@@ -200,8 +200,12 @@ if(BUILD_MPFR_TESTS)
         set(MPREAL_INCLUDE_DIR ${mpreal_SOURCE_DIR})
     endif()
 
-    add_executable(cpp_fuzz_mpfr ./test/fuzz_mpfr.cc)
+    # cpp_fuzz_mpfr reuses test/fuzz.cc with USE_MPFR defined — the single
+    # source file carries an MPFR oracle in one compile mode and the
+    # quadmath-only fast regression gate in the other.
+    add_executable(cpp_fuzz_mpfr ./test/fuzz.cc)
     target_compile_options(cpp_fuzz_mpfr PRIVATE -O3 -fext-numeric-literals)
+    target_compile_definitions(cpp_fuzz_mpfr PRIVATE USE_MPFR)
     target_include_directories(cpp_fuzz_mpfr PRIVATE ${MPREAL_INCLUDE_DIR})
     target_link_libraries(cpp_fuzz_mpfr PRIVATE multifloats quadmath MPFR::MPFR)
     add_test(NAME precision_mpfr_cpp COMMAND cpp_fuzz_mpfr 10000 42)

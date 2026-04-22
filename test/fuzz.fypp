@@ -172,8 +172,8 @@ program multifloat_fuzz
         end if
       end if
       ! Note: sinpi / cospi / tanpi / {asin,acos,atan}pi are validated in
-      ! test/fuzz_mpfr.cc via a 200-bit mpreal reference — the qp oracle
-      ! burns ~1 qp ulp on the π-multiply.
+      ! test/fuzz.cc under -DUSE_MPFR via a 200-bit mpreal reference — the
+      ! qp oracle burns ~1 qp ulp on the π-multiply.
 
       if (ieee_is_finite(real(q1, 8)) .and. abs(q1) <= 1.0_qp) then
         @:CHK1(asin)
