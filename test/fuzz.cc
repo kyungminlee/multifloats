@@ -452,6 +452,11 @@ static void report_fail(char const *op, char const *detail) {
 // Gated-call variants: `CHK1_IF(sin, cond)` expands to the equivalent of
 // `if (cond) CHK1(sin);` but wrapped in `do { } while (0)` so a stray
 // dangling `else` at an outer call site can't bind to the inner `if`.
+//
+// CHK_IF takes COND as its *first* argument (not last) because CHK's tail
+// slot is variadic for CMp{...} brace-comma safety; everything after COND
+// is forwarded verbatim to CHK.
+#define CHK_IF(COND, ...)      do { if (COND) CHK(__VA_ARGS__); }      while (0)
 #define CHK1_IF(NAME, COND)    do { if (COND) CHK1(NAME); }    while (0)
 #define CHK2_IF(NAME, COND)    do { if (COND) CHK2(NAME); }    while (0)
 #define CHK_C1_IF(STEM, COND)  do { if (COND) CHK_C1(STEM); }  while (0)
@@ -783,8 +788,8 @@ int main(int argc, char **argv) {
 
     CHK("add", f1 + f2, q1 + q2, q1, q2, m1 + m2);
     CHK("sub", f1 - f2, q1 - q2, q1, q2, m1 - m2);
-    if (both_finite) CHK("mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
-    if (both_finite && q2 != (q_t)0) CHK("div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
+    CHK_IF(both_finite, "mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
+    CHK_IF(both_finite && q2 != (q_t)0, "div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
     CHK1_IF(sqrt, q_isfinite(q1) && q1 >= (q_t)0);
     CHK("abs", mf::abs(f1), q1 < 0 ? -q1 : q1, q1, (q_t)0, mpfr::abs(m1));
     CHK("neg", -f1, -q1, q1, (q_t)0, -m1);
@@ -871,13 +876,10 @@ int main(int argc, char **argv) {
       // for the tail-tail cancellation; the qp oracle is the naive product.
       // Gate |x| < 26 so exp(x²) stays well inside qp's exponent range
       // and the product stays representable.
-      if (q_isfinite(q1) && aq1 < (q_t)26) {
-        CHK("erfcx",
-            mf::detail::from_f64x2(::erfcxdd(mf::detail::to_f64x2(f1))),
-            expq(q1 * q1) * erfcq(q1),
-            q1, (q_t)0,
-            mpfr::exp(m1 * m1) * mpfr::erfc(m1));
-      }
+      CHK_IF(q_isfinite(q1) && aq1 < (q_t)26, "erfcx",
+             mf::erfcx(f1), expq(q1 * q1) * erfcq(q1),
+             q1, (q_t)0,
+             mpfr::exp(m1 * m1) * mpfr::erfc(m1));
       if (q_isfinite(q1) && q1 > (q_t)0 && q1 < (q_t)100) {
         CHK1(gamma);
         CHK1(lngamma);
@@ -905,15 +907,13 @@ int main(int argc, char **argv) {
         CHK("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2),
             (q_t)d1, q2, mpfr::pow(to_mp(d1), m2));
       }
-      if (q_isfinite(q1) && aq1 < (q_t)1e10q) {
-        CHK("pow_int", mf::pow(f1, mf::float64x2(3.0)), powq(q1, (q_t)3),
-            q1, (q_t)3, mpfr::pow(m1, to_mp(3.0)));
-      }
+      CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e10q, "pow_int",
+             mf::pow(f1, mf::float64x2(3.0)), powq(q1, (q_t)3),
+             q1, (q_t)3, mpfr::pow(m1, to_mp(3.0)));
 
       // scalbn(x, 5) = x · 2^5; the ·32 is exact at any precision.
-      if (q_isfinite(q1))
-        CHK("scalbn", mf::scalbn(f1, 5), scalbnq(q1, 5),
-            q1, (q_t)0, m1 * mp_t(32));
+      CHK_IF(q_isfinite(q1), "scalbn", mf::scalbn(f1, 5), scalbnq(q1, 5),
+             q1, (q_t)0, m1 * mp_t(32));
 
       // 3-argument min/max via nested fmin/fmax.
       if (both_finite) {
@@ -949,10 +949,9 @@ int main(int argc, char **argv) {
           CHK("bjn",
               mf::detail::from_f64x2(::jndd(n, mf::detail::to_f64x2(f1))),
               jnq(n, q1), q1, (q_t)n, mpfr::besseljn((long)n, m1));
-          if (q1 > (q_t)0)
-            CHK("byn",
-                mf::detail::from_f64x2(::yndd(n, mf::detail::to_f64x2(f1))),
-                ynq(n, q1), q1, (q_t)n, mpfr::besselyn((long)n, m1));
+          CHK_IF(q1 > (q_t)0, "byn",
+                 mf::detail::from_f64x2(::yndd(n, mf::detail::to_f64x2(f1))),
+                 ynq(n, q1), q1, (q_t)n, mpfr::besselyn((long)n, m1));
         }
 
         if (q1 > (q_t)0) {
@@ -985,21 +984,18 @@ int main(int argc, char **argv) {
         q_t cp = cosq(pix);
         // sinpi fails near integer x (sin(π·n)=0); cospi fails near
         // half-integer (cos(π·(n+1/2))=0). Gate each on its own magnitude.
-        if (fabsq(sp) > (q_t)1e-10q)
-          CHK("sinpi",
-              mf::detail::from_f64x2(::sinpidd(mf::detail::to_f64x2(f1))),
-              sp, q1, (q_t)0,
-              mpfr::sin(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
-        if (fabsq(cp) > (q_t)1e-10q)
-          CHK("cospi",
-              mf::detail::from_f64x2(::cospidd(mf::detail::to_f64x2(f1))),
-              cp, q1, (q_t)0,
-              mpfr::cos(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
-        if (fabsq(cp) > (q_t)1e-10q && fabsq(sp) > (q_t)1e-10q)
-          CHK("tanpi",
-              mf::detail::from_f64x2(::tanpidd(mf::detail::to_f64x2(f1))),
-              sp / cp, q1, (q_t)0,
-              mpfr::tan(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+        CHK_IF(fabsq(sp) > (q_t)1e-10q, "sinpi",
+               mf::detail::from_f64x2(::sinpidd(mf::detail::to_f64x2(f1))),
+               sp, q1, (q_t)0,
+               mpfr::sin(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+        CHK_IF(fabsq(cp) > (q_t)1e-10q, "cospi",
+               mf::detail::from_f64x2(::cospidd(mf::detail::to_f64x2(f1))),
+               cp, q1, (q_t)0,
+               mpfr::cos(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+        CHK_IF(fabsq(cp) > (q_t)1e-10q && fabsq(sp) > (q_t)1e-10q, "tanpi",
+               mf::detail::from_f64x2(::tanpidd(mf::detail::to_f64x2(f1))),
+               sp / cp, q1, (q_t)0,
+               mpfr::tan(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
       }
       if (q_isfinite(q1) && aq1 <= (q_t)1) {
         CHK("asinpi",
@@ -1011,11 +1007,10 @@ int main(int argc, char **argv) {
             acosq(q1) / (q_t)M_PIq, q1, (q_t)0,
             mpfr::acos(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
       }
-      if (q_isfinite(q1))
-        CHK("atanpi",
-            mf::detail::from_f64x2(::atanpidd(mf::detail::to_f64x2(f1))),
-            atanq(q1) / (q_t)M_PIq, q1, (q_t)0,
-            mpfr::atan(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+      CHK_IF(q_isfinite(q1), "atanpi",
+             mf::detail::from_f64x2(::atanpidd(mf::detail::to_f64x2(f1))),
+             atanq(q1) / (q_t)M_PIq, q1, (q_t)0,
+             mpfr::atan(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
 
       // Complex DD ops. Use narrow-magnitude inputs so the oracle's
       // re*re + im*im (in cdivq) and re*re - im*im (in cmulq) don't drift
@@ -1096,16 +1091,16 @@ int main(int argc, char **argv) {
           {
             __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
             __complex128 one_plus_z = one_c + zq1;
-            if (cabsq(one_plus_z) > (q_t)1e-5q)
-              CHK("clog1p", ::clog1pdd(zd1), clogq(one_plus_z), mag, (q_t)0,
-                  clogmp({zm1.re + 1, zm1.im}));
+            CHK_IF(cabsq(one_plus_z) > (q_t)1e-5q,
+                   "clog1p", ::clog1pdd(zd1), clogq(one_plus_z), mag, (q_t)0,
+                   clogmp({zm1.re + 1, zm1.im}));
           }
 
           // cpow: keep base and exponent modest — pow amplifies input
           // precision, so a wide exponent would swamp the tolerance.
-          if (mag1 > (q_t)1e-2q && mag1 < (q_t)1e2q && mag2 < (q_t)10)
-            CHK("cpow", ::cpowdd(zd1, zd2), cpowq(zq1, zq2), mag, (q_t)0,
-                cexpmp(cmulmp(zm2, clogmp(zm1))));
+          CHK_IF(mag1 > (q_t)1e-2q && mag1 < (q_t)1e2q && mag2 < (q_t)10,
+                 "cpow", ::cpowdd(zd1, zd2), cpowq(zq1, zq2), mag, (q_t)0,
+                 cexpmp(cmulmp(zm2, clogmp(zm1))));
 
           // csinpi / ccospi: forward π-scaled complex trig. Same π
           // representation mismatch as scalar {sin,cos}pi — reduced_dd

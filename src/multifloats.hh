@@ -1640,6 +1640,28 @@ MultiFloat<T, N> erfc(MultiFloat<T, N> const &x) {
   }
 }
 
+// erfcx(x) = exp(x^2) * erfc(x). libm doesn't expose it, so the non-DD
+// paths compose it from std::exp and std::erfc; precision matches whatever
+// that product delivers at T. The N==2 && double specialization routes
+// through the erfcxdd kernel, which avoids the tail-tail cancellation.
+template <typename T, std::size_t N>
+MultiFloat<T, N> erfcx(MultiFloat<T, N> const &x) {
+  MultiFloat<T, N> r;
+  if constexpr (N == 1) {
+    r._limbs[0] = std::exp(x._limbs[0] * x._limbs[0]) * std::erfc(x._limbs[0]);
+    return r;
+  } else if constexpr (std::is_same_v<T, double>) {
+    return detail::from_f64x2(::erfcxdd(detail::to_f64x2(x)));
+  } else {
+    // d/dx erfcx(x) = 2x·erfcx(x) - 2/sqrt(pi)
+    const T two_over_sqrt_pi = T(2) / std::sqrt(std::acos(T(-1)));
+    T ex = std::exp(x._limbs[0] * x._limbs[0]) * std::erfc(x._limbs[0]);
+    T deriv = T(2) * x._limbs[0] * ex - two_over_sqrt_pi;
+    return MultiFloat<T, N>(ex) +
+           MultiFloat<T, N>(deriv) * MultiFloat<T, N>(x._limbs[1]);
+  }
+}
+
 template <typename T, std::size_t N>
 MultiFloat<T, N> tgamma(MultiFloat<T, N> const &x) {
   if constexpr (N == 2 && std::is_same_v<T, double>) {
