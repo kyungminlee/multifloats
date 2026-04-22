@@ -2,9 +2,8 @@
 
 #include <cmath>
 #include <cstddef>
-#include <cstring>
+#include <iosfwd>
 #include <limits>
-#include <ostream>
 #include <string>
 #include <type_traits>
 
@@ -814,113 +813,10 @@ inline constexpr bool isunordered(float64x2 const &x, float64x2 const &y) {
 // round-half-to-even). Special values use the same textual forms as
 // std::to_string for doubles ("nan", "inf", "-inf"). `operator<<` honors
 // `os.precision()` when > 17; otherwise (including the C++ default of 6)
-// the DD default of 32 digits is used.
-//
-// These are inline — the library archive exports only extern "C" `*dd`
-// symbols, so C++ helpers must live in the header to avoid link errors
-// from the symbol-visibility strip in src/localize_symbols.sh.
-namespace detail {
-
-// Renormalize (hi, lo) into canonical DD form.
-inline constexpr void io_renorm(double &hi, double &lo) {
-  double s = hi + lo;
-  double err = lo - (s - hi);
-  hi = s;
-  lo = err;
-}
-
-// (hi, lo) *= d, with d a double; result renormalized.
-inline constexpr void io_dd_mul_d(double &hi, double &lo, double d) {
-  double p = hi * d;
-  double e = std::fma(hi, d, -p);
-  lo = lo * d + e;
-  hi = p;
-  io_renorm(hi, lo);
-}
-
-} // namespace detail
-
-inline std::string to_string(float64x2 const &x, int precision = 32) {
-  double hi = x._limbs[0];
-  double lo = x._limbs[1];
-
-  if (std::isnan(hi) || std::isnan(lo)) return "nan";
-  if (std::isinf(hi)) return hi > 0 ? "inf" : "-inf";
-  if (hi == 0.0) return std::signbit(hi) ? "-0e+00" : "0e+00";
-
-  if (precision < 1) precision = 1;
-  if (precision > 34) precision = 34;
-
-  const bool neg = hi < 0.0;
-  if (neg) { hi = -hi; lo = -lo; }
-
-  // Decimal exponent estimate. log10 may be off by 1 due to rounding; a
-  // post-scale fixup corrects.
-  int e10 = static_cast<int>(std::floor(std::log10(hi)));
-
-  // Scale to [1, 10). Multiplying by 10 is exact in DD; multiplying by 0.1
-  // is not, but each iteration retains ~106 bits of precision, so 308
-  // iterations (max for dp range) lose at most a handful of ulps — well
-  // below the visible 34 digits.
-  int shift = -e10;
-  while (shift > 0) { detail::io_dd_mul_d(hi, lo, 10.0); --shift; }
-  while (shift < 0) { detail::io_dd_mul_d(hi, lo, 0.1);  ++shift; }
-  // Drift correction: at most ±1 from the log10 estimate.
-  if (hi >= 10.0)     { detail::io_dd_mul_d(hi, lo, 0.1);  ++e10; }
-  else if (hi < 1.0)  { detail::io_dd_mul_d(hi, lo, 10.0); --e10; }
-
-  // Extract precision+2 digits; the last two guard round-half-to-even.
-  const int ndigits = precision + 2;
-  const std::size_t prec = static_cast<std::size_t>(precision);
-  char digits[36] = {};
-  for (int i = 0; i < ndigits; ++i) {
-    int d = static_cast<int>(hi);
-    if (d < 0) d = 0;
-    else if (d > 9) d = 9;
-    digits[i] = static_cast<char>('0' + d);
-    hi -= d;
-    detail::io_renorm(hi, lo);
-    detail::io_dd_mul_d(hi, lo, 10.0);
-  }
-
-  int guard = (digits[precision] - '0') * 10 + (digits[precision + 1] - '0');
-  bool round_up = guard > 50 ||
-                  (guard == 50 && ((digits[precision - 1] - '0') & 1));
-  if (round_up) {
-    for (int i = precision - 1; i >= 0; --i) {
-      if (digits[i] < '9') { ++digits[i]; break; }
-      digits[i] = '0';
-      if (i == 0) {
-        std::memmove(digits + 1, digits, prec - 1);
-        digits[0] = '1';
-        ++e10;
-      }
-    }
-  }
-  digits[precision] = '\0';
-
-  std::string out;
-  out.reserve(prec + 8);
-  if (neg) out.push_back('-');
-  out.push_back(digits[0]);
-  if (precision > 1) {
-    out.push_back('.');
-    out.append(digits + 1, prec - 1);
-  }
-  out.push_back('e');
-  int abs_e = e10 < 0 ? -e10 : e10;
-  out.push_back(e10 < 0 ? '-' : '+');
-  if (abs_e < 10) out.push_back('0');
-  out += std::to_string(abs_e);
-  return out;
-}
-
-inline std::ostream &operator<<(std::ostream &os, float64x2 const &x) {
-  int p = static_cast<int>(os.precision());
-  if (p <= 17) p = 32;
-  os << to_string(x, p);
-  return os;
-}
+// the DD default of 32 digits is used. Definitions live in
+// src/multifloats_io.cc — inlining is not worth the header weight.
+std::string to_string(float64x2 const &x, int precision = 32);
+std::ostream &operator<<(std::ostream &os, float64x2 const &x);
 
 } // namespace multifloats
 
