@@ -29,10 +29,18 @@
 // namespaces inside each .inc file.
 
 #include "multifloats.hh"
+#include "multifloats_td.hh"
 #include "dd_constants.hh"
 #include <cstdint>
 #include <cstring>
 #include <vector>
+
+// Triple-double primitive bodies (declarations in multifloats_td.hh).
+namespace multifloats {
+namespace detail {
+#include "multifloats_math_td.inc"
+} // namespace detail
+} // namespace multifloats
 
 // Public kernels — definitions. Matching declarations live in multifloats.hh.
 // Internal helpers that happen to share namespace scope (range reducers,

@@ -7,6 +7,7 @@
 // Built with g++ + libquadmath (Apple Clang lacks __float128).
 
 #include "multifloats.hh"
+#include "multifloats_td.hh"
 #include "multifloats_c.h"
 #include "test_common.hh"
 
