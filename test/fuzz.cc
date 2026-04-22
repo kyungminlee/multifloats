@@ -617,9 +617,9 @@ static void check(char const *op, complex64x2_t const &got,
 
   char key[32];
   std::snprintf(key, sizeof(key), "%s_re", op);
-  check(key, got_re, exp_re, i1, i2 MP_ARG(expected_mp.re));
+  CHK(key, got_re, exp_re, i1, i2, expected_mp.re);
   std::snprintf(key, sizeof(key), "%s_im", op);
-  check(key, got_im, exp_im, i1, i2 MP_ARG(expected_mp.im));
+  CHK(key, got_im, exp_im, i1, i2, expected_mp.im);
 }
 
 // Convert an mf::float64x2 pair to a C-ABI complex64x2_t for dispatching
