@@ -94,7 +94,7 @@ MF_ABI_UNARY(tgamma)
 MF_ABI_UNARY(lgamma)
 
 // Bessel functions (math.h naming: j0, j1, y0, y1). Route to the
-// order-specific C++ fast-path kernels in multifloats.hh.
+// order-specific C++ fast-path kernels in multifloats.h.
 MF_ABI_UNARY(j0)
 MF_ABI_UNARY(j1)
 MF_ABI_UNARY(y0)
@@ -137,7 +137,7 @@ void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
 
 // Matmul: thin wrappers around multifloats::matmul_* (implementations in
 // multifloats_math.cc). The reinterpret_cast at the boundary is backed by a
-// static_assert on layout compatibility in multifloats.hh.
+// static_assert on layout compatibility in multifloats.h.
 void matmuldd_mm(const float64x2_t *a, const float64x2_t *b,
                  float64x2_t *c, int64_t m, int64_t k, int64_t n,
                  int64_t renorm_interval) {

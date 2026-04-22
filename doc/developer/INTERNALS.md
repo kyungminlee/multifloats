@@ -24,7 +24,7 @@ investigation behind any one of them.
 The following are load-bearing; break one and the library silently
 produces wrong answers or ships with the wrong ABI tag.
 
-- **`-ffast-math` is forbidden.** `src/multifloats.hh` emits an `#error`
+- **`-ffast-math` is forbidden.** `include/multifloats.h` emits an `#error`
   when `__FAST_MATH__` is defined. DD arithmetic relies on strict
   IEEE rounding of `fma` and on reassociation being blocked; fast-math
   silently violates both.
@@ -33,19 +33,19 @@ produces wrong answers or ships with the wrong ABI tag.
   rejected because it would refuse valid conforming builds; the real
   risk is `-ffast-math`, which is what we guard.
 - **`SOVERSION` is derived from `MULTIFLOATS_ABI_VERSION`.**
-  `src/CMakeLists.txt` greps the constant out of `src/multifloats_c.h`
+  `src/CMakeLists.txt` greps the constant out of `include/multifloats.h`
   at configure time and drives both `VERSION` and `SOVERSION`. Bump
   the header; the CMake side follows. Manual `set(SOVERSION …)` edits
   are a bug.
 - **Public symbols are the ones marked `MULTIFLOATS_API`.** The
   `localize_symbols.sh` helper extracts the export list by grepping
-  `^MULTIFLOATS_API[^(]+\(` out of `multifloats_c.h` directly — it is
+  `^MULTIFLOATS_API[^(]+\(` out of `multifloats.h` directly — it is
   *not* a regex over symbol names. New exports get the attribute;
   internal helpers do not.
 - **Fortran bindings must mirror the C ABI.** ctest `fortran_abi_sync`
   (`scripts/check_fortran_abi_sync.sh`) walks `bind(c, name='*dd*')`
   declarations in the generated `multifloats.f90` and fails if the
-  target symbol is missing from `multifloats_c.h`. The check is
+  target symbol is missing from `multifloats.h`. The check is
   intentionally asymmetric — Fortran reimplements arithmetic natively,
   so the C header stays a superset.
 - **`dd_constants.hh` regenerates cleanly.** ctest
@@ -104,7 +104,7 @@ elsewhere (documented in `doc/BENCHMARK.md`).
 Each of these has been tried under audit-quality fuzz and bench; do not
 re-attempt without new evidence that overrides the recorded trade-off.
 
-- **Full DD divide in `sqrt`'s Karp–Markstein step** (`src/multifloats.hh`
+- **Full DD divide in `sqrt`'s Karp–Markstein step** (`include/multifloats.h`
   near line 1200). Cuts worst-case residual 0.76 → 0.39 ulp near perfect
   squares, costs ~55% on the sqrt bench and 10–25% on hypot/acosh.
   Baseline is already sub-1-ulp. `residual * (0.5/s)` as DD×scalar was
@@ -198,7 +198,7 @@ Entry points for contributors trying to find the subtle pieces.
 | `fmoddd` gap-aware reduction            | `gap = ilogb(r) − ilogb(y)` selects between scalar `trunc(r_hi/y_hi)` (gap ≤ 53) and DD-level `trunc(r/y)` (gap > 53). The DD path carries ~106 integer bits per step and converges even for huge gaps. Residual floor ~2.5e9 DD ulp is intrinsic to DD when gap > 106 — fixing it requires TD/QD, out of scope. |
 | `casinhdd` / `catanhdd` branch schedules | Ported from libquadmath `__quadmath_kernel_casinhq` / `catanhq`. Each picks between ~8–10 regions on `(|Re|, |Im|)` and uses `log1p` of a positive sum (via `dd_x2y2m1` / `dd_cross_diff`) instead of `log(z + √(1+z²))` where the textbook form would collapse. `cacosh` / `cpow` on the unit circle share the `dd_x2y2m1` helper. |
 | `cmuldd` cancellation-gated compensation | Computes the cheap 4-mul form first, then fires `dd_cross_diff` per component when the leading-limb ratio `|R|/max(|p|,|q|) < 2⁻⁴` (same shape as `cexpm1dd`'s `kCancelThresh`). 2⁻⁴ caps cheap-path rel-err at ~16 ulp_dd while firing on ~6% of uniform-quadrant inputs; tighter 2⁻¹ > halves the bench speedup, looser 2⁻⁸ lets 100+-ulp regimes through. Fuzz: 248 → 9 ulp_dd on Re, 183 → 9.6 ulp_dd on Im. ~40% bench cost — the floor is the compensated branch existing in the function body, not detector arithmetic. |
-| `float64x3` + `td_mul_td` (multifloats.hh) | Triple-double primitives for kernels whose DD intermediates cancel. Consumers today: `cexpm1dd` Re path via `exp_full_td` (`exp_log.inc`) + `sincos_full_td` (`trig.inc`). See `TRIPLE_DOUBLE.md` for the "constants must also be TD" rule and the `kCancelThresh` regime-split pattern. |
+| `float64x3` + `td_mul_td` (multifloats.h) | Triple-double primitives for kernels whose DD intermediates cancel. Consumers today: `cexpm1dd` Re path via `exp_full_td` (`exp_log.inc`) + `sincos_full_td` (`trig.inc`). See `TRIPLE_DOUBLE.md` for the "constants must also be TD" rule and the `kCancelThresh` regime-split pattern. |
 
 ## 7. How to validate a precision or speed change
 
@@ -247,7 +247,7 @@ pay off but have not crossed the cost threshold yet.
 - **GEMM-style matmul (trans, alpha/beta, LDA).** Current kernels
   assume contiguous column-major with canonical shape. Extending
   requires a new set of panel dispatchers; tracked in `README.md` and
-  `multifloats_c.h` as a future release item.
+  `multifloats.h` as a future release item.
 The `cexpm1dd` Re cancellation surface (`cos(b)·e^a = 1`, formerly
 deferred) has been resolved by the TD path — see
 `TRIPLE_DOUBLE.md` for the shipped regime split and the

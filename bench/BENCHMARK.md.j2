@@ -75,7 +75,7 @@ qp ulp, both legs are behaving as specified.
 Ops timed through the **C ABI** entry points (`sindd`, `cdd_muldd`, `j0dd`,
 …) — the register-return convention a C or Fortran-`bind(c)` caller sees,
 not the C++ header-only inline path. Scope: every function in
-`src/multifloats_c.h` (scalars, π-family, Bessel, complex arithmetic,
+`include/multifloats.h` (scalars, π-family, Bessel, complex arithmetic,
 complex transcendentals). Shared ops also appear in the Fortran section
 below under the Fortran elemental wrapper; the delta is the hidden-
 pointer Fortran ABI overhead.

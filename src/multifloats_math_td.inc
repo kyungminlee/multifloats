@@ -1,5 +1,5 @@
 // Triple-double scratch primitives — out-of-line definitions matching the
-// declarations in multifloats.hh (namespace multifloats::detail). Bodies
+// declarations in multifloats.h (namespace multifloats::detail). Bodies
 // live here so the header carries only the declaration; callers pay one
 // function-call hop per TD op, which is negligible against the polynomial
 // costs of the transcendental kernels that host them.

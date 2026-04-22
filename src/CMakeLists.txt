@@ -2,10 +2,12 @@ project(multifloats LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
+set(MULTIFLOATS_PUBLIC_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+
 add_library(multifloats STATIC multifloats_math.cc multifloats_io.cc)
 target_compile_features(multifloats PUBLIC cxx_std_17)
 target_include_directories(multifloats
-    PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    PUBLIC $<BUILD_INTERFACE:${MULTIFLOATS_PUBLIC_INCLUDE_DIR}>
            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # ABI bookkeeping — parse MULTIFLOATS_ABI_VERSION straight out of the header
@@ -13,10 +15,10 @@ target_include_directories(multifloats
 # the header constant drift silently and a future shared-library build would
 # ship a wrongly-tagged soname. SOVERSION is only honored on shared libraries,
 # but we set it anyway so `BUILD_SHARED_LIBS=ON` records the right soname.
-file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/multifloats_c.h"
+file(STRINGS "${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats.h"
      _mf_abi_line REGEX "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+[0-9]+")
 if(NOT _mf_abi_line)
-    message(FATAL_ERROR "multifloats: could not find MULTIFLOATS_ABI_VERSION in multifloats_c.h")
+    message(FATAL_ERROR "multifloats: could not find MULTIFLOATS_ABI_VERSION in include/multifloats.h")
 endif()
 string(REGEX REPLACE "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+([0-9]+).*$"
        "\\1" MULTIFLOATS_ABI_VERSION "${_mf_abi_line}")
@@ -32,7 +34,7 @@ set_target_properties(multifloats PROPERTIES
 # with (private-)external linkage; without this step they'd be visible as
 # `T` entries in `nm libmultifloats.a` and resolvable by accident. The
 # script's keep-list comes from two sources: the `MULTIFLOATS_API` scan of
-# multifloats_c.h (C ABI) and a demangling scan of the archive itself for
+# multifloats.h (C ABI) and a demangling scan of the archive itself for
 # public `multifloats::NAME(...)` and `std::NAME<multifloats::float64x2>(...)`
 # symbols. Opt out via `-DMULTIFLOATS_STRIP_SYMBOLS=OFF` for debugging.
 option(MULTIFLOATS_STRIP_SYMBOLS
@@ -58,7 +60,8 @@ endif()
 install(TARGETS multifloats
     EXPORT multifloatsTargets
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(FILES multifloats.hh multifloats_c.h
+install(FILES
+    ${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT multifloatsTargets
     FILE multifloatsTargets.cmake

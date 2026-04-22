@@ -1,6 +1,6 @@
 // Timing benchmark through the multifloats C ABI.
 //
-// This file times every kernel exposed in src/multifloats_c.h (sindd,
+// This file times every kernel exposed in include/multifloats.h (sindd,
 // cdd_muldd, j0dd, matmuldd_mm, …) against libquadmath as a reference
 // for the SAME operation. The DD leg goes through the register-return
 // C ABI (not the C++ header-only inline path), so the timings reflect
@@ -15,8 +15,7 @@
 // — which we exploit by declaring overloads in `namespace fx` so a single
 // BENCH1(NAME, ...) macro can dispatch both legs uniformly.
 
-#include "multifloats.hh"
-#include "multifloats_c.h"
+#include "multifloats.h"
 #include "test_common.hh"
 
 #include <chrono>

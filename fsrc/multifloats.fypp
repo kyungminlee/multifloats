@@ -33,7 +33,7 @@
 #! (which is already 2-10× faster than libquadmath quad precision).
 #!
 #! To get the fastest possible DD arithmetic from Fortran without LTO,
-#! call the C-ABI wrappers in src/multifloats_c.h directly via
+#! call the C-ABI wrappers in include/multifloats.h directly via
 #! iso_c_binding interfaces (see test/bench_abi.f90 for an example).
 #! =====================================================================
 

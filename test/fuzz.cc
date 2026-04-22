@@ -1,8 +1,8 @@
-// Property-based fuzz tests for multifloats.hh.
+// Property-based fuzz tests for multifloats.h.
 //
 // This is the C++ analogue of test/fuzz.f90: for each iteration a random
 // __float128 pair (q1, q2) is generated, projected to float64x2 inputs
-// (f1, f2), and every operation that multifloats.hh exposes is run on
+// (f1, f2), and every operation that multifloats.h exposes is run on
 // both legs. The DD result is compared against the __float128 reference and
 // per-op relative-error statistics are printed at the end.
 //
@@ -31,8 +31,7 @@
 // one block near the top of this file, so the main loop body stays free
 // of `#ifdef` sprinkles.
 
-#include "multifloats.hh"
-#include "multifloats_c.h"
+#include "multifloats.h"
 #include "test_common.hh"
 
 #include <cmath>

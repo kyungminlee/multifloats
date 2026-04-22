@@ -6,16 +6,16 @@
 //     `std::to_chars_result` return convention and the chars_format check.
 //   * `multifloats::operator<<` — writes the formatted bytes to an ostream.
 //   * extern "C" `to_charsdd` — the shim for C / Fortran consumers
-//     (declared in multifloats_c.h).
+//     (declared in the C-ABI section of multifloats.h).
 //
-// Header-inline `to_string` (in multifloats.hh) sits above `to_chars` and
+// Header-inline `to_string` (in multifloats.h) sits above `to_chars` and
 // constructs the returned `std::string` entirely in the consumer's TU,
 // keeping the library's link surface free of `std::string` and the
 // libstdc++ `_GLIBCXX_USE_CXX11_ABI` dual-ABI mangling distinction.
 // `std::to_chars_result` is ABI-stable (plain `{char*, errc}`), so the
 // 5-arg `to_chars` is safe to define out-of-line here.
 
-#include "multifloats.hh"
+#include "multifloats.h"
 
 #include <charconv>
 #include <cmath>

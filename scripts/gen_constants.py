@@ -2,7 +2,7 @@
 """Generate DD (double-double) polynomial coefficients for multifloats.
 
 Single source of truth for the polynomial and conversion constants
-used by src/multifloats.hh (C++) — the Fortran module no longer pulls
+used by include/multifloats.h (C++) — the Fortran module no longer pulls
 any generated constants (its DD_* named constants are defined directly
 via the DD_CONST macro in fsrc/multifloats.fypp).
 

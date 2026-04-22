@@ -1,4 +1,4 @@
-// DD polynomial evaluators: moved here from multifloats.hh so the public
+// DD polynomial evaluators: moved here from multifloats.h so the public
 // header doesn't need to carry ~250 lines of switch-based Estrin bodies.
 // These are consumed only by the kernel .inc files compiled into
 // multifloats_math.cc (same TU), so the compiler still sees the bodies

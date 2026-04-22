@@ -6,7 +6,7 @@
 
 #pragma once
 
-#include "multifloats.hh"
+#include "multifloats.h"
 
 #include <quadmath.h>
 

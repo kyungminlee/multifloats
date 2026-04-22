@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "multifloats.hh"
+#include "multifloats.h"
 #include "test_common.hh"
 
 #include <mpreal.h>

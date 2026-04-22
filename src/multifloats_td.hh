@@ -1,5 +1,5 @@
 // Triple-double scratch primitives — internal header. NOT part of the
-// public ABI surface in multifloats.hh. Pulled in by multifloats_math.cc
+// public ABI surface in multifloats.h. Pulled in by multifloats_math.cc
 // and by the direct-primitive tests in test/test.cc.
 //
 // Narrow-scope toolkit used by kernels whose DD output would otherwise
@@ -11,7 +11,7 @@
 // See doc/developer/TRIPLE_DOUBLE.md.
 #pragma once
 
-#include "multifloats.hh"
+#include "multifloats.h"
 
 namespace multifloats {
 namespace detail {

@@ -3,12 +3,12 @@
 # globally visible. Two keep-list sources:
 #
 #  (1) C ABI — every `MULTIFLOATS_API <type> <name>(` line at column 0 in
-#      multifloats_c.h. The grep+awk below pulls the names out so adding /
+#      multifloats.h. The grep+awk below pulls the names out so adding /
 #      removing an API function in the header automatically flows through.
 #  (2) C++ API — mangled names scanned from the archive itself, filtered
 #      through c++filt and a set of demangled-form rules. Keeps:
 #        - multifloats::NAME(...)                   top-level free functions
-#          (declared in multifloats.hh; internal helpers like sin_eval,
+#          (declared in multifloats.h; internal helpers like sin_eval,
 #           reduce_pi_half, lgamma_positive live in `multifloats::detail`
 #           so they don't land in this bucket)
 #        - multifloats::operator<<  (decimal formatting for std::ostream)
@@ -32,7 +32,7 @@
 # added static helper that accidentally escapes gets localized here.
 set -e
 LIB="$1"
-HEADER="@CMAKE_CURRENT_SOURCE_DIR@/multifloats_c.h"
+HEADER="@MULTIFLOATS_PUBLIC_INCLUDE_DIR@/multifloats.h"
 KEEP=$(mktemp)
 MANGLED=$(mktemp)
 DEMANGLED=$(mktemp)

@@ -16,7 +16,7 @@ exclusively for the `to_qp` / `from_qp` conversion helpers and the defined
 I/O routines.
 
 The Fortran module ships in `fsrc/multifloats.fypp` (preprocessed via
-[fypp]) and the C++ header in `src/multifloats.hh`. Both expose the same
+[fypp]) and the unified C/C++ header in `include/multifloats.h`. Both expose the same
 algorithmic surface so the same kernels can be used from either language.
 
 ## Features
@@ -55,7 +55,7 @@ algorithmic surface so the same kernels can be used from either language.
 The `float64x2` interface is designed to mirror `REAL(KIND=16)` so that
 existing quad-precision code can switch types with minimal changes.
 
-### C++ (`src/multifloats.hh`)
+### C / C++ (`include/multifloats.h`)
 
 A single C++17 header in the `multifloats` namespace, providing the
 `float64x2` class with the same algorithmic kernels as the Fortran side.
@@ -381,7 +381,7 @@ print *, y                         ! defined I/O: ~32 digits
 ### C (via the C ABI)
 
 ```c
-#include "multifloats_c.h"          /* linked with -lmultifloats */
+#include "multifloats.h"            /* linked with -lmultifloats */
 float64x2_t x = {1.0, 0.0};
 float64x2_t pi4 = atandd(x);        /* pi/4 as a DD */
 float64x2_t pi = muldd((float64x2_t){4.0, 0.0}, pi4);
@@ -391,7 +391,7 @@ printf("pi.hi = %.17g  pi.lo = %.17g\n", pi.hi, pi.lo);
 ### C++
 
 ```cpp
-#include "multifloats.hh"           // header-only public API
+#include "multifloats.h"            // same header; C++ section adds the class API
 using namespace multifloats;
 float64x2 x(1.0);
 float64x2 pi = float64x2(4.0) * atan(x);
@@ -421,8 +421,8 @@ ctest --test-dir build --output-on-failure
 
 The build produces:
 - `libmultifloats.a` — the C++ kernels (header-only API via
-  `src/multifloats.hh`; this static archive holds the out-of-line math
-  bodies and the C-ABI entry points from `src/multifloats_c.h`).
+  `include/multifloats.h`; this static archive holds the out-of-line math
+  bodies and the extern "C" `*dd` entry points declared in the same header).
 - `libmultifloatsf-<compiler>.a` — the Fortran module library (the
   compiler tag comes from `cmake/FortranCompiler.cmake`; the generated
   `.mod` files live under `build/fmod/`).
@@ -441,12 +441,12 @@ ctest --test-dir build --output-on-failure
 | `precision_fortran`        | Fortran  | Targeted vs-quad precision checks for constructors, assignments, every arithmetic and reduction op, and edge-case sweeps (signed zero, infinities, NaN propagation, subnormal/huge boundary, ULP boundary, dim/mask/back reduction variants). |
 | `fuzz_fortran`             | Fortran  | 1M random pairs through every public function for which random real input is meaningful. Adversarial input strategies cover subnormals, near-cancellation, overflow boundary, and non-finite limbs. Prints a per-op `(max_rel, mean_rel, count)` precision report at the end. |
 | `precision_fortran_unit`   | Fortran  | Hand-written assertions for arithmetic, signed zero, NaN/Inf propagation, classification, math intrinsics, and rounding. |
-| `precision_abi_equivalence`| Fortran  | Cross-checks the three DD entry paths (native Fortran ops / C wrapper via `multifloats_c.h` / hand-written `bind(c)` reimpl in `test/dd_bindc.f90`) produce bit-identical results. |
-| `precision_cpp`            | C++      | Targeted vs-`__float128` precision checks for `src/multifloats.hh`. |
+| `precision_abi_equivalence`| Fortran  | Cross-checks the three DD entry paths (native Fortran ops / C wrapper via `multifloats.h` / hand-written `bind(c)` reimpl in `test/dd_bindc.f90`) produce bit-identical results. |
+| `precision_cpp`            | C++      | Targeted vs-`__float128` precision checks for `include/multifloats.h`. |
 | `fuzz_cpp`                 | C++      | C++ fuzz with the same precision-report machinery as the Fortran fuzz. |
 | `fuzz_cpp_determinism` / `fuzz_fortran_determinism` | shell | Diff two runs of the fuzz binaries to catch non-deterministic state. |
 | `dd_constants_up_to_date`  | Python   | Re-runs `scripts/gen_constants.py --check` to detect drift between `src/dd_constants.hh` and the generator. |
-| `fortran_abi_sync`         | shell    | `scripts/check_fortran_abi_sync.sh`: every `bind(c, name=*dd*)` in the generated Fortran module must match a `MULTIFLOATS_API` entry in `multifloats_c.h`. |
+| `fortran_abi_sync`         | shell    | `scripts/check_fortran_abi_sync.sh`: every `bind(c, name=*dd*)` in the generated Fortran module must match a `MULTIFLOATS_API` entry in `multifloats.h`. |
 
 ### Optional: MPFR-based 3-way precision test
 
@@ -472,7 +472,8 @@ build/cpp_fuzz_mpfr 10000 42   # iterations, seed
 
 ```
 fsrc/multifloats.fypp     -- Fortran source (fypp template)
-src/multifloats.hh        -- C++17 header
+include/multifloats.h     -- unified C / C++ public header
+src/                      -- C++ .cc sources and implementation-detail .inc fragments
 blas/                     -- BLAS shims for float64x2
 test/                     -- Fortran and C++ test suites
 external/                 -- vendored references (MultiFloats.jl, LAPACK)

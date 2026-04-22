@@ -22,13 +22,13 @@
 //   multifloats_math_abi_complex.inc extern "C" complex DD kernels
 //
 // Public transcendental kernels live in `namespace multifloats` with
-// matching declarations in multifloats.hh. The `extern "C" *dd` shims
+// matching declarations in multifloats.h. The `extern "C" *dd` shims
 // are thin marshaling wrappers around those same C++ functions — no
 // parallel `_full`-named body. Truly internal helpers (range reducers,
 // polynomial evaluators, triple-double-output variants) stay in anon
 // namespaces inside each .inc file.
 
-#include "multifloats.hh"
+#include "multifloats.h"
 #include "multifloats_td.hh"
 #include "dd_constants.hh"
 #include <cstdint>
@@ -37,7 +37,7 @@
 
 // Triple-double primitive bodies (declarations in multifloats_td.hh) and
 // DD polynomial evaluators (horner/neval/deval — previously inline in
-// multifloats.hh). Defined here so the kernel .inc files see the same
+// multifloats.h). Defined here so the kernel .inc files see the same
 // same-TU inline bodies they did before.
 namespace multifloats {
 namespace detail {
@@ -46,7 +46,7 @@ namespace detail {
 } // namespace detail
 } // namespace multifloats
 
-// Public kernels — definitions. Matching declarations live in multifloats.hh.
+// Public kernels — definitions. Matching declarations live in multifloats.h.
 // Internal helpers (range reducers, polynomial Estrin kernels, TD variants)
 // are wrapped in `namespace detail { }` inside each .inc so they don't
 // pollute the public `multifloats::` surface. The `using namespace
@@ -64,7 +64,7 @@ using namespace multifloats::detail;  // neval, deval, horner, float64x3, kernel
 
 // Complex overloads for Kind-D parity (sinpi/cospi/expm1/log2/log10/log1p
 // on std::complex<float64x2>). Pulled in after <complex> is visible via
-// the inclusion of multifloats.hh at top.
+// the inclusion of multifloats.h at top.
 namespace multifloats {
 using namespace multifloats::detail;  // sincos_td + TD primitives
 #include "multifloats_math_abi_complex_kernels.inc"
@@ -175,7 +175,7 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
 // Public C++ matmul entry points. The panel dispatchers above operate on
 // `float64x2_t` (C-ABI struct) since they were originally the bodies of the
 // extern "C" `matmuldd_*` shims. `multifloats::float64x2` is layout-compatible
-// (asserted in multifloats.hh next to the declarations), so we reinterpret
+// (asserted in multifloats.h next to the declarations), so we reinterpret
 // pointers once at the boundary and hand off to the same dispatchers. The
 // `matmuldd_*` shims in multifloats_math_abi_scalar.inc are now one-line
 // wrappers calling these in the opposite direction.
@@ -259,7 +259,7 @@ void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
 
 // std:: complex template specializations — bodies for every C++ <complex>
 // free function we override (exp/log/sqrt/pow, the trig/hyp triples and
-// their inverses, abs/arg/proj). Declarations live in multifloats.hh.
+// their inverses, abs/arg/proj). Declarations live in multifloats.h.
 // Pulled into namespace std so the explicit specialization syntax is in
 // the right enclosing namespace.
 namespace std {

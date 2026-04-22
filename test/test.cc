@@ -1,4 +1,4 @@
-// Unit tests for multifloats.hh.
+// Unit tests for multifloats.h.
 //
 // Each public operation is tested over a curated list of inputs and the
 // result is compared against a __float128 reference. A per-operation
@@ -6,9 +6,8 @@
 //
 // Built with g++ + libquadmath (Apple Clang lacks __float128).
 
-#include "multifloats.hh"
+#include "multifloats.h"
 #include "multifloats_td.hh"
-#include "multifloats_c.h"
 #include "test_common.hh"
 
 #include <cmath>

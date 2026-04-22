@@ -52,12 +52,12 @@ endif()
 
 # Fortran <-> C ABI sync: every `bind(c, name=*dd*)` declaration in the
 # generated Fortran module must match a MULTIFLOATS_API entry in
-# multifloats_c.h. See scripts/check_fortran_abi_sync.sh for the rule and
+# multifloats.h. See scripts/check_fortran_abi_sync.sh for the rule and
 # the (intentional) asymmetry — the C header is a superset because
 # Fortran reimplements basic arithmetic natively.
 add_test(NAME fortran_abi_sync
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_fortran_abi_sync.sh
-            ${CMAKE_CURRENT_SOURCE_DIR}/src/multifloats_c.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats.h
             ${CMAKE_CURRENT_BINARY_DIR}/fsrc/generated/multifloats.f90)
 
 # MPFR precision tests — off by default; on-demand high-precision
@@ -87,6 +87,9 @@ add_subdirectory(fsrc)  # project(multifloatsf) → libmultifloatsf-<compiler>.a
 function(mf_add_cpp_executable name source)
     add_executable(${name} ${source})
     target_compile_options(${name} PRIVATE -O3 -fext-numeric-literals)
+    # Tests are privileged consumers — they exercise src/ implementation
+    # helpers (multifloats_td.hh) that aren't part of the installed API.
+    target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(${name} PRIVATE multifloats quadmath)
 endfunction()
 

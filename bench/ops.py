@@ -194,7 +194,7 @@ FORTRAN_SECTIONS: list[Section] = [
 # ---------------------------------------------------------------------------
 # C: C ABI (sindd / cdd_muldd / j0dd / ...) vs __float128
 #
-# Scope: every function exported from src/multifloats_c.h. Shared ops
+# Scope: every function exported from include/multifloats.h. Shared ops
 # (sin, cdd_mul, …) are duplicated between C_SECTIONS and FORTRAN_SECTIONS
 # so the Fortran-elemental ABI overhead is visible per-op. C-section-only
 # ops: none — everything here is also callable from Fortran via the

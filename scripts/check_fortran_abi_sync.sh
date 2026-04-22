@@ -1,7 +1,7 @@
 #!/bin/bash
 # Verify that every `bind(c, name=<sym>)` binding in the generated Fortran
 # module whose target ends in `dd` (or `dd_<suffix>`, e.g. matmuldd_mm)
-# has a matching MULTIFLOATS_API declaration in src/multifloats_c.h.
+# has a matching MULTIFLOATS_API declaration in include/multifloats.h.
 # This catches a class of drift the audit called out under M2: if someone
 # adds or renames an extern "C" entry point in the C header without
 # updating the hand-mirrored Fortran interfaces, the binding would become
@@ -14,7 +14,7 @@
 # the Fortran bindings.
 #
 # Usage:
-#   check_fortran_abi_sync.sh <path/to/multifloats_c.h> <path/to/generated.f90>
+#   check_fortran_abi_sync.sh <path/to/multifloats.h> <path/to/generated.f90>
 set -e
 HEADER="$1"
 GENERATED_F90="$2"

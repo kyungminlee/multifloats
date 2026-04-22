@@ -3,7 +3,7 @@ program bench_abi
   ! the C wrapper speed. Three legs:
   !   fortran_dd : current elemental float64x2 operator (Fortran ABI)
   !   fortran_c  : same algorithm, but bind(c) with value args (C ABI)
-  !   c_wrapper  : extern "C" wrapper calling C++ multifloats.hh (C ABI)
+  !   c_wrapper  : extern "C" wrapper calling C++ multifloats.h (C ABI)
   !
   ! If fortran_c ≈ c_wrapper, the remaining gap is purely ABI, not codegen.
   use multifloats
