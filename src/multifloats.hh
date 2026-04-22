@@ -339,7 +339,7 @@ constexpr void renorm_fast(double &hi, double &lo) {
 // Rounding and integer-valued functions
 // =============================================================================
 
-inline float64x2 floor(float64x2 const &x) {
+inline constexpr float64x2 floor(float64x2 const &x) {
   float64x2 r;
   double fl_hi = std::floor(x._limbs[0]);
   if (fl_hi == x._limbs[0]) {
@@ -354,7 +354,7 @@ inline float64x2 floor(float64x2 const &x) {
   return r;
 }
 
-inline float64x2 ceil(float64x2 const &x) {
+inline constexpr float64x2 ceil(float64x2 const &x) {
   float64x2 r;
   double cl_hi = std::ceil(x._limbs[0]);
   if (cl_hi == x._limbs[0]) {
@@ -368,11 +368,11 @@ inline float64x2 ceil(float64x2 const &x) {
   return r;
 }
 
-inline float64x2 trunc(float64x2 const &x) {
+inline constexpr float64x2 trunc(float64x2 const &x) {
   return std::signbit(x._limbs[0]) ? -floor(-x) : floor(x);
 }
 
-inline float64x2 round(float64x2 const &x) {
+inline constexpr float64x2 round(float64x2 const &x) {
   // Round half away from zero, matching std::round. Two half-integer
   // hazards handled here:
   //   * hi itself half-integer (e.g. 2.5): std::round jumps away from zero,
@@ -385,7 +385,7 @@ inline float64x2 round(float64x2 const &x) {
   double hi = std::round(x._limbs[0]);
   if (hi == x._limbs[0]) {
     double lo = x._limbs[1];
-    double rlo;
+    double rlo = 0.0;
     if      (lo ==  0.5 && hi <  0.0) rlo = 0.0;
     else if (lo == -0.5 && hi >  0.0) rlo = 0.0;
     else                              rlo = std::round(lo);
@@ -402,7 +402,7 @@ inline float64x2 round(float64x2 const &x) {
   return r;
 }
 
-inline float64x2 nearbyint(float64x2 const &x) {
+inline constexpr float64x2 nearbyint(float64x2 const &x) {
   float64x2 r;
   double hi = std::nearbyint(x._limbs[0]);
   if (hi == x._limbs[0]) {
@@ -416,13 +416,13 @@ inline float64x2 nearbyint(float64x2 const &x) {
   return r;
 }
 
-inline float64x2 rint(float64x2 const &x) { return nearbyint(x); }
+inline constexpr float64x2 rint(float64x2 const &x) { return nearbyint(x); }
 
 namespace detail {
 // Shared half-integer correction for lround / llround. Given i = std::[l]lround(x_hi),
 // adjust ±1 based on how lo crosses the half-integer boundary of the true value.
 template <typename Int>
-Int lround_adjust(float64x2 const &x, Int i) {
+constexpr Int lround_adjust(float64x2 const &x, Int i) {
   double hi = x._limbs[0];
   double lo = x._limbs[1];
   double diff = hi - double(i);
@@ -438,19 +438,19 @@ Int lround_adjust(float64x2 const &x, Int i) {
 }
 } // namespace detail
 
-inline long lround(float64x2 const &x) {
+inline constexpr long lround(float64x2 const &x) {
   return detail::lround_adjust<long>(x, std::lround(x._limbs[0]));
 }
 
-inline long long llround(float64x2 const &x) {
+inline constexpr long long llround(float64x2 const &x) {
   return detail::lround_adjust<long long>(x, std::llround(x._limbs[0]));
 }
 
-inline long lrint(float64x2 const &x) {
+inline constexpr long lrint(float64x2 const &x) {
   return std::lrint(rint(x)._limbs[0]);
 }
 
-inline long long llrint(float64x2 const &x) {
+inline constexpr long long llrint(float64x2 const &x) {
   return std::llrint(rint(x)._limbs[0]);
 }
 
@@ -458,31 +458,31 @@ inline long long llrint(float64x2 const &x) {
 // Floating-point manipulation
 // =============================================================================
 
-inline float64x2 frexp(float64x2 const &x, int *exp) {
+inline constexpr float64x2 frexp(float64x2 const &x, int *exp) {
   float64x2 r;
-  int e;
+  int e = 0;
   r._limbs[0] = std::frexp(x._limbs[0], &e);
   r._limbs[1] = std::ldexp(x._limbs[1], -e);
   *exp = e;
   return r;
 }
 
-inline float64x2 modf(float64x2 const &x, float64x2 *iptr) {
+inline constexpr float64x2 modf(float64x2 const &x, float64x2 *iptr) {
   *iptr = trunc(x);
   return x - *iptr;
 }
 
-inline float64x2 scalbln(float64x2 const &x, long n) {
+inline constexpr float64x2 scalbln(float64x2 const &x, long n) {
   return {std::scalbln(x._limbs[0], n), std::scalbln(x._limbs[1], n)};
 }
 
-inline float64x2 logb(float64x2 const &x) {
+inline constexpr float64x2 logb(float64x2 const &x) {
   float64x2 r;
   r._limbs[0] = std::logb(x._limbs[0]);
   return r;
 }
 
-inline float64x2 nextafter(float64x2 const &x, float64x2 const &y) {
+inline constexpr float64x2 nextafter(float64x2 const &x, float64x2 const &y) {
   if (x == y) return y;
   // One DD ulp ≈ ulp_up(|hi|) * 2^-53. Always use the upward ulp of |hi|;
   // the downward ulp halves at a power-of-2 boundary, so picking it there
@@ -495,7 +495,7 @@ inline float64x2 nextafter(float64x2 const &x, float64x2 const &y) {
   return (x < y) ? x + float64x2(eps) : x - float64x2(eps);
 }
 
-inline float64x2 nexttoward(float64x2 const &x, float64x2 const &y) {
+inline constexpr float64x2 nexttoward(float64x2 const &x, float64x2 const &y) {
   return nextafter(x, y);
 }
 
@@ -509,7 +509,7 @@ inline constexpr float64x2 fma(float64x2 const &x, float64x2 const &y,
   return x * y + z;
 }
 
-inline float64x2 fmod(float64x2 const &x, float64x2 const &y) {
+inline constexpr float64x2 fmod(float64x2 const &x, float64x2 const &y) {
   // Reduction step picks q from the ilogb gap between r and ay:
   // gap ≤ 53 — scalar q fits in one double (the earlier all-scalar form
   // silently lost q's low integer bits past 2^53); gap > 53 — DD-level
@@ -553,11 +553,11 @@ inline float64x2 fmod(float64x2 const &x, float64x2 const &y) {
   return x_neg ? -r : r;
 }
 
-inline float64x2 remainder(float64x2 const &x, float64x2 const &y) {
+inline constexpr float64x2 remainder(float64x2 const &x, float64x2 const &y) {
   return x - round(x / y) * y;
 }
 
-inline float64x2 remquo(float64x2 const &x, float64x2 const &y, int *quo) {
+inline constexpr float64x2 remquo(float64x2 const &x, float64x2 const &y, int *quo) {
   float64x2 q = round(x / y);
   *quo = static_cast<int>(q._limbs[0]);
   return x - q * y;
@@ -569,7 +569,7 @@ inline constexpr float64x2 fdim(float64x2 const &x, float64x2 const &y) {
 
 // C++20 std::lerp: exact at the endpoints, monotonic in t, and does not
 // overshoot when a and b have the same sign and t is in [0, 1].
-inline float64x2 lerp(float64x2 const &a, float64x2 const &b,
+inline constexpr float64x2 lerp(float64x2 const &a, float64x2 const &b,
                       float64x2 const &t) {
   if ((a._limbs[0] <= 0.0 && b._limbs[0] >= 0.0) ||
       (a._limbs[0] >= 0.0 && b._limbs[0] <= 0.0)) {
@@ -596,7 +596,7 @@ inline float64x2 lerp(float64x2 const &a, float64x2 const &b,
 // =============================================================================
 
 // Forward declaration so detail kernels below can use multifloats::sqrt via ADL.
-inline float64x2 sqrt(float64x2 const &x);
+inline constexpr float64x2 sqrt(float64x2 const &x);
 
 namespace detail {
 
@@ -623,15 +623,15 @@ namespace detail {
 namespace multifloats {
 
 namespace detail {
-inline float64x2_t to_f64x2(float64x2 const &x) { return {x._limbs[0], x._limbs[1]}; }
-inline float64x2 from_f64x2(float64x2_t x) { float64x2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
+inline constexpr float64x2_t to_f64x2(float64x2 const &x) { return {x._limbs[0], x._limbs[1]}; }
+inline constexpr float64x2 from_f64x2(float64x2_t x) { float64x2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
 } // namespace detail
 
 // =============================================================================
 // Roots
 // =============================================================================
 
-inline float64x2 sqrt(float64x2 const &x) {
+inline constexpr float64x2 sqrt(float64x2 const &x) {
   double s = std::sqrt(x._limbs[0]);
   // Bail on 0, -0, negative, NaN, +Inf — the Karp-Markstein refinement
   // would compute `inf - inf = NaN` in the residual step for +Inf, and
@@ -660,7 +660,7 @@ inline float64x2 sqrt(float64x2 const &x) {
   return s_dd + correction;
 }
 
-inline float64x2 cbrt(float64x2 const &x) {
+inline constexpr float64x2 cbrt(float64x2 const &x) {
   if (x._limbs[0] == 0.0) return float64x2();
   const double s = std::cbrt(x._limbs[0]);
   const float64x2 s_dd(s);
@@ -669,7 +669,7 @@ inline float64x2 cbrt(float64x2 const &x) {
   return s_dd + correction;
 }
 
-inline float64x2 hypot(float64x2 const &x, float64x2 const &y) {
+inline constexpr float64x2 hypot(float64x2 const &x, float64x2 const &y) {
   // Defer to libm's hypot for non-finite so inf/NaN propagate correctly.
   if (!std::isfinite(x._limbs[0]) || !std::isfinite(y._limbs[0])) {
     float64x2 r;
@@ -822,7 +822,7 @@ inline constexpr bool isunordered(float64x2 const &x, float64x2 const &y) {
 namespace detail {
 
 // Renormalize (hi, lo) into canonical DD form.
-inline void io_renorm(double &hi, double &lo) {
+inline constexpr void io_renorm(double &hi, double &lo) {
   double s = hi + lo;
   double err = lo - (s - hi);
   hi = s;
@@ -830,7 +830,7 @@ inline void io_renorm(double &hi, double &lo) {
 }
 
 // (hi, lo) *= d, with d a double; result renormalized.
-inline void io_dd_mul_d(double &hi, double &lo, double d) {
+inline constexpr void io_dd_mul_d(double &hi, double &lo, double d) {
   double p = hi * d;
   double e = std::fma(hi, d, -p);
   lo = lo * d + e;
