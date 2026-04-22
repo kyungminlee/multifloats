@@ -172,6 +172,91 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
 #include "multifloats_math_matmul.inc"
 } // anonymous namespace
 
+// Public C++ matmul entry points. The panel dispatchers above operate on
+// `float64x2_t` (C-ABI struct) since they were originally the bodies of the
+// extern "C" `matmuldd_*` shims. `multifloats::float64x2` is layout-compatible
+// (asserted in multifloats.hh next to the declarations), so we reinterpret
+// pointers once at the boundary and hand off to the same dispatchers. The
+// `matmuldd_*` shims in multifloats_math_abi_scalar.inc are now one-line
+// wrappers calling these in the opposite direction.
+namespace multifloats {
+
+void matmul_mm(float64x2 const *a, float64x2 const *b, float64x2 *c,
+               std::int64_t m, std::int64_t k, std::int64_t n,
+               std::int64_t renorm_interval) {
+  auto *ac = reinterpret_cast<float64x2_t const *>(a);
+  auto *bc = reinterpret_cast<float64x2_t const *>(b);
+  auto *cc = reinterpret_cast<float64x2_t *>(c);
+  // NR-blocked mm: the MR-row × NR-col tile loads A[:,p] once per p and
+  // reuses it across NR output columns, halving A-bandwidth vs a per-
+  // column mv dispatch. Row-tail (1..MR-1 rows) and column-tail
+  // (1..NR-1 cols) fall back to the single-column mv panel.
+  constexpr int MR = 8;
+  constexpr int NR = 2;
+  std::int64_t j = 0;
+  for (; j + NR <= n; j += NR) {
+    std::int64_t i = 0;
+    for (; i + MR <= m; i += MR) {
+      gemm_panel<MR, NR>(ac + i, bc + j * k, cc + j * m + i,
+                         m, k, m, k, renorm_interval);
+    }
+    int tail_m = static_cast<int>(m - i);
+    if (tail_m > 0) {
+      for (int jj = 0; jj < NR; ++jj) {
+        gaxpy_mv_tail(ac + i, bc + (j + jj) * k, cc + (j + jj) * m + i,
+                      tail_m, m, k, renorm_interval);
+      }
+    }
+  }
+  for (; j < n; ++j) {
+    gaxpy_mv_dispatch(ac, bc + j * k, cc + j * m, m, k, m, renorm_interval);
+  }
+}
+
+void matmul_mv(float64x2 const *a, float64x2 const *x, float64x2 *y,
+               std::int64_t m, std::int64_t k,
+               std::int64_t renorm_interval) {
+  gaxpy_mv_dispatch(reinterpret_cast<float64x2_t const *>(a),
+                    reinterpret_cast<float64x2_t const *>(x),
+                    reinterpret_cast<float64x2_t *>(y),
+                    m, k, m, renorm_interval);
+}
+
+// vm: y[j] = sum_p x[p] * B[p, j]. Column-major B makes B[:, j]
+// contiguous at fixed j, so one scalar accumulator per output is optimal.
+void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
+               std::int64_t k, std::int64_t n,
+               std::int64_t renorm_interval) {
+  auto *xc = reinterpret_cast<float64x2_t const *>(x);
+  auto *bc = reinterpret_cast<float64x2_t const *>(b);
+  auto *yc = reinterpret_cast<float64x2_t *>(y);
+  const bool simple = (renorm_interval <= 0) || (k <= renorm_interval);
+  for (std::int64_t j = 0; j < n; ++j) {
+    double s_hi = 0.0, s_lo = 0.0;
+    const float64x2_t *__restrict__ bcol = bc + j * k;
+    if (simple) {
+      for (std::int64_t p = 0; p < k; ++p) {
+        mac_inl(xc[p].hi, xc[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
+      }
+    } else {
+      const std::int64_t chunk = renorm_interval;
+      std::int64_t p0 = 0;
+      while (p0 < k) {
+        std::int64_t pend = p0 + chunk;
+        if (pend > k) pend = k;
+        for (std::int64_t p = p0; p < pend; ++p) {
+          mac_inl(xc[p].hi, xc[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
+        }
+        p0 = pend;
+        if (p0 < k) renorm_inl(s_hi, s_lo);
+      }
+    }
+    yc[j] = finalize_inl(s_hi, s_lo);
+  }
+}
+
+} // namespace multifloats
+
 // std:: complex template specializations — bodies for every C++ <complex>
 // free function we override (exp/log/sqrt/pow, the trig/hyp triples and
 // their inverses, abs/arg/proj). Declarations live in multifloats.hh.

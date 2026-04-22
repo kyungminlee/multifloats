@@ -109,69 +109,37 @@ void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
   *c = to(cc);
 }
 
-void matmuldd_mm(const float64x2_t *__restrict__ a, const float64x2_t *__restrict__ b,
-                  float64x2_t *__restrict__ c, int64_t m, int64_t k, int64_t n,
-                  int64_t renorm_interval) {
-  // NR-blocked mm: the MR-row × NR-col tile loads A[:,p] once per p and
-  // reuses it across NR output columns, halving A-bandwidth vs a per-
-  // column mv dispatch. Row-tail (1..MR-1 rows) and column-tail
-  // (1..NR-1 cols) fall back to the single-column mv panel.
-  constexpr int MR = 8;
-  constexpr int NR = 2;
-  int64_t j = 0;
-  for (; j + NR <= n; j += NR) {
-    int64_t i = 0;
-    for (; i + MR <= m; i += MR) {
-      gemm_panel<MR, NR>(a + i, b + j * k, c + j * m + i,
-                            m, k, m, k, renorm_interval);
-    }
-    int tail_m = static_cast<int>(m - i);
-    if (tail_m > 0) {
-      for (int jj = 0; jj < NR; ++jj) {
-        gaxpy_mv_tail(a + i, b + (j + jj) * k, c + (j + jj) * m + i,
-                         tail_m, m, k, renorm_interval);
-      }
-    }
-  }
-  for (; j < n; ++j) {
-    gaxpy_mv_dispatch(a, b + j * k, c + j * m, m, k, m, renorm_interval);
-  }
+// Matmul: thin wrappers around multifloats::matmul_* (implementations in
+// multifloats_math.cc). The reinterpret_cast at the boundary is backed by a
+// static_assert on layout compatibility in multifloats.hh.
+void matmuldd_mm(const float64x2_t *a, const float64x2_t *b,
+                 float64x2_t *c, int64_t m, int64_t k, int64_t n,
+                 int64_t renorm_interval) {
+  multifloats::matmul_mm(
+      reinterpret_cast<const multifloats::float64x2 *>(a),
+      reinterpret_cast<const multifloats::float64x2 *>(b),
+      reinterpret_cast<multifloats::float64x2 *>(c),
+      m, k, n, renorm_interval);
 }
 
-void matmuldd_mv(const float64x2_t *__restrict__ a, const float64x2_t *__restrict__ x,
-                  float64x2_t *__restrict__ y, int64_t m, int64_t k,
-                  int64_t renorm_interval) {
-  gaxpy_mv_dispatch(a, x, y, m, k, m, renorm_interval);
+void matmuldd_mv(const float64x2_t *a, const float64x2_t *x,
+                 float64x2_t *y, int64_t m, int64_t k,
+                 int64_t renorm_interval) {
+  multifloats::matmul_mv(
+      reinterpret_cast<const multifloats::float64x2 *>(a),
+      reinterpret_cast<const multifloats::float64x2 *>(x),
+      reinterpret_cast<multifloats::float64x2 *>(y),
+      m, k, renorm_interval);
 }
 
-// vm: y[j] = sum_p x[p] * B[p, j]. Column-major B makes B[:, j]
-// contiguous at fixed j, so one scalar accumulator per output is optimal.
-void matmuldd_vm(const float64x2_t *__restrict__ x, const float64x2_t *__restrict__ b,
-                  float64x2_t *__restrict__ y, int64_t k, int64_t n,
-                  int64_t renorm_interval) {
-  const bool simple = (renorm_interval <= 0) || (k <= renorm_interval);
-  for (int64_t j = 0; j < n; ++j) {
-    double s_hi = 0.0, s_lo = 0.0;
-    const float64x2_t *__restrict__ bcol = b + j * k;
-    if (simple) {
-      for (int64_t p = 0; p < k; ++p) {
-        mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
-      }
-    } else {
-      const int64_t chunk = renorm_interval;
-      int64_t p0 = 0;
-      while (p0 < k) {
-        int64_t pend = p0 + chunk;
-        if (pend > k) pend = k;
-        for (int64_t p = p0; p < pend; ++p) {
-          mac_inl(x[p].hi, x[p].lo, bcol[p].hi, bcol[p].lo, s_hi, s_lo);
-        }
-        p0 = pend;
-        if (p0 < k) renorm_inl(s_hi, s_lo);
-      }
-    }
-    y[j] = finalize_inl(s_hi, s_lo);
-  }
+void matmuldd_vm(const float64x2_t *x, const float64x2_t *b,
+                 float64x2_t *y, int64_t k, int64_t n,
+                 int64_t renorm_interval) {
+  multifloats::matmul_vm(
+      reinterpret_cast<const multifloats::float64x2 *>(x),
+      reinterpret_cast<const multifloats::float64x2 *>(b),
+      reinterpret_cast<multifloats::float64x2 *>(y),
+      k, n, renorm_interval);
 }
 
 // Comparison

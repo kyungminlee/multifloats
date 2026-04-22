@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <iosfwd>
 #include <limits>
@@ -815,6 +816,38 @@ inline constexpr bool islessgreater(float64x2 const &x, float64x2 const &y) {
 inline constexpr bool isunordered(float64x2 const &x, float64x2 const &y) {
   return isnan(x) || isnan(y);
 }
+
+// Layout compatibility with the C ABI struct. The `matmul_*` wrappers below
+// reinterpret `float64x2 const*` ⇄ `float64x2_t const*` at the boundary
+// rather than reshape element-by-element, which is only safe if the two
+// types occupy the same storage.
+static_assert(sizeof(float64x2) == sizeof(float64x2_t),
+              "multifloats::float64x2 and float64x2_t must have the same "
+              "size for the matmul C-ABI wrappers to use reinterpret_cast");
+
+// ---- Compensated DD matrix multiply ----------------------------------------
+//
+// Column-major (Fortran-layout) GEMM/GEMV/VM panels with a compensated DD
+// accumulator. Definitions live in src/multifloats_math.cc; the extern "C"
+// `matmuldd_*` shims in multifloats_c.h are thin reinterpret_cast wrappers
+// over these. See the block comment on matmuldd_mm in multifloats_c.h for
+// the deliberate scope-down vs BLAS GEMM (no transpose flags, no alpha/beta,
+// no leading-dimension arguments — always contiguous column-major).
+//
+// `renorm_interval` controls mid-accumulation renormalization of the (hi,
+// lo) DD accumulator pair:
+//   • 0  — renormalize only at the very end (cheapest; drifts on very large k).
+//   • N>0 — two_sum every N reductions, keeping `lo` bounded. Matches
+//           DD_FMA_RENORM_INTERVAL in the Fortran layer.
+void matmul_mm(float64x2 const *a, float64x2 const *b, float64x2 *c,
+               std::int64_t m, std::int64_t k, std::int64_t n,
+               std::int64_t renorm_interval = 0);
+void matmul_mv(float64x2 const *a, float64x2 const *x, float64x2 *y,
+               std::int64_t m, std::int64_t k,
+               std::int64_t renorm_interval = 0);
+void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
+               std::int64_t k, std::int64_t n,
+               std::int64_t renorm_interval = 0);
 
 // ---- Formatted I/O for float64x2 -------------------------------------------
 //
