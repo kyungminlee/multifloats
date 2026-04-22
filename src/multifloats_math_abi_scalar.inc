@@ -66,20 +66,23 @@ float64x2_t erfcxdd(float64x2_t a) { return to(multifloats::erfcx(from(a))); }
 float64x2_t tgammadd(float64x2_t a) { return to(multifloats::tgamma(from(a))); }
 float64x2_t lgammadd(float64x2_t a) { return to(multifloats::lgamma(from(a))); }
 
-// Bessel functions (math.h naming: j0, j1, y0, y1)
+// Bessel functions (math.h naming: j0, j1, y0, y1). The fast-path kernels
+// multifloats::bessel_j0/j1/y0/y1 are defined in multifloats_math_bessel.inc
+// and live in namespace multifloats as internal helpers — the C ABI is the
+// only public surface that reaches them directly.
 float64x2_t j0dd(float64x2_t a) { return to(multifloats::bessel_j0(from(a))); }
 float64x2_t j1dd(float64x2_t a) { return to(multifloats::bessel_j1(from(a))); }
 float64x2_t y0dd(float64x2_t a) { return to(multifloats::bessel_y0(from(a))); }
 float64x2_t y1dd(float64x2_t a) { return to(multifloats::bessel_y1(from(a))); }
 
 // Integer-order Bessel functions (recurrence from j0/j1, y0/y1).
-float64x2_t jndd(int n, float64x2_t a) { return to(multifloats::bessel_jn(n, from(a))); }
-float64x2_t yndd(int n, float64x2_t a) { return to(multifloats::bessel_yn(n, from(a))); }
+float64x2_t jndd(int n, float64x2_t a) { return to(multifloats::cyl_bessel_j(n, from(a))); }
+float64x2_t yndd(int n, float64x2_t a) { return to(multifloats::cyl_neumann(n, from(a))); }
 void yn_rangedd(int n1, int n2, float64x2_t a, float64x2_t *out) {
   int size = n2 - n1 + 1;
   if (size <= 0) return;
   std::vector<float64x2> buf(size);
-  multifloats::bessel_yn_range(n1, n2, from(a), buf.data());
+  multifloats::cyl_neumann(n1, n2, from(a), buf.data());
   for (int i = 0; i < size; ++i) out[i] = to(buf[i]);
 }
 

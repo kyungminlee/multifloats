@@ -226,7 +226,7 @@ float64x2 bessel_y1(float64x2 const &x) {
 // Yn: forward recurrence is always stable (|Y_n| grows with n for fixed x),
 // so no Miller's algorithm is needed.
 
-float64x2 bessel_jn(int n, float64x2 const &x_in) {
+float64x2 cyl_bessel_j(int n, float64x2 const &x_in) {
   // Track sign flips from the identities
   //   J_{-n}(x) = (-1)^n J_n(x)     and     J_n(-x) = (-1)^n J_n(x).
   float64x2 x = x_in;
@@ -305,7 +305,7 @@ float64x2 bessel_jn(int n, float64x2 const &x_in) {
   return parity ? -result : result;
 }
 
-float64x2 bessel_yn(int n, float64x2 const &x) {
+float64x2 cyl_neumann(int n, float64x2 const &x) {
   // Y_{-n}(x) = (-1)^n Y_n(x). No x-sign identity — Y is undefined on x < 0.
   int parity = 0;
   if (n < 0) { n = -n; parity ^= (n & 1); }
@@ -340,7 +340,7 @@ float64x2 bessel_yn(int n, float64x2 const &x) {
 // Range variant: compute Y_{n1}, Y_{n1+1}, …, Y_{n2}(x) into `out` via a
 // single forward recurrence sweep. Cheaper than n2−n1+1 independent calls.
 // Caller guarantees out[] has room for n2−n1+1 elements.
-void bessel_yn_range(int n1, int n2, float64x2 const &x, float64x2 *out) {
+void cyl_neumann(int n1, int n2, float64x2 const &x, float64x2 *out) {
   int size = n2 - n1 + 1;
   if (size <= 0) return;
   float64x2 a = bessel_y0(x);
