@@ -92,6 +92,13 @@ using multifloats_test::mp_rel_err;
 using multifloats_test::mp_isfinite;
 using multifloats_test::mp_isnan;
 
+// mpreal covers fmin/fmax/fmod/copysign but is missing fdim. Fill the gap
+// with a local wrapper so CHK2(fdim) derives mpfr::fdim(m1, m2) the same
+// way as the other scalar binary ops.
+namespace mpfr {
+inline mp_t fdim(mp_t const &a, mp_t const &b) { return a > b ? a - b : mp_t(0); }
+}  // namespace mpfr
+
 #define MP_PARAM(...) , __VA_ARGS__
 #define MP_ARG(...)   , (__VA_ARGS__)
 #define MP_STMT(...)  __VA_ARGS__
@@ -786,19 +793,14 @@ int main(int argc, char **argv) {
           q1, (q_t)d2, m1 + to_mp(d2));
       CHK("mul_df", mf::float64x2(d1) * f2, (q_t)d1 * q2,
           (q_t)d1, q2, to_mp(d1) * m2);
-      CHK("fmin", mf::fmin(f1, f2), q1 < q2 ? q1 : q2, q1, q2,
-          q1 < q2 ? m1 : m2);
-      CHK("fmax", mf::fmax(f1, f2), q1 < q2 ? q2 : q1, q1, q2,
-          q1 < q2 ? m2 : m1);
-      CHK("copysign", mf::copysign(f1, f2), copysignq(q1, q2), q1, q2,
-          (m2 >= 0 ? mpfr::abs(m1) : -mpfr::abs(m1)));
-      CHK("fdim", mf::fdim(f1, f2), fdimq(q1, q2), q1, q2,
-          (m1 > m2 ? m1 - m2 : mp_t(0)));
+      CHK2(fmin);
+      CHK2(fmax);
+      CHK2(copysign);
+      CHK2(fdim);
       CHK2(hypot);
 
       q_t aq2 = q2 < 0 ? -q2 : q2;
-      if (q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q)
-        CHK("fmod", mf::fmod(f1, f2), fmodq(q1, q2), q1, q2, mpfr::fmod(m1, m2));
+      if (q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q) CHK2(fmod);
 
       // fmadd(a, b, c) = a·b + c. Use d1 as the third input (DD-
       // representable) so the qp reference is exactly fmaq(q1, q2, d1).
