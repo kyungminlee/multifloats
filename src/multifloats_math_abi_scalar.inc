@@ -9,8 +9,6 @@
 
 #define MF_ABI_UNARY(NAME) \
   float64x2_t NAME##dd(float64x2_t a) { return to(multifloats::NAME(from(a))); }
-#define MF_ABI_UNARY_AS(CNAME, CXXNAME) \
-  float64x2_t CNAME(float64x2_t a) { return to(multifloats::CXXNAME(from(a))); }
 #define MF_ABI_BINARY(NAME) \
   float64x2_t NAME##dd(float64x2_t a, float64x2_t b) { \
     return to(multifloats::NAME(from(a), from(b))); \
@@ -32,7 +30,7 @@ MF_ABI_BINARY_OP(div, /)
 
 // Unary
 float64x2_t negdd(float64x2_t a) { return to(-from(a)); }
-MF_ABI_UNARY_AS(fabsdd, abs)  // C's fabs is C++'s abs
+MF_ABI_UNARY(fabs)
 MF_ABI_UNARY(sqrt)
 
 // Rounding (Fortran AINT / ANINT delegate here)
@@ -179,7 +177,6 @@ MF_ABI_CMP(gt, >)
 MF_ABI_CMP(ge, >=)
 
 #undef MF_ABI_UNARY
-#undef MF_ABI_UNARY_AS
 #undef MF_ABI_BINARY
 #undef MF_ABI_BINARY_OP
 #undef MF_ABI_CMP
