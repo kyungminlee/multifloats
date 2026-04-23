@@ -2,11 +2,11 @@
 // complex64x2_t ↔ std::complex<multifloats::float64x2> and dispatches to
 // the corresponding C++ implementation:
 //   • transcendentals + abs/arg/proj → std:: specializations in
-//     multifloats_math_complex_std.inc (pulled into multifloats_math.cc
+//     complex64x2_std.inc (pulled into multifloats_math.cc
 //     inside `namespace std`)
 //   • Kind-D overloads (log2/log10/log1p/expm1/sinpi/cospi) →
 //     `namespace multifloats` overloads in
-//     multifloats_math_abi_complex_kernels.inc
+//     complex64x2_abi_kernels.inc
 //   • trivial accessors (conj/real/imag) → std::complex member or
 //     generic template
 //

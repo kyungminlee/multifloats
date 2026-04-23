@@ -57,7 +57,7 @@ endif()
 # Fortran reimplements basic arithmetic natively.
 add_test(NAME fortran_abi_sync
     COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_fortran_abi_sync.sh
-            ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats/float64x2.h
             ${CMAKE_CURRENT_BINARY_DIR}/fsrc/generated/multifloats.f90)
 
 # MPFR precision tests — off by default; on-demand high-precision

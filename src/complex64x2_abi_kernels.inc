@@ -4,11 +4,11 @@
 // the standard library (sinpi, cospi).
 //
 // log10 has a std::complex free-function template in C++17; placing it
-// as a std:: specialization in multifloats_math_complex_std.inc lets
+// as a std:: specialization in complex64x2_std.inc lets
 // `std::log10(z)` route to the DD path. The other five live here.
 //
 // Bodies mirror the original extern "C" c*dd implementations in
-// multifloats_math_abi_complex.inc; the C shim wrappers over there now
+// complex64x2_abi.inc; the C shim wrappers over there now
 // call these directly.
 
 // log10(z) = log(z) · (1/ln 10). Routes through std::log (the DD complex-

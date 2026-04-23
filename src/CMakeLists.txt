@@ -15,10 +15,10 @@ target_include_directories(multifloats
 # the header constant drift silently and a future shared-library build would
 # ship a wrongly-tagged soname. SOVERSION is only honored on shared libraries,
 # but we set it anyway so `BUILD_SHARED_LIBS=ON` records the right soname.
-file(STRINGS "${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats.h"
+file(STRINGS "${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats/float64x2.h"
      _mf_abi_line REGEX "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+[0-9]+")
 if(NOT _mf_abi_line)
-    message(FATAL_ERROR "multifloats: could not find MULTIFLOATS_ABI_VERSION in include/multifloats.h")
+    message(FATAL_ERROR "multifloats: could not find MULTIFLOATS_ABI_VERSION in include/multifloats/float64x2.h")
 endif()
 string(REGEX REPLACE "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+([0-9]+).*$"
        "\\1" MULTIFLOATS_ABI_VERSION "${_mf_abi_line}")
@@ -69,6 +69,9 @@ install(TARGETS multifloats
 install(FILES
     ${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(FILES
+    ${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats/float64x2.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/multifloats)
 install(EXPORT multifloatsTargets
     FILE multifloatsTargets.cmake
     NAMESPACE multifloats::
