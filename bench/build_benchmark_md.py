@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Render ``BENCHMARK.md`` from per-system JSON files produced by
+"""Render ``BENCHMARK.md`` from one per-system JSON file produced by
 ``bench/run_benchmarks.py``.
 
-    python3 bench/build_benchmark_md.py                     # uses bench/results/*.json
-    python3 bench/build_benchmark_md.py bench/results/a.json bench/results/b.json
-    python3 bench/build_benchmark_md.py -o /tmp/BENCHMARK.md
+    python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
+    python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json --stdout
+    python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json -o /tmp/BENCHMARK.md
 
-With no positional arguments, loads every ``benchmark-*.json`` under
-``bench/results/``, sorted by filename. Columns in the output tables appear
-in the same order.
+The output is a single-architecture flat table — one row per op,
+merging C-ABI and Fortran-elemental measurements side-by-side.
 """
 
 from __future__ import annotations
@@ -26,11 +25,10 @@ import ops as ops_mod  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = Path(__file__).resolve().parent
-RESULTS_DIR = REPO_ROOT / "bench" / "results"
 DEFAULT_OUTPUT = REPO_ROOT / "doc" / "BENCHMARK.md"
 
-EMDASH = "\u2014"  # —
-TIMES = "\u00d7"   # ×
+EMDASH = "—"  # —
+TIMES = "×"   # ×
 
 
 def _finite(v) -> bool:
@@ -53,7 +51,6 @@ def _format_max_rel(v: float) -> str:
 
 
 def _format_qp_err(v: float) -> str:
-    """Format quadmath-vs-MPFR rel-err in qp ulps."""
     if not _finite(v) or v < 0.0:
         return EMDASH
     if v == 0.0:
@@ -64,55 +61,6 @@ def _format_qp_err(v: float) -> str:
     return f"{u:.0f} qp ulp"
 
 
-def err_filter(op: ops_mod.Op, system: dict, lang: str) -> str:
-    """Render the DD-vs-MPFR err cell for one op × one system."""
-    spec = op.fuzz
-    if spec is None:
-        return EMDASH
-    if spec == "exact":
-        return "exact"
-    fuzz_data = (system.get(lang) or {}).get("fuzz") or {}
-    if isinstance(spec, str):
-        entry = fuzz_data.get(spec)
-        if not entry or not _finite(entry.get("max_rel")):
-            return EMDASH
-        return _format_max_rel(entry["max_rel"])
-    parts: list[str] = []
-    for label, key in spec:
-        entry = fuzz_data.get(key)
-        if entry and _finite(entry.get("max_rel")):
-            parts.append(f"{_format_max_rel(entry['max_rel'])} ({label})")
-    if not parts:
-        return EMDASH
-    return " / ".join(parts)
-
-
-def qp_err_filter(op: ops_mod.Op, systems: list[dict]) -> str:
-    """Render the quadmath-vs-MPFR reference err cell for one op.
-
-    System-independent — qp precision is the same on every machine. Pulls
-    `max_qp` from the first system that has an entry.
-    """
-    spec = op.fuzz
-    if spec is None or spec == "exact":
-        return EMDASH
-    for sys in systems:
-        fuzz_data = (sys.get("c") or sys.get("cpp") or {}).get("fuzz") or {}
-        if isinstance(spec, str):
-            entry = fuzz_data.get(spec)
-            if entry and _finite(entry.get("max_qp")):
-                return _format_qp_err(entry["max_qp"])
-        else:
-            parts: list[str] = []
-            for label, key in spec:
-                entry = fuzz_data.get(key)
-                if entry and _finite(entry.get("max_qp")):
-                    parts.append(f"{_format_qp_err(entry['max_qp'])} ({label})")
-            if parts:
-                return " / ".join(parts)
-    return EMDASH
-
-
 def _format_speedup_number(v: float) -> str:
     if v >= 10.0:
         return f"{int(round(v))}{TIMES}"
@@ -121,38 +69,70 @@ def _format_speedup_number(v: float) -> str:
     return f"{v:.2f}{TIMES}"
 
 
-def speedup_filter(op: ops_mod.Op, system: dict, lang: str) -> str:
-    bench_data = (system.get(lang) or {}).get("bench") or {}
-    entry = bench_data.get(op.bench_key)
-    if not entry or not _finite(entry.get("speedup")):
+def _format_speedup(v) -> str:
+    if not _finite(v) or v <= 0.0:
         return EMDASH
-    v = float(entry["speedup"])
-    if v <= 0.0:
+    s = _format_speedup_number(float(v))
+    return f"**{s}**" if v >= 2.0 else s
+
+
+def _err_cell(spec, fuzz_data: dict, field: str, formatter) -> str:
+    """Generic err-cell renderer parametrised on (re, im) split or single."""
+    if spec is None:
         return EMDASH
-    s = _format_speedup_number(v)
-    if v >= 2.0:
-        return f"**{s}**"
-    return s
+    if spec == "exact":
+        return "exact"
+    if isinstance(spec, str):
+        entry = fuzz_data.get(spec)
+        if not entry or not _finite(entry.get(field)):
+            return EMDASH
+        return formatter(entry[field])
+    parts: list[str] = []
+    for label, key in spec:
+        entry = fuzz_data.get(key)
+        if entry and _finite(entry.get(field)):
+            parts.append(f"{formatter(entry[field])} ({label})")
+    if not parts:
+        return EMDASH
+    return " / ".join(parts)
 
 
-def load_systems(paths: list[Path]) -> list[dict]:
-    systems: list[dict] = []
-    for p in paths:
-        blob = json.loads(p.read_text())
-        sysrec = {
-            **blob.get("system", {}),
-            "fortran": blob.get("fortran", {}),
-            # Accept both the new "c" key and the legacy "cpp" key.
-            "c": blob.get("c") or blob.get("cpp", {}),
-        }
-        # Ensure short_name is present for the template.
-        if "short_name" not in sysrec:
-            sysrec["short_name"] = p.stem.removeprefix("benchmark-")
-        systems.append(sysrec)
-    return systems
+def err_dd_filter(row: ops_mod.UnifiedRow, system: dict) -> str:
+    """DD-vs-MPFR err cell, in DD ulps."""
+    fuzz_data = (system.get("c") or {}).get("fuzz") or {}
+    return _err_cell(row.fuzz, fuzz_data, "max_rel", _format_max_rel)
 
 
-def render(systems: list[dict], template_path: Path) -> str:
+def err_qp_filter(row: ops_mod.UnifiedRow, system: dict) -> str:
+    """quadmath-vs-MPFR err cell, in qp ulps. Same fuzz dict, different field."""
+    fuzz_data = (system.get("c") or {}).get("fuzz") or {}
+    return _err_cell(row.fuzz, fuzz_data, "max_qp", _format_qp_err)
+
+
+def speedup_pair_filter(row: ops_mod.UnifiedRow, system: dict) -> str:
+    """`<C-side> / <Fortran-side>` speedup pair (qp_time / dd_time)."""
+    def lookup(lang: str, key: str | None) -> str:
+        if key is None:
+            return EMDASH
+        bench_data = (system.get(lang) or {}).get("bench") or {}
+        entry = bench_data.get(key)
+        if not entry:
+            return EMDASH
+        return _format_speedup(entry.get("speedup"))
+
+    return f"{lookup('c', row.c_bench_key)} / {lookup('fortran', row.f_bench_key)}"
+
+
+def load_system(path: Path) -> dict:
+    blob = json.loads(path.read_text())
+    return {
+        **blob.get("system", {}),
+        "fortran": blob.get("fortran", {}),
+        "c": blob.get("c") or blob.get("cpp", {}),
+    }
+
+
+def render(system: dict, template_path: Path) -> str:
     env = Environment(
         loader=FileSystemLoader(str(template_path.parent)),
         undefined=StrictUndefined,
@@ -160,23 +140,18 @@ def render(systems: list[dict], template_path: Path) -> str:
         lstrip_blocks=False,
         keep_trailing_newline=True,
     )
-    env.filters["err"] = err_filter
-    env.filters["speedup"] = speedup_filter
-    # qp_err is a template-global helper (single-arg, system-independent).
-    env.globals["qp_err"] = lambda op: qp_err_filter(op, systems)
+    env.filters["err_dd"] = err_dd_filter
+    env.filters["err_qp"] = err_qp_filter
+    env.filters["speedup_pair"] = speedup_pair_filter
     tmpl = env.get_template(template_path.name)
-    return tmpl.render(
-        systems=systems,
-        fortran_sections=ops_mod.FORTRAN_SECTIONS,
-        c_sections=ops_mod.C_SECTIONS,
-        qp_ref_ops=ops_mod.qp_reference_ops(),
-    )
+    return tmpl.render(system=system, rows=ops_mod.unified_rows())
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("inputs", nargs="*", type=Path,
-                    help="per-system JSON files (default: all bench/results/benchmark-*.json)")
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("input", type=Path,
+                    help="per-system JSON file (e.g. bench/results/benchmark-m1-max.json)")
     ap.add_argument("-o", "--output", type=Path, default=DEFAULT_OUTPUT,
                     help=f"output path (default: {DEFAULT_OUTPUT.relative_to(REPO_ROOT)})")
     ap.add_argument("--template", type=Path,
@@ -185,16 +160,12 @@ def main() -> int:
     ap.add_argument("--stdout", action="store_true", help="print to stdout instead of --output")
     args = ap.parse_args()
 
-    if args.inputs:
-        paths = sorted(args.inputs)
-    else:
-        paths = sorted(RESULTS_DIR.glob("benchmark-*.json"))
-    if not paths:
-        print(f"error: no benchmark JSON files found (looked in {RESULTS_DIR})", file=sys.stderr)
+    if not args.input.is_file():
+        print(f"error: {args.input} not found", file=sys.stderr)
         return 1
 
-    systems = load_systems(paths)
-    out = render(systems, args.template)
+    system = load_system(args.input)
+    out = render(system, args.template)
 
     if args.stdout:
         sys.stdout.write(out)

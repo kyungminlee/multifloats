@@ -1,16 +1,12 @@
 {#- Jinja2 template for BENCHMARK.md. Rendered by bench/build_benchmark_md.py.
     Exposed variables:
-      systems            : list of per-system result dicts (see run_benchmarks.py)
-      fortran_sections   : list of ops.Section (Fortran elemental surface)
-      c_sections         : list of ops.Section (C ABI surface, incl. complex)
-      qp_ref_ops         : flat list of ops.Op for the qp-vs-MPFR reference table
+      system : per-system result dict (from load_system)
+      rows   : list of ops.UnifiedRow (one row per op, C and Fortran merged)
 
-    Custom filters (registered in build_benchmark_md.py):
-      err(op, system, lang)     : DD-vs-MPFR err cell for one op × one system
-      speedup(op, system, lang) : speedup cell (with bolding when ≥ 2×)
-
-    Global helper:
-      qp_err(op)                : quadmath-vs-MPFR err cell (system-independent)
+    Filters (registered in build_benchmark_md.py):
+      err_dd(row, system)        : DD-vs-MPFR err cell, in DD ulps
+      err_qp(row, system)        : quadmath-vs-MPFR err cell, in qp ulps
+      speedup_pair(row, system)  : `<C ×> / <Fortran ×>` cell
 -#}
 # Benchmark Results
 
@@ -20,21 +16,19 @@ implementations use explicit two-limb error-free transformations (EFTs)
 on pairs of `double` values, achieving ~106 bits of significand — close
 to quad precision's 113 bits — at a fraction of the cost.
 
-## Systems
+## System
 
-Short names are used as column labels throughout.
-
-| Short name | CPU | OS | Compiler | Build |
-|---|---|---|---|---|
-{%- for s in systems %}
-| **{{ s.short_name }}** | {{ s.cpu }} | {{ s.os }} | {{ s.compiler }} | {{ s.build }} |
-{%- endfor %}
+| CPU | OS | Compiler | Build |
+|---|---|---|---|
+| {{ system.cpu }} | {{ system.os }} | {{ system.compiler }} | {{ system.build }} |
 
 ## Precision key
 
-Precision is the maximum relative error vs an **mpreal @ 200-bit** oracle
-over ~1M random inputs (fixed seed 42), reported in **DD ulps** (1 ulp ≈
-2⁻¹⁰⁵ ≈ 2.46e-32 for the ~106-bit DD significand):
+DD precision is the maximum relative error vs an **mpreal @ 200-bit**
+oracle over ~1M random inputs (fixed seed 42), reported in **DD ulps**
+(1 ulp ≈ 2⁻¹⁰⁵ ≈ 2.46e-32 for the ~106-bit DD significand). The qp
+column is the same metric for the libquadmath leg, in **qp ulps** (1 qp
+ulp ≈ 2⁻¹¹² ≈ 1.93e-34).
 
 | Label | err (DD ulp) | Meaning |
 |---|---|---|
@@ -51,67 +45,22 @@ over ~1M random inputs (fixed seed 42), reported in **DD ulps** (1 ulp ≈
 | **original** | Developed for this project |
 | **sample** | Ad-hoc implementation in the benchmark harness, not exported from the library |
 
-## Reference: quadmath vs MPFR
+## Operations
 
-Baseline for reading the DD err numbers below. This table shows the
-**quadmath leg's own** relative error against the same mpreal @ 200-bit
-oracle, in **qp ulps** (1 qp ulp ≈ 2⁻¹¹² ≈ 1.93e-34 for the 113-bit
-`__float128` significand). System-independent — qp precision is identical
-on every machine.
+`scope` records which language surface the op is exposed through
+(`C` = `include/multifloats.h`, `Fortran` = `fsrc/multifloats.fypp`,
+`both` = both). The speedup column is `C-ABI × / Fortran-elemental ×`
+(`qp_time / dd_time`); a `—` on one side means the op is not exposed
+through that surface. The Fortran side is typically ~1.5× lower than
+the C side for shared ops because gfortran returns DD via hidden
+pointers rather than FP registers. **Bold** marks ≥ 2×.
 
-Read the main tables as: *the DD kernel lands at N DD ulps vs the same
-200-bit reference that puts quadmath at ~M qp ulps.* When the DD number
-is close to its expected "full DD" band and the qp number is close to ½
-qp ulp, both legs are behaving as specified.
-
-| op | qp-vs-MPFR err |
-|---|---|
-{%- for op in qp_ref_ops %}
-| {{ op.display }} | {{ qp_err(op) }} |
+| op | scope | prec | err_dd | err_qp | speedup (C / F) | approach |
+|---|---|---|---|---|---|---|
+{%- for row in rows %}
+| {{ row.display }} | {{ row.scope }} | {{ row.prec }} | {{ row|err_dd(system) }} | {{ row|err_qp(system) }} | {{ row|speedup_pair(system) }} | {{ row.approach }} |
 {%- endfor %}
 
-## C: C ABI vs `__float128`
-
-Ops timed through the **C ABI** entry points (`sindd`, `cdd_muldd`, `j0dd`,
-…) — the register-return convention a C or Fortran-`bind(c)` caller sees,
-not the C++ header-only inline path. Scope: every function in
-`include/multifloats.h` (scalars, π-family, Bessel, complex arithmetic,
-complex transcendentals). Shared ops also appear in the Fortran section
-below under the Fortran elemental wrapper; the delta is the hidden-
-pointer Fortran ABI overhead.
-
-Each op is timed over 1024 elements × 400 repetitions (fast ops) or fewer
-reps (transcendentals), with a NOINLINE drain after each rep to prevent
-dead-code elimination. **×** = speedup (`qp_time / dd_time`, values > 1×
-mean multifloats is faster); **err** = DD error in DD ulps from the 1M-
-input MPFR fuzz run.
-{% for section in c_sections %}
-### {{ section.title }}
-
-| op |{% for s in systems %} {{ s.short_name }} err |{% endfor %}{% for s in systems %} {{ s.short_name }} × |{% endfor %} approach |
-|---|{% for s in systems %}---|{% endfor %}{% for s in systems %}---|{% endfor %}---|
-{%- for op in section.ops %}
-| {{ op.display }} |{% for s in systems %} {{ op|err(s, "c") }} |{% endfor %}{% for s in systems %} {{ op|speedup(s, "c") }} |{% endfor %} {{ op.approach }} |
-{%- endfor %}
-{% endfor %}
-## Fortran: `float64x2` vs `real(16)`
-
-Ops timed through the **Fortran elemental wrappers** on a `sequence`-
-derived-type DD. gfortran passes/returns these via hidden pointers
-(not FP registers), adding ~1.5× overhead vs the C ABI column even
-after LTO. Scope: the full Fortran module surface — everything in the
-C section above **plus** Fortran-only ops (array reductions, numeric
-inquiry). **prec** column carries the precision label for the shared
-surface; C-section duplicates omit it for table width.
-{% for section in fortran_sections %}
-### {{ section.title }}
-
-| op | prec |{% for s in systems %} {{ s.short_name }} err |{% endfor %}{% for s in systems %} {{ s.short_name }} × |{% endfor %} approach |
-|---|---|{% for s in systems %}---|{% endfor %}{% for s in systems %}---|{% endfor %}---|
-{%- for op in section.ops %}
-| {{ op.display }} | {{ op.prec }} |{% for s in systems %} {{ op|err(s, "fortran") }} |{% endfor %}{% for s in systems %} {{ op|speedup(s, "fortran") }} |{% endfor %} {{ op.approach }} |
-{%- endfor %}
-{% endfor %}
 ## Notes
 
 - **`mod` / `fmod`** is the only operation where quad precision is
@@ -152,5 +101,5 @@ surface; C-section duplicates omit it for table width.
   kernel register-blocks any `m` via a strided panel template at `MR=8`
   plus a 1..7-row tail handler.
 
-<!-- Auto-generated by bench/build_benchmark_md.py from per-system JSON
-     results in bench/results/. Do not edit by hand. -->
+<!-- Auto-generated by bench/build_benchmark_md.py from a per-system JSON
+     result in bench/results/. Do not edit by hand. -->
