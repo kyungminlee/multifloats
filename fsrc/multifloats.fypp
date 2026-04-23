@@ -734,7 +734,8 @@ module multifloats
     ('dd_atan2_full',   'atan2dd'),   &
     ('dd_atan2pi_full', 'atan2pidd'), &
     ('dd_hypot_full',   'hypotdd'),   &
-    ('dd_fmod_full',    'fmoddd') ]
+    ('dd_fmod_full',    'fmoddd'),    &
+    ('dd_pow_full',     'powdd') ]
 
     interface
 #:for _ffull, csym in C_DELEGATE_UNARY_MAP
@@ -2980,12 +2981,14 @@ $:cdd_arith_body(opname)
             res = cdd_exp(cb * cdd_log(ca))
         end block
 #:else
-        ! General real power: a^b = exp(b * log(a))
+        ! General real power: delegate to multifloats::pow, which
+        ! handles IEEE edge cases (pow(1, x)=1, pow(x, 0)=1, signed
+        ! zero, ±Inf exponents) that naive exp(y*log(x)) gets wrong.
         block
             type(float64x2) :: x, y
             x = a
             y = b
-            res = dd_exp(y * dd_log(x))
+            res = dd_pow_full(x, y)
         end block
 #:endif
     end function
