@@ -465,16 +465,29 @@ float64x2 pow(float64x2 const &x, float64x2 const &y) {
   two_sum(l, c, l, e);  // l + e = old_l + c exact
   fast_two_sum(h, l, h, l);  // normalize DD pair; e is third limb.
 
-  // Split z ≈ h + l + e into n + r with |r| ≤ 0.5. Every two_sum below is
-  // exact; only the final `rl += f1 + f2` rounds, and its dropped bits
-  // live at ulp(rl) ~ 1e-33, well below the DD output resolution.
+  // Split z ≈ h + l + e into n + r with |r| ≤ 0.5. Build (T0, T1, T2)
+  // as the exact TD remainder via the TSUM chain, then call DD exp2 on
+  // the leading (T0, T1) pair and apply a linear correction for the
+  // discarded T2:
+  //   exp2(arg + T2) ≈ exp2(arg) · (1 + ln2·T2)
+  // |T2| ~ ulp(T1) ~ ulp_dd², so the next-order term (ln2·T2)²/2 sits
+  // ~2⁻²¹⁰ — far below DD output precision. This recovers the ~10 DD
+  // ulp amplification factor that exp2(arg + ε) would otherwise apply
+  // to ulp-level rounding of a DD argument, at one double-mul + one
+  // DD-add cost (vs the full TD-Horner exp2_td_from_reduced path which
+  // is ~3× the runtime).
   double n_d = std::nearbyint(h);
-  double rh, rl, s1, s2, f1, f2;
-  two_sum(h, -n_d, rh, t);  // rh + t = h - n_d exact
-  two_sum(t, l, s1, f1);    // s1 + f1 = t + l exact
-  two_sum(s1, e, s2, f2);   // s2 + f2 = s1 + e exact
-  rl = s2 + (f1 + f2);
-  fast_two_sum(rh, rl, rh, rl);
+  double rh, rt;
+  two_sum(h, -n_d, rh, rt);  // rh + rt = h − n_d exact
+  double T0 = rh, T1 = 0.0, T2 = 0.0;
+  tsum3(T0, T1, T2, rt);
+  tsum3(T0, T1, T2, l);
+  tsum3(T0, T1, T2, e);
+  tsum3_finalize(T0, T1, T2);
 
-  return exp2_from_reduced(n_d, rh, rl);
+  float64x2 res = exp2_from_reduced(n_d, T0, T1);
+  // 0x1.62e42fefa39efp-1 = round-to-nearest double of ln 2.
+  constexpr double LN2 = 0x1.62e42fefa39efp-1;
+  double corr = res._limbs[0] * (LN2 * T2);
+  return res + float64x2(corr);
 }

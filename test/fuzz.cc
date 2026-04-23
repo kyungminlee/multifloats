@@ -1247,6 +1247,42 @@ int main(int argc, char **argv) {
             q1, (q_t)d2, mpfr::pow(m1, to_mp(d2)));
         CHK("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2),
             (q_t)d1, q2, mpfr::pow(to_mp(d1), m2));
+
+#ifdef USE_MPFR
+        // pow = exp2(y·log2(x)) decomposition diagnostic. Three stat
+        // rows isolate each stage so we can see which one dominates the
+        // observed `pow` ulp floor:
+        //   pow_diag_log2  — mf::log2 vs mpfr::log2 (the A leg alone)
+        //   pow_diag_exp2  — mf::exp2 on a DD-rounded exact y·log2(x)
+        //                    (the C leg alone)
+        //   pow_diag_nomul — same DD-rounded input through exp2, vs
+        //                    mpfr::pow(x,y) directly (A+C with a
+        //                    correctly-rounded mul intermediate)
+        // If pow's max_rel ≫ pow_diag_nomul, the multiply is the
+        // bottleneck. If pow ≈ nomul, the mul is fine and the A+C
+        // kernels set the ceiling.
+        CHK("pow_diag_log2", mf::log2(f1), log2q(q1),
+            q1, (q_t)0, mpfr::log2(m1));
+
+        // Correctly-rounded-to-DD version of y · log2(x): compute at
+        // 200-bit, then split into (hi, lo) via round-to-nearest.
+        mp_t P_exact = mpfr::log2(m1) * m2;
+        if (mp_isfinite(P_exact)) {
+          double P_hi = P_exact.toDouble();
+          double P_lo = 0.0;
+          if (std::isfinite(P_hi)) {
+            P_lo = (P_exact - mp_t(P_hi)).toDouble();
+          }
+          mf::float64x2 P_dd;
+          P_dd._limbs[0] = P_hi;
+          P_dd._limbs[1] = P_lo;
+          q_t P_q = to_q(P_dd);
+          CHK("pow_diag_exp2", mf::exp2(P_dd), exp2q(P_q),
+              P_q, (q_t)0, mpfr::exp2(to_mp(P_q)));
+          CHK("pow_diag_nomul", mf::exp2(P_dd), powq(q1, q2),
+              q1, q2, mpfr::pow(m1, m2));
+        }
+#endif
       }
       // Vary the integer exponent across iterations so we exercise the
       // repeated-squaring path with a mix of positive/negative/odd/even
