@@ -48,6 +48,15 @@ module crosscheck_bindings
   !                                            greater than the C ilogb.)
   public :: fnat_floor, fnat_ceiling, fnat_nint, fnat_exponent
 
+  ! DD-returning scaling ops (Fortran-native, parallel to C++ mf::ldexp /
+  ! mf::frexp+mf::ldexp composition):
+  !
+  !   fnat_scale(x, i)        ↔  C++ mf::ldexp(x, i)
+  !   fnat_set_exponent(x, i) ↔  C++ mf::ldexp(mf::frexp(x, &e), i)
+  !                              (both compute  fraction(x) * 2^i  via
+  !                              exponent-extract + rescale on the hi limb)
+  public :: fnat_scale, fnat_set_exponent
+
 contains
 
   pure function c_to_f(c) result(r)
@@ -154,6 +163,23 @@ contains
     type(dd_c), intent(in), value :: a
     integer(c_int) :: res
     res = exponent(c_to_f(a))
+  end function
+
+  ! scale / set_exponent take a second integer argument. Use c_int on the
+  ! boundary so the C++ side can pass a plain `int`. Inside Fortran both
+  ! intrinsics accept any integer kind.
+  pure function fnat_scale(a, n) result(res) bind(c, name='fnat_scale')
+    type(dd_c), intent(in), value :: a
+    integer(c_int), intent(in), value :: n
+    type(dd_c) :: res
+    res = f_to_c(scale(c_to_f(a), n))
+  end function
+
+  pure function fnat_set_exponent(a, n) result(res) bind(c, name='fnat_set_exponent')
+    type(dd_c), intent(in), value :: a
+    integer(c_int), intent(in), value :: n
+    type(dd_c) :: res
+    res = f_to_c(set_exponent(c_to_f(a), n))
   end function
 
 end module crosscheck_bindings

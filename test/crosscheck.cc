@@ -61,6 +61,12 @@ extern "C" {
   long        fnat_ceiling (float64x2_t a);
   long        fnat_nint    (float64x2_t a);
   int         fnat_exponent(float64x2_t a);
+
+  // DD-returning scaling ops. Both sides implement native per-limb
+  // multiplication by 2^n (scale is exact for any limb), so bit-exact
+  // agreement is expected.
+  float64x2_t fnat_scale       (float64x2_t a, int n);
+  float64x2_t fnat_set_exponent(float64x2_t a, int n);
 }
 
 // -----------------------------------------------------------------------------
@@ -292,6 +298,7 @@ int main(int argc, char **argv) {
          I_NEG, I_ABS, I_SQRT,
          I_EQ,  I_NE,  I_LT,
          I_FLOOR, I_CEILING, I_NINT, I_EXPONENT,
+         I_SCALE, I_SET_EXP,
          I_N };
   Stat stats[I_N] = {
     {"add"}, {"sub"}, {"mul"}, {"div"},
@@ -304,6 +311,10 @@ int main(int argc, char **argv) {
     {"ceiling",  0, 0, {}, {}, {}, {}, true, true},
     {"nint",     0, 0, {}, {}, {}, {}, true, true},
     {"exponent", 0, 0, {}, {}, {}, {}, true, true},
+    // DD-returning scaling. Treated as unary for reporting (only one DD
+    // input; the int argument is a fixed-per-iteration scalar).
+    {"scale",    0, 0, {}, {}, {}, {}, true},
+    {"set_exp",  0, 0, {}, {}, {}, {}, true},
   };
 
   for (long i = 0; i < iterations; ++i) {
@@ -399,6 +410,24 @@ int main(int argc, char **argv) {
     }
     if (q_isfinite(q1) && q1 != (q_t)0) {
       check_int1(I_EXPONENT, (long)(mf::ilogb(f1) + 1), (long)fnat_exponent(c1));
+    }
+
+    // Scaling ops: fixed n = 5, bit-exact match expected. scale is a
+    // direct per-limb multiply by 2^n. set_exponent composes frexp +
+    // ldexp: Fortran's dd_set_exponent scales both limbs by (n - e)
+    // where e = exponent(hi); C++'s `ldexp(frexp(x, &e), n)` produces
+    // the same {hi * 2^(n-e), lo * 2^(n-e)}. Gate on finite to avoid
+    // NaN-vs-NaN payload noise — inputs at the overflow boundary can
+    // legitimately produce inf on one side and finite on the other
+    // depending on intermediate rounding, which is a representational
+    // floor not an algorithmic bug.
+    if (q_isfinite(q1)) {
+      constexpr int kN = 5;
+      check_strict(I_SCALE, to_c(mf::ldexp(f1, kN)), fnat_scale(c1, kN), false);
+      int frexp_e = 0;
+      auto frexp_frac = mf::frexp(f1, &frexp_e);
+      check_strict(I_SET_EXP, to_c(mf::ldexp(frexp_frac, kN)),
+                   fnat_set_exponent(c1, kN), false);
     }
   }
 
