@@ -48,6 +48,11 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
     elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang")
         target_compile_options(multifloatsf PRIVATE -O3 -flto)
         target_link_options(multifloatsf PUBLIC -flto)
+    elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
+        # ifx defaults to -fp-model=fast at -O2+. DD error-free
+        # transformations require strict IEEE associativity and no FMA
+        # contraction — see src/CMakeLists.txt for the full rationale.
+        target_compile_options(multifloatsf PRIVATE -O3 -fp-model=precise)
     endif()
 else()
     target_compile_options(multifloatsf PRIVATE -O2)

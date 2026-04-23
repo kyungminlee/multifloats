@@ -49,6 +49,12 @@ endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
         target_compile_options(multifloats PRIVATE -O3 -flto -ffat-lto-objects)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
+        # icpx defaults to -fp-model=fast at -O2+, which reassociates the
+        # DD error-free transformations (2Sum / Fast2Sum / Dekker) and
+        # contracts add-of-mul into FMAs — either corrupts the `lo`
+        # compensation and breaks every DD operation.
+        target_compile_options(multifloats PRIVATE -O3 -flto -fp-model=precise)
     else()
         target_compile_options(multifloats PRIVATE -O3 -flto)
     endif()
