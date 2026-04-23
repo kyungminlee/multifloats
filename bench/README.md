@@ -80,41 +80,33 @@ On a warm toolchain:
 
 ## Regenerating `BENCHMARK.md`
 
-After collecting (or updating) result JSON files, render the Markdown:
+After collecting (or updating) a result JSON file, render the Markdown.
+The renderer is **single-architecture** — pass exactly one JSON path:
 
 ```bash
-python3 bench/build_benchmark_md.py
+python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
 ```
 
-By default this loads every `bench/results/benchmark-*.json` in
-alphabetical order and writes `doc/BENCHMARK.md`. Column order in the
-tables matches the file-name order.
+This writes `doc/BENCHMARK.md` from that one file as a single flat
+table (one row per op, with C-ABI and Fortran-elemental measurements
+merged side-by-side in a `speedup (C / F)` column).
 
-Render just a subset, or control ordering explicitly:
+Pass `--stdout` to preview without touching the file, or `-o <path>` to
+write elsewhere:
 
 ```bash
-python3 bench/build_benchmark_md.py \
-    bench/results/benchmark-m1-max.json \
-    bench/results/benchmark-skylake.json \
-    bench/results/benchmark-raptor-lake.json
+python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json --stdout | head -60
+python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json -o /tmp/B.md
 ```
-
-Pass `--stdout` to preview without touching the file, or
-`-o <path>` to write elsewhere.
 
 ## Typical end-to-end flow
 
 ```bash
-# On each target machine
+# On the target machine
 python3 bench/run_benchmarks.py --name "M1 Max"
-git add bench/results/benchmark-m1-max.json
-git commit -m "bench: refresh m1-max results"
-
-# Once all three machines have pushed their JSON up
-git pull
-python3 bench/build_benchmark_md.py
-git add doc/BENCHMARK.md
-git commit -m "docs: regenerate BENCHMARK.md"
+python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
+git add bench/results/benchmark-m1-max.json doc/BENCHMARK.md
+git commit -m "bench: refresh m1-max results + regenerate BENCHMARK.md"
 ```
 
 ## JSON schema
@@ -149,16 +141,20 @@ surfaces in the rendered table as `—`.
 
 ## Adjusting what appears in the tables
 
-Edit [`ops.py`](ops.py). Each op is a row in some section; each section
-is a `###` subsection under "Fortran:" or "C++:". Fields:
+Edit [`ops.py`](ops.py). Two `Section` lists feed the renderer:
+`C_SECTIONS` (C ABI surface from `include/multifloats.h`) and
+`FORTRAN_SECTIONS` (elemental wrappers from `fsrc/multifloats.fypp`).
+`unified_rows()` merges entries that share a `bench_key` into one row
+(scope `both`); ops with no counterpart on the other side stay separate
+(scope `C` or `Fortran`). Fields on each `Op`:
 
 | Field       | Used for                                                         |
 |-------------|------------------------------------------------------------------|
-| `bench_key` | Key into the `bench` dict (must match the bench program output). |
+| `bench_key` | Key into the `bench` dict (must match the bench program output). Also the merge key between C and Fortran sections. |
 | `display`   | Markdown-escaped label shown in the `op` column.                 |
 | `approach`  | Prose description printed in the `approach` column.              |
-| `prec`      | Precision label (Fortran tables only).                           |
-| `fuzz`      | How to assemble the `err` cell: `None`, `"exact"`, a key, or a list of `(label, key)` pairs for split re/im rows. |
+| `prec`      | Precision label (`full DD` / `exact` / …). Only set on the Fortran side. |
+| `fuzz`      | How to assemble the `err_dd` / `err_qp` cells: `None`, `"exact"`, a key, or a list of `(label, key)` pairs for split re/im rows. |
 
 The header prose, precision/origin keys, and the "Notes" section live
 directly in [`BENCHMARK.md.j2`](BENCHMARK.md.j2); edit the template when

@@ -302,6 +302,8 @@ static bool is_full_dd(char const *op) {
       "erf", "erfc", "erfcx",
       "gamma", "lngamma",
       "bj0", "bj1", "bjn", "by0", "by1", "byn", "yn_range",
+      "arr_sum", "arr_prod", "arr_max", "arr_min",
+      "arr_dot", "arr_norm2", "arr_matmul",
       "cadd_re", "cadd_im", "csub_re", "csub_im",
       "cmul_re", "cmul_im", "cdiv_re", "cdiv_im",
       "cabs", "carg", "cconjg_re", "cconjg_im",
@@ -767,6 +769,141 @@ static void check_comp(mf::float64x2 const &f1, mf::float64x2 const &f2, q_t q1,
   if ((f1 == f2) != (q1 == q2) && !near) cmp_fail("eq", f1 == f2, q1 == q2);
   if ((f1 != f2) != (q1 != q2) && !near) cmp_fail("ne", f1 != f2, q1 != q2);
 }
+
+#ifdef USE_MPFR
+// 8-element array reductions (sum / product / max / min / dot / norm2 /
+// matmul). Sampled every kArrayInterval iterations to keep wall-clock cost
+// low — mpreal is ~100× slower than qp. Mirrors fuzz.fypp's fuzz_arrays.
+//
+// Inputs come from rng.narrow (sign × uniform(0.5) × 10^[-3, 3]); kept
+// modest so dot/matmul don't overflow and so the qp oracle stays clean.
+// The matmul kernel is the same `matmuldd_mv` C ABI symbol Fortran's
+// `matmul` delegates to, with renorm_interval matching DD_FMA_RENORM_INTERVAL.
+static constexpr int kArrayN = 8;
+static constexpr int kArrayInterval = 1000;
+static constexpr int64_t kArrayRenorm = 8;
+
+static void fuzz_arrays(Rng &rng) {
+  q_t qa[kArrayN], qb[kArrayN];
+  mf::float64x2 a[kArrayN], b[kArrayN];
+  mp_t ma[kArrayN], mb[kArrayN];
+  q_t max_a = 0, max_b = 0;
+
+  for (int k = 0; k < kArrayN; ++k) {
+    qa[k] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+    qb[k] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+    a[k] = from_q(qa[k]);
+    b[k] = from_q(qb[k]);
+    ma[k] = to_mp(a[k]);
+    mb[k] = to_mp(b[k]);
+    q_t aa = qa[k] < 0 ? -qa[k] : qa[k];
+    q_t ab = qb[k] < 0 ? -qb[k] : qb[k];
+    if (aa > max_a) max_a = aa;
+    if (ab > max_b) max_b = ab;
+  }
+
+  // arr_sum
+  {
+    mf::float64x2 acc_dd = a[0];
+    q_t acc_q = qa[0];
+    mp_t acc_mp = ma[0];
+    for (int k = 1; k < kArrayN; ++k) {
+      acc_dd = acc_dd + a[k];
+      acc_q = acc_q + qa[k];
+      acc_mp = acc_mp + ma[k];
+    }
+    check("arr_sum", acc_dd, acc_q, max_a, (q_t)0, acc_mp);
+  }
+
+  // arr_prod
+  {
+    mf::float64x2 acc_dd = a[0];
+    q_t acc_q = qa[0];
+    mp_t acc_mp = ma[0];
+    for (int k = 1; k < kArrayN; ++k) {
+      acc_dd = acc_dd * a[k];
+      acc_q = acc_q * qa[k];
+      acc_mp = acc_mp * ma[k];
+    }
+    q_t mag = max_a;
+    for (int k = 1; k < kArrayN; ++k) mag = mag * max_a;
+    check("arr_prod", acc_dd, acc_q, mag, (q_t)0, acc_mp);
+  }
+
+  // arr_max / arr_min — pick winners by qp comparison, copy DD/mp counterparts.
+  {
+    int idx_max = 0, idx_min = 0;
+    for (int k = 1; k < kArrayN; ++k) {
+      if (qa[k] > qa[idx_max]) idx_max = k;
+      if (qa[k] < qa[idx_min]) idx_min = k;
+    }
+    check("arr_max", a[idx_max], qa[idx_max], max_a, (q_t)0, ma[idx_max]);
+    check("arr_min", a[idx_min], qa[idx_min], max_a, (q_t)0, ma[idx_min]);
+  }
+
+  // arr_dot
+  {
+    mf::float64x2 acc_dd = a[0] * b[0];
+    q_t acc_q = qa[0] * qb[0];
+    mp_t acc_mp = ma[0] * mb[0];
+    for (int k = 1; k < kArrayN; ++k) {
+      acc_dd = acc_dd + a[k] * b[k];
+      acc_q = acc_q + qa[k] * qb[k];
+      acc_mp = acc_mp + ma[k] * mb[k];
+    }
+    q_t mag = max_a * max_b * (q_t)kArrayN;
+    check("arr_dot", acc_dd, acc_q, mag, (q_t)0, acc_mp);
+  }
+
+  // arr_norm2 = sqrt(dot(a, a))
+  {
+    mf::float64x2 acc_dd = a[0] * a[0];
+    q_t acc_q = qa[0] * qa[0];
+    mp_t acc_mp = ma[0] * ma[0];
+    for (int k = 1; k < kArrayN; ++k) {
+      acc_dd = acc_dd + a[k] * a[k];
+      acc_q = acc_q + qa[k] * qa[k];
+      acc_mp = acc_mp + ma[k] * ma[k];
+    }
+    mf::float64x2 res_dd = mf::sqrt(acc_dd);
+    q_t res_q = sqrtq(acc_q);
+    mp_t res_mp = mpfr::sqrt(acc_mp);
+    check("arr_norm2", res_dd, res_q, max_a, (q_t)0, res_mp);
+  }
+
+  // arr_matmul: 8x8 column-major matrix * 8-vector → 8-vector. Routes
+  // through the same matmuldd_mv C kernel that Fortran's matmul delegates
+  // to, so this row reflects the same algorithm path.
+  {
+    q_t qm[kArrayN * kArrayN];
+    mf::float64x2 m_arr[kArrayN * kArrayN];
+    mp_t mm_arr[kArrayN * kArrayN];
+    q_t max_m = 0;
+    for (int i = 0; i < kArrayN * kArrayN; ++i) {
+      qm[i] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+      m_arr[i] = from_q(qm[i]);
+      mm_arr[i] = to_mp(m_arr[i]);
+      q_t am = qm[i] < 0 ? -qm[i] : qm[i];
+      if (am > max_m) max_m = am;
+    }
+    mf::float64x2 y_dd[kArrayN];
+    matmuldd_mv(reinterpret_cast<float64x2_t const *>(m_arr),
+                reinterpret_cast<float64x2_t const *>(a),
+                reinterpret_cast<float64x2_t *>(y_dd),
+                kArrayN, kArrayN, kArrayRenorm);
+    for (int row = 0; row < kArrayN; ++row) {
+      q_t y_q = (q_t)0;
+      mp_t y_mp = mp_t(0);
+      for (int col = 0; col < kArrayN; ++col) {
+        y_q = y_q + qm[col * kArrayN + row] * qa[col];
+        y_mp = y_mp + mm_arr[col * kArrayN + row] * ma[col];
+      }
+      q_t mag = max_m * max_a * (q_t)kArrayN;
+      check("arr_matmul", y_dd[row], y_q, mag, (q_t)0, y_mp);
+    }
+  }
+}
+#endif  // USE_MPFR
 
 int main(int argc, char **argv) {
 #ifdef USE_MPFR
@@ -1273,6 +1410,10 @@ int main(int argc, char **argv) {
         }
       }
     }
+
+#ifdef USE_MPFR
+    if (i % kArrayInterval == 0) fuzz_arrays(rng);
+#endif
 
     if (i % 100000 == 0) {
       std::printf("  ... completed %ld iterations (failures so far: %ld)\n", i,

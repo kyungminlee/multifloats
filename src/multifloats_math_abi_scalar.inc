@@ -42,7 +42,13 @@ MF_ABI_BINARY(fmin)
 MF_ABI_BINARY(fmax)
 MF_ABI_BINARY(hypot)
 MF_ABI_BINARY(pow)
+// Integer-exponent power: exponent is a plain int, not a DD, so it
+// does not fit the MF_ABI_BINARY macro shape.
+float64x2_t powidd(float64x2_t a, int n) {
+  return to(multifloats::powi(from(a), n));
+}
 MF_ABI_BINARY(fmod)
+MF_ABI_BINARY(modulo)
 MF_ABI_BINARY(fdim)
 MF_ABI_BINARY(copysign)
 float64x2_t fmadd(float64x2_t a, float64x2_t b, float64x2_t c) {

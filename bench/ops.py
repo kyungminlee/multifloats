@@ -58,22 +58,22 @@ FORTRAN_SECTIONS: list[Section] = [
     Section("Unary", [
         Op("abs",          "abs",          "original: sign-check + negate limbs",               "exact", "abs"),
         Op("neg",          "neg",          "original: negate both limbs",                       "exact", "neg"),
-        Op("aint",         "aint",         "original: truncate hi, check DD fractional part",   "exact", "aint"),
-        Op("anint",        "anint",        "original: truncate hi, DD fractional part vs \u00b10.5", "exact", "anint"),
-        Op("fraction",     "fraction",     "original: scale both limbs by \u2212exponent",      "exact", "fraction"),
+        Op("aint",         "aint",         "original: truncate hi, check DD fractional part",   "exact", "trunc"),
+        Op("anint",        "anint",        "original: truncate hi, DD fractional part vs \u00b10.5", "exact", "round"),
+        Op("fraction",     "fraction",     "original: scale both limbs by \u2212exponent",      "exact", "exact"),
         Op("scale",        "scale",        "original: ldexp on both limbs",                     "exact", "exact"),
         Op("set_exponent", "set\\_exponent", "original: scale + set\\_exponent on hi",           "exact", "exact"),
     ]),
     Section("Binary", [
-        Op("min",    "min",    "original: DD comparison + select",                         "full DD", "min"),
-        Op("max",    "max",    "original: DD comparison + select",                         "full DD", "max"),
+        Op("min",    "min",    "original: DD comparison + select",                         "full DD", "fmin"),
+        Op("max",    "max",    "original: DD comparison + select",                         "full DD", "fmax"),
         Op("min3",   "min3",   "original: chained min",                                    "full DD", "min3"),
         Op("max3",   "max3",   "original: chained max",                                    "full DD", "max3"),
-        Op("sign",   "sign",   "original: sign-check + negate",                            "exact",   "sign"),
-        Op("dim",    "dim",    "original: DD comparison, then subtract or zero",           "full DD", "dim"),
+        Op("sign",   "sign",   "original: sign-check + negate",                            "exact",   "copysign"),
+        Op("dim",    "dim",    "original: DD comparison, then subtract or zero",           "full DD", "fdim"),
         Op("hypot",  "hypot",  "original: scaled sqrt(x\u00b2+y\u00b2)",                   "full DD", "hypot"),
-        Op("mod",    "mod",    "sample: floor-multiple reduction loop; fallback to div chain", "full DD", "mod"),
-        Op("modulo", "modulo", "original: mod + sign adjustment",                          "full DD", "modulo"),
+        Op("mod",    "mod",    "sample: floor-multiple reduction loop; fallback to div chain", "full DD", "fmod"),
+        Op("modulo", "modulo", "original: mod + sign adjustment",                          "full DD", "fmod"),
     ]),
     Section("Exponential / logarithmic", [
         Op("exp",     "exp",     "Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction",  "full DD", "exp"),
@@ -113,7 +113,7 @@ FORTRAN_SECTIONS: list[Section] = [
     Section("Error / special functions", [
         Op("erf",           "erf",           "piecewise rational approx (libquadmath erfq.c)",                "full DD", "erf"),
         Op("erfc",          "erfc",          "piecewise rational approx + split exp(-x^2)",                   "full DD", "erfc"),
-        Op("erfc_scaled",   "erfc\\_scaled", "exp(x^2)\u00b7erfc(x) with asymptotic cancellation",            "full DD", "erfc_scaled"),
+        Op("erfc_scaled",   "erfc\\_scaled", "exp(x^2)\u00b7erfc(x) with asymptotic cancellation",            "full DD", "erfcx"),
         Op("gamma",         "gamma",         "piecewise rational approx + Stirling + reflection",             "full DD", "gamma"),
         Op("log_gamma",     "log\\_gamma",   "piecewise rational approx + Stirling asymptotic",               "full DD", "lngamma"),
         Op("bessel_j0",     "bessel\\_j0",   "piecewise rational + Hankel asymptotic (j0q.c) via C++",        "full DD", "bj0"),
@@ -209,7 +209,7 @@ C_SECTIONS: list[Section] = [
         Op("mul",   "mul",   "Julia: two\\_prod EFT via FMA",                               fuzz="mul"),
         Op("div",   "div",   "original: Newton refinement (1/y seed, one step)",            fuzz="div"),
         Op("sqrt",  "sqrt",  "Julia: Karp\u2013Markstein (reciprocal sqrt seed + Newton)",  fuzz="sqrt"),
-        Op("fma",   "fma",   "original: x\\*y + z via DD ops",                              fuzz=None),
+        Op("fma",   "fma",   "original: x\\*y + z via DD ops",                              fuzz="fmadd"),
         Op("abs",   "abs",   "original: sign-check + negate limbs",                         fuzz="abs"),
         Op("neg",   "neg",   "original: negate both limbs",                                 fuzz="neg"),
     ]),
@@ -227,11 +227,11 @@ C_SECTIONS: list[Section] = [
     ]),
     Section("Exponential / logarithmic", [
         Op("exp",    "exp",    "Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction",   fuzz="exp"),
-        Op("exp2",   "exp2",   "Julia: exp2 polynomial (14-term Horner)",                          fuzz=None),
+        Op("exp2",   "exp2",   "Julia: exp2 polynomial (14-term Horner)",                          fuzz="exp2"),
         Op("expm1",  "expm1",  "original: exp(x) \u2212 1 via DD sub",                             fuzz="expm1"),
         Op("log",    "log",    "Julia: log2 table lookup (32 centers) + polynomial (7-term Horner)", fuzz="log"),
         Op("log10",  "log10",  "Julia: log2 kernel \u00d7 DD log10(2)",                            fuzz="log10"),
-        Op("log2",   "log2",   "Julia: log2 table lookup + polynomial",                            fuzz=None),
+        Op("log2",   "log2",   "Julia: log2 table lookup + polynomial",                            fuzz="log2"),
         Op("log1p",  "log1p",  "original: log(1 + x) via DD add",                                  fuzz="log1p"),
         Op("pow",    "pow",    "Julia: exp(y \u00d7 log(x))",                                      fuzz="pow"),
     ]),
@@ -269,100 +269,150 @@ C_SECTIONS: list[Section] = [
         Op("erfcx",         "erfcx",         "exp(x\u00b2)\u00b7erfc(x); scaled form avoiding tail cancellation", fuzz="erfcx"),
         Op("tgamma",        "tgamma",        "piecewise rational approx + Stirling + reflection, exp(lgamma)",    fuzz="gamma"),
         Op("lgamma",        "lgamma",        "piecewise rational approx + Stirling asymptotic",                   fuzz="lngamma"),
-        Op("bj0",           "bessel\\_j0",   "piecewise rational + Hankel asymptotic (j0q.c)",                    fuzz="bj0"),
-        Op("bj1",           "bessel\\_j1",   "piecewise rational + Hankel asymptotic (j1q.c)",                    fuzz="bj1"),
-        Op("bjn",           "bessel\\_jn(3,.)", "forward/backward recurrence from j0/j1",                         fuzz="bjn"),
-        Op("by0",           "bessel\\_y0",   "piecewise rational + Hankel asymptotic (j0q.c)",                    fuzz="by0"),
-        Op("by1",           "bessel\\_y1",   "piecewise rational + Hankel asymptotic (j1q.c)",                    fuzz="by1"),
-        Op("byn",           "bessel\\_yn(3,.)", "forward recurrence from y0/y1",                                  fuzz="byn"),
-        Op("yn_range(0..5)","bessel\\_yn\\_range(0..5)", "single forward-recurrence sweep, 6 outputs / call",     fuzz="yn_range"),
+        Op("bj0",           "bj0",           "piecewise rational + Hankel asymptotic (j0q.c)",                    fuzz="bj0"),
+        Op("bj1",           "bj1",           "piecewise rational + Hankel asymptotic (j1q.c)",                    fuzz="bj1"),
+        Op("bjn",           "bjn(3,.)",      "forward/backward recurrence from j0/j1",                            fuzz="bjn"),
+        Op("by0",           "by0",           "piecewise rational + Hankel asymptotic (j0q.c)",                    fuzz="by0"),
+        Op("by1",           "by1",           "piecewise rational + Hankel asymptotic (j1q.c)",                    fuzz="by1"),
+        Op("byn",           "byn(3,.)",      "forward recurrence from y0/y1",                                     fuzz="byn"),
+        Op("yn_range(0..5)","yn\\_range(0..5)", "single forward-recurrence sweep, 6 outputs / call",              fuzz="yn_range"),
     ]),
     Section("Complex arithmetic", [
         Op("cdd_add",   "cdd\\_add",   "original: component-wise DD add",
-            fuzz=[("re", "cdd_add_re"), ("im", "cdd_add_im")]),
+            fuzz=[("re", "cadd_re"), ("im", "cadd_im")]),
         Op("cdd_sub",   "cdd\\_sub",   "original: component-wise DD sub",
-            fuzz=[("re", "cdd_sub_re"), ("im", "cdd_sub_im")]),
+            fuzz=[("re", "csub_re"), ("im", "csub_im")]),
         Op("cdd_mul",   "cdd\\_mul",   "original: (ac\u2212bd, ad+bc) via DD ops",
-            fuzz=[("re", "cdd_mul_re"), ("im", "cdd_mul_im")]),
+            fuzz=[("re", "cmul_re"), ("im", "cmul_im")]),
         Op("cdd_div",   "cdd\\_div",   "original: (ac+bd, bc\u2212ad)/(c\u00b2+d\u00b2)",
-            fuzz=[("re", "cdd_div_re"), ("im", "cdd_div_im")]),
+            fuzz=[("re", "cdiv_re"), ("im", "cdiv_im")]),
         Op("cdd_conjg", "cdd\\_conjg", "original: negate im limbs",                fuzz="exact"),
         Op("cdd_proj",  "cdd\\_proj",  "C99 Annex G Riemann-sphere projection (identity for finite z)",
-            fuzz=[("re", "cdd_proj_re"), ("im", "cdd_proj_im")]),
-        Op("cdd_abs",   "cdd\\_abs",   "original: hypot(re, im)",                  fuzz="cdd_abs"),
-        Op("cdd_arg",   "cdd\\_arg",   "original: atan2(im, re)",                  fuzz="cdd_arg"),
+            fuzz=[("re", "cproj_re"), ("im", "cproj_im")]),
+        Op("cdd_abs",   "cdd\\_abs",   "original: hypot(re, im)",                  fuzz="cabs"),
+        Op("cdd_arg",   "cdd\\_arg",   "original: atan2(im, re)",                  fuzz="carg"),
     ]),
     Section("Complex transcendentals", [
         Op("cdd_sqrt",  "cdd\\_sqrt",  "original: Kahan-style (\\|z\\|+\\|a\\|)/2 with scaling",
-            fuzz=[("re", "cdd_sqrt_re"), ("im", "cdd_sqrt_im")]),
+            fuzz=[("re", "csqrt_re"), ("im", "csqrt_im")]),
         Op("cdd_exp",   "cdd\\_exp",   "original: exp(re)\u00b7(cos(im), sin(im))",
-            fuzz=[("re", "cdd_exp_re"), ("im", "cdd_exp_im")]),
+            fuzz=[("re", "cexp_re"), ("im", "cexp_im")]),
         Op("cdd_expm1", "cdd\\_expm1", "original: expm1(re)\u00b7cos(im) + (cos(im)\u22121) + i\u00b7exp(re)\u00b7sin(im)",
-            fuzz=[("re", "cdd_expm1_re"), ("im", "cdd_expm1_im")]),
+            fuzz=[("re", "cexpm1_re"), ("im", "cexpm1_im")]),
         Op("cdd_log",   "cdd\\_log",   "original: (log(\\|z\\|), atan2(im,re))",
-            fuzz=[("re", "cdd_log_re"), ("im", "cdd_log_im")]),
+            fuzz=[("re", "clog_re"), ("im", "clog_im")]),
         Op("cdd_log2",  "cdd\\_log2",  "original: clog / log(2) component-wise",
-            fuzz=[("re", "cdd_log2_re"), ("im", "cdd_log2_im")]),
+            fuzz=[("re", "clog2_re"), ("im", "clog2_im")]),
         Op("cdd_log10", "cdd\\_log10", "original: clog / log(10) component-wise",
-            fuzz=[("re", "cdd_log10_re"), ("im", "cdd_log10_im")]),
+            fuzz=[("re", "clog10_re"), ("im", "clog10_im")]),
         Op("cdd_log1p", "cdd\\_log1p", "original: cancellation-safe log(1+z) near z=0",
-            fuzz=[("re", "cdd_log1p_re"), ("im", "cdd_log1p_im")]),
+            fuzz=[("re", "clog1p_re"), ("im", "clog1p_im")]),
         Op("cdd_pow",   "cdd\\_pow",   "original: exp(w\u00b7log(z))",
-            fuzz=[("re", "cdd_pow_re"), ("im", "cdd_pow_im")]),
+            fuzz=[("re", "cpow_re"), ("im", "cpow_im")]),
         Op("cdd_sin",   "cdd\\_sin",   "original: sin(re)cosh(im), cos(re)sinh(im)",
-            fuzz=[("re", "cdd_sin_re"), ("im", "cdd_sin_im")]),
+            fuzz=[("re", "csin_re"), ("im", "csin_im")]),
         Op("cdd_cos",   "cdd\\_cos",   "original: cos(re)cosh(im), \u2212sin(re)sinh(im)",
-            fuzz=[("re", "cdd_cos_re"), ("im", "cdd_cos_im")]),
+            fuzz=[("re", "ccos_re"), ("im", "ccos_im")]),
         Op("cdd_tan",   "cdd\\_tan",   "original: complex sin/cos ratio",
-            fuzz=[("re", "cdd_tan_re"), ("im", "cdd_tan_im")]),
+            fuzz=[("re", "ctan_re"), ("im", "ctan_im")]),
         Op("cdd_sinpi", "cdd\\_sinpi", "original: csin(\u03c0\u00b7z) via π-scaled trig kernels",
-            fuzz=[("re", "cdd_sinpi_re"), ("im", "cdd_sinpi_im")]),
+            fuzz=[("re", "csinpi_re"), ("im", "csinpi_im")]),
         Op("cdd_cospi", "cdd\\_cospi", "original: ccos(\u03c0\u00b7z) via π-scaled trig kernels",
-            fuzz=[("re", "cdd_cospi_re"), ("im", "cdd_cospi_im")]),
+            fuzz=[("re", "ccospi_re"), ("im", "ccospi_im")]),
         Op("cdd_sinh",  "cdd\\_sinh",  "original: sinh(re)cos(im), cosh(re)sin(im)",
-            fuzz=[("re", "cdd_sinh_re"), ("im", "cdd_sinh_im")]),
+            fuzz=[("re", "csinh_re"), ("im", "csinh_im")]),
         Op("cdd_cosh",  "cdd\\_cosh",  "original: cosh(re)cos(im), sinh(re)sin(im)",
-            fuzz=[("re", "cdd_cosh_re"), ("im", "cdd_cosh_im")]),
+            fuzz=[("re", "ccosh_re"), ("im", "ccosh_im")]),
         Op("cdd_tanh",  "cdd\\_tanh",  "original: complex tanh via sinh/cosh",
-            fuzz=[("re", "cdd_tanh_re"), ("im", "cdd_tanh_im")]),
+            fuzz=[("re", "ctanh_re"), ("im", "ctanh_im")]),
         Op("cdd_asin",  "cdd\\_asin",  "original: \u2212i\u00b7log(iz+\u221a(1\u2212z\u00b2))",
-            fuzz=[("re", "cdd_asin_re"), ("im", "cdd_asin_im")]),
+            fuzz=[("re", "casin_re"), ("im", "casin_im")]),
         Op("cdd_acos",  "cdd\\_acos",  "original: \u03c0/2 \u2212 asin(z)",
-            fuzz=[("re", "cdd_acos_re"), ("im", "cdd_acos_im")]),
+            fuzz=[("re", "cacos_re"), ("im", "cacos_im")]),
         Op("cdd_atan",  "cdd\\_atan",  "original: (\u2212i/2)\u00b7log((1+iz)/(1\u2212iz))",
-            fuzz=[("re", "cdd_atan_re"), ("im", "cdd_atan_im")]),
+            fuzz=[("re", "catan_re"), ("im", "catan_im")]),
         Op("cdd_asinh", "cdd\\_asinh", "original: log(z+\u221a(z\u00b2+1))",
-            fuzz=[("re", "cdd_asinh_re"), ("im", "cdd_asinh_im")]),
+            fuzz=[("re", "casinh_re"), ("im", "casinh_im")]),
         Op("cdd_acosh", "cdd\\_acosh", "original: log(z+\u221a(z\u00b2\u22121))",
-            fuzz=[("re", "cdd_acosh_re"), ("im", "cdd_acosh_im")]),
+            fuzz=[("re", "cacosh_re"), ("im", "cacosh_im")]),
         Op("cdd_atanh", "cdd\\_atanh", "original: \u00bd\u00b7log((1+z)/(1\u2212z))",
-            fuzz=[("re", "cdd_atanh_re"), ("im", "cdd_atanh_im")]),
+            fuzz=[("re", "catanh_re"), ("im", "catanh_im")]),
     ]),
 ]
 
 
-def qp_reference_ops() -> list[Op]:
-    """Flat list of ops for the top-level quadmath-vs-MPFR reference table.
+@dataclass
+class UnifiedRow:
+    """One row of the single-arch BENCHMARK.md table.
 
-    Dedupe on the *fuzz key* so C and Fortran rows that share a kernel
-    (``bj0`` / ``bessel_j0`` both have ``fuzz="bj0"``) appear once. Ops
-    with ``fuzz=None`` or ``fuzz="exact"`` are skipped — no reference-
-    vs-qp comparison is meaningful.
+    Built by ``unified_rows()`` by walking ``C_SECTIONS`` and
+    ``FORTRAN_SECTIONS`` and merging entries that share a ``bench_key``.
+    For shared ops (most), the C and Fortran ``Op``s carry identical
+    ``approach``/``fuzz``; ``prec`` is only set on the Fortran side, so
+    we copy it from there.
     """
-    def fuzz_key(op: Op):
-        if isinstance(op.fuzz, str):
-            return op.fuzz
-        return tuple(key for _, key in op.fuzz)
+    display: str
+    scope: str           # "C" | "Fortran" | "both"
+    prec: str            # "" when only the C-side op is present
+    approach: str
+    fuzz: FuzzSpec       # for err_dd / err_qp lookup
+    c_bench_key: str | None  # None iff scope == "Fortran"
+    f_bench_key: str | None  # None iff scope == "C"
 
-    seen: set = set()
-    out: list[Op] = []
-    for sect in C_SECTIONS + FORTRAN_SECTIONS:
-        for op in sect.ops:
-            if op.fuzz is None or op.fuzz == "exact":
+
+def unified_rows() -> list[UnifiedRow]:
+    """Flat row list for the single-arch BENCHMARK.md table.
+
+    Walks ``C_SECTIONS`` first (in declaration order), merging each op
+    with its same-``bench_key`` counterpart in ``FORTRAN_SECTIONS`` if
+    one exists; then appends Fortran-only ops in their original section
+    order. No reordering — the table mirrors the section sequence in
+    ``ops.py``.
+    """
+    f_remaining: dict[str, Op] = {
+        op.bench_key: op
+        for sect in FORTRAN_SECTIONS
+        for op in sect.ops
+    }
+    out: list[UnifiedRow] = []
+
+    for sect in C_SECTIONS:
+        for c_op in sect.ops:
+            f_op = f_remaining.pop(c_op.bench_key, None)
+            if f_op is not None:
+                out.append(UnifiedRow(
+                    display=f_op.display,
+                    scope="both",
+                    prec=f_op.prec,
+                    approach=f_op.approach,
+                    fuzz=f_op.fuzz,
+                    c_bench_key=c_op.bench_key,
+                    f_bench_key=f_op.bench_key,
+                ))
+            else:
+                out.append(UnifiedRow(
+                    display=c_op.display,
+                    scope="C",
+                    prec=c_op.prec,
+                    approach=c_op.approach,
+                    fuzz=c_op.fuzz,
+                    c_bench_key=c_op.bench_key,
+                    f_bench_key=None,
+                ))
+
+    for sect in FORTRAN_SECTIONS:
+        for f_op in sect.ops:
+            if f_op.bench_key not in f_remaining:
                 continue
-            k = fuzz_key(op)
-            if k in seen:
-                continue
-            seen.add(k)
-            out.append(op)
+            del f_remaining[f_op.bench_key]
+            out.append(UnifiedRow(
+                display=f_op.display,
+                scope="Fortran",
+                prec=f_op.prec,
+                approach=f_op.approach,
+                fuzz=f_op.fuzz,
+                c_bench_key=None,
+                f_bench_key=f_op.bench_key,
+            ))
+
     return out

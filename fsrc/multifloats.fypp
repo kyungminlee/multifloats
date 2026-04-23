@@ -734,7 +734,8 @@ module multifloats
     ('dd_atan2_full',   'atan2dd'),   &
     ('dd_atan2pi_full', 'atan2pidd'), &
     ('dd_hypot_full',   'hypotdd'),   &
-    ('dd_fmod_full',    'fmoddd') ]
+    ('dd_fmod_full',    'fmoddd'),    &
+    ('dd_pow_full',     'powdd') ]
 
     interface
 #:for _ffull, csym in C_DELEGATE_UNARY_MAP
@@ -757,6 +758,13 @@ module multifloats
             import :: complex64x2_t; type(complex64x2_t), value, intent(in) :: a, b
         end function
 #:endfor
+        ! Integer-exponent power: exponent comes in as a plain C int, so
+        ! the delegate map shape (dd, dd)->dd doesn't fit — declare by hand.
+        pure type(float64x2_t) function c_dd_powi(a, n) bind(c, name='powidd')
+            import :: float64x2_t, c_int
+            type(float64x2_t), value, intent(in) :: a
+            integer(c_int), value, intent(in) :: n
+        end function
         ! Integer-order Bessel (recurrence in C++; seeded by j0dd/j1dd/y0dd/y1dd).
         pure type(float64x2_t) function c_dd_jn(n, a) bind(c, name='jndd')
             import :: float64x2_t, c_int
@@ -1339,6 +1347,57 @@ contains
     ! Unary operators (elemental)
     ! ----------------------------------------------------------------
 
+    ! ----------------------------------------------------------------
+    ! Error-free transforms, mirrored from include/multifloats.h
+    ! (detail::two_sum / fast_two_sum / two_prod). Inlined in every
+    ! arithmetic kernel below, so algorithms stay bit-identical to the
+    ! C++ operators in float64x2.
+    ! ----------------------------------------------------------------
+
+    pure subroutine two_sum(a, b, s, e)
+        real(dp), intent(in)  :: a, b
+        real(dp), intent(out) :: s, e
+        real(dp) :: ap, bp
+        s = a + b
+        ap = s - b
+        bp = s - ap
+        e = (a - ap) + (b - bp)
+    end subroutine
+
+    pure subroutine fast_two_sum(a, b, s, e)
+        real(dp), intent(in)  :: a, b
+        real(dp), intent(out) :: s, e
+        real(dp) :: bp
+        s = a + b
+        bp = s - a
+        e = b - bp
+    end subroutine
+
+    pure subroutine two_prod(a, b, p, e)
+        real(dp), intent(in)  :: a, b
+        real(dp), intent(out) :: p, e
+        p = a * b
+        e = c_fma(a, b, -p)
+    end subroutine
+
+    ! DD signbit — matches C++ multifloats::signbit: looks at the first
+    ! nonzero limb, falling back to the hi limb when both limbs are
+    ! (possibly signed) zero. Needed so non-canonical DDs like (+0, -eps)
+    ! resolve their sign correctly in abs / copysign.
+    elemental function dd_signbit(x) result(res)
+        type(float64x2), intent(in) :: x
+        logical :: res
+        real(dp) :: pivot
+        if (x%limbs(1) /= 0.0_dp) then
+            pivot = x%limbs(1)
+        else if (x%limbs(2) /= 0.0_dp) then
+            pivot = x%limbs(2)
+        else
+            pivot = x%limbs(1)
+        end if
+        res = sign(1.0_dp, pivot) < 0.0_dp
+    end function
+
     elemental function dd_neg(x) result(res)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
@@ -1373,10 +1432,12 @@ $:C_DELEGATE_BINARY(ffull, csym)
         type(float64x2), intent(in) :: x
         type(float64x2) :: res
 #:if func == 'abs'
-        ! IEEE abs: also flips signed-zero -0 to +0. Use sign() rather
-        ! than `<` so the -0 case is not silently treated as positive.
-        if (sign(1.0_dp, x%limbs(1)) < 0.0_dp .or. &
-            (x%limbs(1) == 0.0_dp .and. x%limbs(2) < 0.0_dp)) then
+        ! Match C++ multifloats::fabs: resolve the sign via the first
+        ! nonzero limb; if every limb is a (possibly signed) zero,
+        ! return canonical +0 so abs(-0.0) = +0.0 as IEEE expects.
+        if (x%limbs(1) == 0.0_dp .and. x%limbs(2) == 0.0_dp) then
+            res = DD_ZERO
+        else if (dd_signbit(x)) then
             res%limbs = -x%limbs
         else
             res = x
@@ -1589,45 +1650,43 @@ $:C_DELEGATE_BINARY(ffull, csym)
         x = ${DDCONV[n1].format('a')}$
         y = ${DDCONV[n2].format('b')}$
 #:if func == 'min'
+        ! multifloats::fmin : (a < b) ? a : b
         if (x < y) then
             res = x
         else
             res = y
         end if
 #:elif func == 'max'
-        if (x > y) then
-            res = x
-        else
+        ! multifloats::fmax : (a < b) ? b : a
+        if (x < y) then
             res = y
+        else
+            res = x
         end if
 #:elif func == 'sign'
-        ! Fortran sign(a, b): magnitude of |a|, sign of b.
-        block
-            logical :: x_neg, y_neg
-            x_neg = (x%limbs(1) < 0.0_dp .or. (x%limbs(1) == 0.0_dp .and. x%limbs(2) < 0.0_dp))
-            y_neg = (y%limbs(1) < 0.0_dp .or. (y%limbs(1) == 0.0_dp .and. y%limbs(2) < 0.0_dp))
-            if (x_neg .neqv. y_neg) then
-                res%limbs = -x%limbs
-            else
-                res = x
-            end if
-        end block
+        ! Fortran sign(a, b) == C++ copysign(a, b):
+        !   (signbit(a) == signbit(b)) ? a : -a
+        ! signbit uses first-nonzero-limb logic (see dd_signbit).
+        if (dd_signbit(x) .eqv. dd_signbit(y)) then
+            res = x
+        else
+            res%limbs = -x%limbs
+        end if
 #:elif func == 'mod'
         res = dd_fmod_full(x, y)
 #:elif func == 'modulo'
-        ! modulo via mod + sign adjustment
-        res = ${n1}$_mod_${n2}$(a, b)
-        if (res%limbs(1) /= 0.0_dp) then
-            if ((res%limbs(1) > 0.0_dp .and. y%limbs(1) < 0.0_dp) .or. &
-                (res%limbs(1) < 0.0_dp .and. y%limbs(1) > 0.0_dp)) then
-                res = res + y
-            end if
+        ! Floored modulo mirroring multifloats::modulo: fmod for the
+        ! truncated remainder, then add y when signbit(r) != signbit(y).
+        ! dd_signbit is first-nonzero-limb, so non-canonical DDs like
+        ! (0, -eps) get the correct sign adjust — something the prior
+        ! hi-only check missed.
+        res = dd_fmod_full(x, y)
+        if (res%limbs(1) /= 0.0_dp .or. res%limbs(2) /= 0.0_dp) then
+            if (dd_signbit(res) .neqv. dd_signbit(y)) res = res + y
         end if
 #:elif func == 'dim'
-        if (.not. (ieee_is_finite(x%limbs(1)) .and. ieee_is_finite(y%limbs(1)))) then
-            ! Defer to the dp intrinsic so NaN/Inf propagation matches.
-            res%limbs = [dim(x%limbs(1), y%limbs(1)), 0.0_dp]
-        else if (x > y) then
+        ! multifloats::fdim : (x > y) ? x - y : 0
+        if (x > y) then
             res = x - y
         else
             res = DD_ZERO
@@ -2774,144 +2833,6 @@ $:dd_minmax_body(func, n)
     ! Binary arithmetic (+, -, *, /) — elemental
     ! ----------------------------------------------------------------
 
-#! Unpack operand `name` (a or b) into scalar dp locals (hi, lo). For non-DD
-#! operands lo is 0. Used by the real-DD arithmetic bodies below.
-#:def unpack_operand(name, n, hi, lo)
-#:if n == 'dd'
-        ${hi}$ = ${name}$%limbs(1)
-        ${lo}$ = ${name}$%limbs(2)
-#:elif n == 'sp' or n == 'int'
-        ${hi}$ = real(${name}$, dp)
-        ${lo}$ = 0.0_dp
-#:else
-        ${hi}$ = ${name}$
-        ${lo}$ = 0.0_dp
-#:endif
-#:enddef
-
-#! Real-DD add/sub. For sub, the caller negates y first.
-#:def dd_arith_addsub_body()
-        s = x0 + y0
-        if (.not. ieee_is_finite(s)) then
-            ! Any non-finite input or overflow makes s non-finite. The
-            ! EFT below would propagate NaN to limbs(2); short-circuit
-            ! and let IEEE produce the correct leading limb.
-            res%limbs(1) = s
-            res%limbs(2) = 0.0_dp
-            return
-        end if
-        ! When both hi limbs are zero, the two_sum EFT produces a
-        ! spurious +0 from mixed-sign zero arithmetic (IEEE 754:
-        ! -0 + +0 = +0 in round-to-nearest). Short-circuit so the
-        ! correct IEEE sign of s is preserved.
-        if (x0 == 0.0_dp .and. y0 == 0.0_dp) then
-            res%limbs(1) = s
-            res%limbs(2) = x1 + y1
-            return
-        end if
-        aprime = s - y0
-        bprime = s - aprime
-        aerr = x0 - aprime
-        berr = y0 - bprime
-        e = aerr + berr
-        c = x1 + y1
-        aprime = c - y1
-        bprime = c - aprime
-        aerr = x1 - aprime
-        berr = y1 - bprime
-        d = aerr + berr
-        t = s + c
-        bprime = t - s
-        c = c - bprime
-        e = e + d + c
-        res%limbs(1) = t + e
-        bprime = res%limbs(1) - t
-        res%limbs(2) = e - bprime
-#:enddef
-
-#! Real-DD multiply via FMA-based two_prod plus cross terms.
-#:def dd_arith_mul_body()
-        p00 = x0 * y0
-        if (.not. ieee_is_finite(p00)) then
-            ! Any non-finite input, 0*inf, or overflow lands here in one
-            ! test (no separate ieee_is_finite on x0/y0).
-            res%limbs(1) = p00
-            res%limbs(2) = 0.0_dp
-            return
-        end if
-        e00 = c_fma(x0, y0, -p00)
-        p01 = x0 * y1
-        p10 = x1 * y0
-        e00 = e00 + (p01 + p10)
-        res%limbs(1) = p00 + e00
-        bprime = res%limbs(1) - p00
-        res%limbs(2) = e00 - bprime
-#:enddef
-
-#! Newton-refined DD divide. The first guard tests the leading quotient s;
-#! if non-finite, every IEEE edge case (y=0, 0/0, inf/finite, NaN) collapses
-#! to the same path. The second guard catches finite/inf (s=0 but refinement
-#! would hit 0*inf=NaN).
-#:def dd_arith_div_body()
-        s = x0 / y0
-        if (.not. ieee_is_finite(s)) then
-            res%limbs(1) = s
-            res%limbs(2) = 0.0_dp
-            return
-        end if
-        if (.not. ieee_is_finite(y0)) then
-            ! y is ±inf: quotient is ±0 (already in s). The Newton
-            ! refinement would compute 0*inf = NaN; short-circuit.
-            res%limbs(1) = s
-            res%limbs(2) = 0.0_dp
-            return
-        end if
-        ux = 1.0_dp / y0
-        p00 = x0 * ux
-        e00 = c_fma(x0, ux, -p00) + x1 * ux
-        q0 = p00 + e00
-        bprime = q0 - p00
-        q1_lo = e00 - bprime
-        p00 = q0 * y0
-        e00 = c_fma(q0, y0, -p00) + q0 * y1 + q1_lo * y0
-        q_y0 = p00 + e00
-        bprime = q_y0 - p00
-        q_y1 = e00 - bprime
-        ! residual = q*y - x; final step is q - residual * (1/y0).
-        ! Inline the (q*y - x) DD subtract since we already have x0/x1.
-        s = q_y0 + (-x0)
-        aprime = s - (-x0)
-        bprime = s - aprime
-        aerr = q_y0 - aprime
-        berr = (-x0) - bprime
-        e = aerr + berr
-        c = q_y1 + (-x1)
-        t = s + c
-        bprime = t - s
-        c = c - bprime
-        e = e + c
-        r0 = t + e
-        bprime = r0 - t
-        r1 = e - bprime
-        ! correction = residual * u  (u ≈ 1/y0, single dp value)
-        p00 = r0 * ux
-        e00 = c_fma(r0, ux, -p00) + r1 * ux
-        ! res = q - correction
-        s = q0 + (-p00)
-        aprime = s - (-p00)
-        bprime = s - aprime
-        aerr = q0 - aprime
-        berr = (-p00) - bprime
-        e = aerr + berr
-        c = q1_lo + (-e00)
-        t = s + c
-        bprime = t - s
-        c = c - bprime
-        e = e + c
-        res%limbs(1) = t + e
-        bprime = res%limbs(1) - t
-        res%limbs(2) = e - bprime
-#:enddef
 
 #! Complex result: lift any non-complex operand to a complex64x2 via
 #! assignment overloads, then delegate to the C kernel c${opname}$dd so
@@ -2942,26 +2863,78 @@ $:dd_minmax_body(func, n)
         ${d2}$, intent(in) :: b
         ${'type(complex64x2)' if rc else 'type(float64x2)'}$ :: res
 #:if not rc
-        ! Hot fast path uses scalar dp locals (no float64x2 copies, no
-        ! generic dd_from_dp call). The single non-finite guard runs
-        ! after the leading-limb op so a single test catches every IEEE
-        ! special case.
-        real(dp) :: x0, x1, y0, y1
-        real(dp) :: s, e, t, aprime, bprime, aerr, berr
-        real(dp) :: p00, e00, p01, p10, c, d
-        real(dp) :: ux, uy, q0, q1_lo, r0, r1, q_y0, q_y1
-$:unpack_operand('a', n1, 'x0', 'x1')
-$:unpack_operand('b', n2, 'y0', 'y1')
-#:if opname == 'sub'
-        y0 = -y0
-        y1 = -y1
+        ! Native inline mirroring float64x2::operator ${opsym}$ in
+        ! include/multifloats.h (two_sum / fast_two_sum / two_prod EFTs).
+        ! Bit-exact with the C++ kernel on finite inputs.
+        type(float64x2) :: x, y
+        real(dp) :: xh, xl, yh, yl
+        real(dp) :: s, a_, b_, c_, d_, aa, cc
+#:if opname == 'mul'
+        real(dp) :: p00, e00, p01, p10
 #:endif
+#:if opname == 'div'
+        real(dp) :: q1, q2, p00, e00, p01, qhi, qlo, r0, r0e, r1, rh, rl
+#:endif
+        x = ${DDCONV[n1].format('a')}$
+        y = ${DDCONV[n2].format('b')}$
+        xh = x%limbs(1); xl = x%limbs(2)
+        yh = y%limbs(1); yl = y%limbs(2)
 #:if opname == 'add' or opname == 'sub'
-$:dd_arith_addsub_body()
+#:if opname == 'sub'
+        yh = -yh
+        yl = -yl
+#:endif
+        s = xh + yh
+        if (.not. ieee_is_finite(s)) then
+            res%limbs = [s, 0.0_dp]
+        else if (xh == 0.0_dp .and. yh == 0.0_dp) then
+            ! two_sum loses the -0 sign when both hi limbs are zero;
+            ! short-circuit so the IEEE sign of s is preserved.
+            res%limbs = [s, xl + yl]
+        else
+            call two_sum(xh, yh, a_, b_)
+            call two_sum(xl, yl, c_, d_)
+            call fast_two_sum(a_, c_, aa, cc)
+            b_ = b_ + d_ + cc
+            call fast_two_sum(aa, b_, res%limbs(1), res%limbs(2))
+        end if
 #:elif opname == 'mul'
-$:dd_arith_mul_body()
+        call two_prod(xh, yh, p00, e00)
+        if (.not. ieee_is_finite(p00)) then
+            ! two_prod's fma residual goes NaN whenever p00 overflows or
+            ! either input is ±Inf/NaN (e.g. inf*2 → e00=fma(inf,2,-inf)
+            ! =NaN). Short-circuit so the EFT residual doesn't contaminate
+            ! the lo limb — matches operator* in include/multifloats.h.
+            res%limbs = [p00, 0.0_dp]
+        else
+            p01 = xh * yl
+            p10 = xl * yh
+            p01 = p01 + p10
+            e00 = e00 + p01
+            call fast_two_sum(p00, e00, res%limbs(1), res%limbs(2))
+        end if
 #:else
-$:dd_arith_div_body()
+        ! div: Dekker-style single Newton refinement (match operator/).
+        q1 = xh / yh
+        if (.not. ieee_is_finite(q1)) then
+            ! Mirror q1 into the lo limb so non-finite DD propagates
+            ! through both limbs — same as C++ operator/.
+            res%limbs = [q1, q1]
+        else if (.not. ieee_is_finite(yh)) then
+            ! Finite / ±Inf: q1 is ±0; the refinement would compute
+            ! 0 * inf = NaN, so short-circuit.
+            res%limbs = [q1, 0.0_dp]
+        else
+            call two_prod(q1, yh, p00, e00)
+            p01 = q1 * yl
+            qhi = p00
+            qlo = e00 + p01
+            call two_sum(xh, -qhi, r0, r0e)
+            r1 = (xl - qlo) + r0e
+            call fast_two_sum(r0, r1, rh, rl)
+            q2 = rh / yh
+            call fast_two_sum(q1, q2, res%limbs(1), res%limbs(2))
+        end if
 #:endif
 #:else
 $:cdd_arith_body(opname)
@@ -3002,17 +2975,19 @@ $:cdd_arith_body(opname)
             end if
         end block
 #:else
-        ! Integer-power on a real base via repeated multiplication.
+        ! Integer-power on a real base: delegate to multifloats::powi
+        ! (exponentiation-by-squaring in C++). Keeping this delegated
+        ! rather than reinlined because the C++ inline-constexpr body
+        ! pipelines the inner DD mults ~2x tighter than the gfortran
+        ! rendering of the same loop — a real codegen gap on a
+        ! non-hot path that still exceeds Fortran's reach.
         block
             type(float64x2) :: base
-            integer :: k, n
+            type(float64x2_t) :: r
             base = a
-            res = DD_ONE
-            n = abs(b)
-            do k = 1, n
-                res = res * base
-            end do
-            if (b < 0) res = DD_ONE / res
+            r = c_dd_powi(float64x2_t(base%limbs(1), base%limbs(2)), &
+                          int(b, c_int))
+            res%limbs = [r%hi, r%lo]
         end block
 #:endif
 #:elif rc
@@ -3024,12 +2999,14 @@ $:cdd_arith_body(opname)
             res = cdd_exp(cb * cdd_log(ca))
         end block
 #:else
-        ! General real power: a^b = exp(b * log(a))
+        ! General real power: delegate to multifloats::pow, which
+        ! handles IEEE edge cases (pow(1, x)=1, pow(x, 0)=1, signed
+        ! zero, ±Inf exponents) that naive exp(y*log(x)) gets wrong.
         block
             type(float64x2) :: x, y
             x = a
             y = b
-            res = dd_exp(y * dd_log(x))
+            res = dd_pow_full(x, y)
         end block
 #:endif
     end function
@@ -3050,13 +3027,14 @@ $:cdd_arith_body(opname)
         ${d2}$, intent(in) :: b
         logical :: res
 #:if not ISCPLX[n1] and not ISCPLX[n2]
+        ! Match C++ float64x2::operator== / != : both limbs must agree.
         type(float64x2) :: x, y
         x = ${DDCONV[n1].format('a')}$
         y = ${DDCONV[n2].format('b')}$
 #:if opname == 'eq'
         res = x%limbs(1) == y%limbs(1) .and. x%limbs(2) == y%limbs(2)
 #:else
-        res = x%limbs(1) /= y%limbs(1) .or. x%limbs(2) /= y%limbs(2)
+        res = x%limbs(1) /= y%limbs(1) .or.  x%limbs(2) /= y%limbs(2)
 #:endif
 #:else
         ! Complex (in)equality: compare real and imaginary parts in native DD.
@@ -3089,17 +3067,48 @@ $:cdd_arith_body(opname)
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
         logical :: res
+        ! Lexicographic on (hi, lo), mirroring the C++
+        ! float64x2::operator< body in include/multifloats.h:
+        !   if (hi < r.hi) return true;
+        !   if (r.hi < hi) return false;
+        !   return lo < r.lo;
+        ! The other ordered ops compose from < exactly as in C++
+        ! (operator> uses r < lhs; <=/>= negate the strict form).
         type(float64x2) :: x, y
         x = ${DDCONV[n1].format('a')}$
         y = ${DDCONV[n2].format('b')}$
 #:if opname == 'lt'
-        res = x%limbs(1) < y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) < y%limbs(2))
+        if (x%limbs(1) < y%limbs(1)) then
+            res = .true.
+        else if (y%limbs(1) < x%limbs(1)) then
+            res = .false.
+        else
+            res = x%limbs(2) < y%limbs(2)
+        end if
 #:elif opname == 'gt'
-        res = x%limbs(1) > y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) > y%limbs(2))
+        if (y%limbs(1) < x%limbs(1)) then
+            res = .true.
+        else if (x%limbs(1) < y%limbs(1)) then
+            res = .false.
+        else
+            res = y%limbs(2) < x%limbs(2)
+        end if
 #:elif opname == 'le'
-        res = x%limbs(1) < y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) <= y%limbs(2))
+        if (x%limbs(1) < y%limbs(1)) then
+            res = .true.
+        else if (y%limbs(1) < x%limbs(1)) then
+            res = .false.
+        else
+            res = x%limbs(2) <= y%limbs(2)
+        end if
 #:else
-        res = x%limbs(1) > y%limbs(1) .or. (x%limbs(1) == y%limbs(1) .and. x%limbs(2) >= y%limbs(2))
+        if (y%limbs(1) < x%limbs(1)) then
+            res = .true.
+        else if (x%limbs(1) < y%limbs(1)) then
+            res = .false.
+        else
+            res = y%limbs(2) <= x%limbs(2)
+        end if
 #:endif
     end function
 

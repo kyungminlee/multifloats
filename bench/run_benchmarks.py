@@ -359,10 +359,11 @@ def main() -> int:
         targets += ["fortran_bench"]
     if not args.skip_cpp:
         targets += ["cpp_bench"]
-    # MPFR fuzz is the sole precision oracle. Require it unless the caller
-    # explicitly opted out.
+    # MPFR fuzz is the primary precision oracle; fortran_fuzz fills in the
+    # gaps (array reductions, Fortran-only intrinsics) using a libquadmath
+    # oracle. Both unless the caller explicitly opted out.
     if not args.skip_fuzz:
-        targets += ["cpp_fuzz_mpfr"]
+        targets += ["cpp_fuzz_mpfr", "fortran_fuzz"]
 
     if not args.no_build:
         print("Building benchmark executables ...", file=sys.stderr)
@@ -395,12 +396,29 @@ def main() -> int:
                   file=sys.stderr)
             return 1
         mpfr_fuzz = parse_fuzz_mpfr(run_exe(mpfr_exe, "1000000", "42"))
-        # C ABI kernels are shared by both language surfaces, so MPFR values
-        # apply to both.
+
+        # fortran_fuzz fills in keys MPFR doesn't cover (array reductions,
+        # Fortran-only intrinsics like aint/anint, etc.). Its oracle is
+        # libquadmath, so max_rel is DD-vs-quad rather than DD-vs-mpreal —
+        # adequate for ops that have no MPFR coverage at all. Never overwrite
+        # MPFR data.
+        f_fuzz_exe = args.build_dir / "fortran_fuzz"
+        if f_fuzz_exe.exists():
+            f_fuzz = parse_fuzz(run_exe(f_fuzz_exe, "1000000", "42"))
+        else:
+            f_fuzz = {}
+
+        merged = dict(mpfr_fuzz)
+        for op, entry in f_fuzz.items():
+            if op not in merged:
+                merged[op] = entry
+
+        # C ABI kernels are shared by both language surfaces, so the merged
+        # precision dict applies to both.
         for lang in ("fortran", "c"):
             if data.get(lang) is None:
                 continue
-            data[lang]["fuzz"] = dict(mpfr_fuzz)
+            data[lang]["fuzz"] = dict(merged)
 
     slug = args.slug or slugify(args.name)
     out_path = args.output_dir / f"benchmark-{slug}.json"
