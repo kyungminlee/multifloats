@@ -714,6 +714,12 @@ inline constexpr float64x2 nearbyint(float64x2 const &x) {
     r._limbs[1] = std::nearbyint(x._limbs[1]);
     detail::renorm_fast(r._limbs[0], r._limbs[1]);
   } else {
+    // Half-integer hi: std::nearbyint rounds to even and ignores lo, but
+    // the true value = hi + lo can lie on the opposite side of the half
+    // boundary. Mirror the adjustment in round() above.
+    double diff = x._limbs[0] - hi;
+    if      (diff ==  0.5 && x._limbs[1] > 0.0) hi += 1.0;
+    else if (diff == -0.5 && x._limbs[1] < 0.0) hi -= 1.0;
     r._limbs[0] = hi;
     r._limbs[1] = 0.0;
   }

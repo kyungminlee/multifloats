@@ -288,6 +288,10 @@ static bool is_full_dd(char const *op) {
       "add", "sub", "mul", "div", "sqrt", "abs", "neg",
       "add_fd", "mul_df", "fmin", "fmax", "copysign", "fdim",
       "hypot", "trunc", "round", "scalbn", "min3", "max3", "fmadd",
+      "floor", "ceil", "nearbyint", "rint",
+      "lround", "llround", "lrint", "llrint",
+      "logb", "ilogb", "ldexp", "scalbln",
+      "frexp.frac", "frexp.exp", "modf.frac", "modf.int",
       "exp", "exp2", "expm1", "log", "log2", "log10", "log1p",
       "pow", "pow_md", "pow_dm", "pow_int",
       "sin", "cos", "tan", "sincos_s", "sincos_c",
@@ -813,6 +817,58 @@ int main(int argc, char **argv) {
     CHK("neg", -f1, -q1, q1, (q_t)0, -m1);
     CHK1_IF(trunc, q_isfinite(q1) && aq1 < (q_t)1e15q);
     CHK1_IF(round, q_isfinite(q1) && aq1 < (q_t)1e15q);
+    // floor/ceil share trunc/round's magnitude gate: beyond 2^52 ≈ 4.5e15
+    // every DD input is already integer-valued and the op is identity, so
+    // the oracle comparison is uninformative. mpreal wraps both.
+    CHK1_IF(floor, q_isfinite(q1) && aq1 < (q_t)1e15q);
+    CHK1_IF(ceil,  q_isfinite(q1) && aq1 < (q_t)1e15q);
+    // nearbyint / rint use the default rounding mode (round-half-to-even).
+    // mpreal does not wrap nearbyint (no mpfr_nearbyint in MPFR), so pass
+    // the qp result through to_mp as the MP oracle; pass/fail still runs
+    // on DD-vs-qp which is what we care about. rint uses the same
+    // passthrough for uniformity.
+    CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "nearbyint",
+           mf::nearbyint(f1), nearbyintq(q1), q1, (q_t)0,
+           to_mp(nearbyintq(q1)));
+    CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "rint",
+           mf::rint(f1), rintq(q1), q1, (q_t)0, to_mp(rintq(q1)));
+
+    // Integer-rounding ops (return long / long long). Gate at 2^50 ≈ 1e15
+    // so the cast (long) → double in the adapter is exact (long has up to
+    // 63 mantissa bits, double only 53). The same gate keeps the DD inputs
+    // small enough that lround's half-integer correction never overflows.
+    if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
+      auto dd_of_llong = [](long long v) {
+        mf::float64x2 r;
+        r._limbs[0] = (double)v;
+        r._limbs[1] = 0.0;
+        return r;
+      };
+      CHK("lround",  dd_of_llong(mf::lround(f1)),
+          (q_t)lroundq(q1),  q1, (q_t)0, mp_t((long long)lroundq(q1)));
+      CHK("llround", dd_of_llong(mf::llround(f1)),
+          (q_t)llroundq(q1), q1, (q_t)0, mp_t((long long)llroundq(q1)));
+      CHK("lrint",   dd_of_llong(mf::lrint(f1)),
+          (q_t)lrintq(q1),   q1, (q_t)0, mp_t((long long)lrintq(q1)));
+      CHK("llrint",  dd_of_llong(mf::llrint(f1)),
+          (q_t)llrintq(q1),  q1, (q_t)0, mp_t((long long)llrintq(q1)));
+    }
+
+    // logb / ilogb: exponent extraction. Gate on finite nonzero — logb(0)
+    // is -inf and ilogb(0) is FP_ILOGB0 (implementation-defined), both
+    // oracle-matching on the qp side but not a useful precision check.
+    // Use qp-passthrough for the MP oracle; mpreal's logb binding may or
+    // may not exist depending on the mpreal version, and pass/fail runs
+    // on rel_err(DD vs qp) regardless.
+    CHK_IF(q_isfinite(q1) && q1 != (q_t)0, "logb",
+           mf::logb(f1), logbq(q1), q1, (q_t)0, to_mp(logbq(q1)));
+    if (q_isfinite(q1) && q1 != (q_t)0) {
+      mf::float64x2 ilogb_dd;
+      ilogb_dd._limbs[0] = (double)mf::ilogb(f1);
+      ilogb_dd._limbs[1] = 0.0;
+      CHK("ilogb", ilogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
+          mp_t((long long)ilogbq(q1)));
+    }
 
     check_comp(f1, f2, q1, q2);
 
@@ -932,6 +988,41 @@ int main(int argc, char **argv) {
       // scalbn(x, 5) = x · 2^5; the ·32 is exact at any precision.
       CHK_IF(q_isfinite(q1), "scalbn", mf::scalbn(f1, 5), scalbnq(q1, 5),
              q1, (q_t)0, m1 * mp_t(32));
+      // ldexp / scalbln: POSIX aliases of scalbn under FLT_RADIX == 2
+      // (IEEE 754 guarantees it). Same ·32 oracle. ldexp takes int,
+      // scalbln takes long — distinct header-only wrappers in multifloats.h.
+      CHK_IF(q_isfinite(q1), "ldexp",   mf::ldexp(f1, 5),    ldexpq(q1, 5),
+             q1, (q_t)0, m1 * mp_t(32));
+      CHK_IF(q_isfinite(q1), "scalbln", mf::scalbln(f1, 5L), scalblnq(q1, 5L),
+             q1, (q_t)0, m1 * mp_t(32));
+
+      // frexp(x, &e): DD returns fraction in [0.5, 1) for nonzero x and
+      // exponent e such that x == fraction · 2^e. Emit two stat rows —
+      // one for the fraction, one for the integer exponent — so per-
+      // component regressions show up separately.
+      if (q_isfinite(q1) && q1 != (q_t)0) {
+        int e_mf = 0, e_q = 0;
+        mf::float64x2 fr_mf = mf::frexp(f1, &e_mf);
+        q_t fr_q = frexpq(q1, &e_q);
+        CHK("frexp.frac", fr_mf, fr_q, q1, (q_t)0, to_mp(fr_q));
+        mf::float64x2 eint_mf;
+        eint_mf._limbs[0] = (double)e_mf;
+        eint_mf._limbs[1] = 0.0;
+        CHK("frexp.exp", eint_mf, (q_t)e_q, q1, (q_t)0,
+            mp_t((long long)e_q));
+      }
+
+      // modf(x, &iptr): splits x into fractional and integer parts, both
+      // preserving sign. Gate on |x| < 1e15 for the same reason as trunc:
+      // beyond 2^52 the fractional part is zero and the test is identity.
+      if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
+        mf::float64x2 ipart_mf;
+        q_t ipart_q = 0;
+        mf::float64x2 frac_mf = mf::modf(f1, &ipart_mf);
+        q_t frac_q = modfq(q1, &ipart_q);
+        CHK("modf.frac", frac_mf, frac_q, q1, (q_t)0, to_mp(frac_q));
+        CHK("modf.int",  ipart_mf, ipart_q, q1, (q_t)0, to_mp(ipart_q));
+      }
 
       // 3-argument min/max via nested fmin/fmax.
       if (both_finite) {
