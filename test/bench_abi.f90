@@ -43,14 +43,21 @@ program bench_abi
 
   allocate(f1(N), f2(N), fres(N), d1(N), d2(N), dres(N))
   block
-    real(dp) :: r
+    integer :: seed_size
+    integer, allocatable :: seed(:)
+    real(dp) :: r, rlo
+    call random_seed(size=seed_size)
+    allocate(seed(seed_size))
+    seed = 42
+    call random_seed(put=seed)
+    deallocate(seed)
     do i = 1, N
-      call random_number(r)
+      call random_number(r); call random_number(rlo)
       f1(i)%limbs(1) = (r - 0.5_dp) * 8.0_dp + sign(0.25_dp, r - 0.5_dp)
-      f1(i)%limbs(2) = 0.0_dp
-      call random_number(r)
+      f1(i)%limbs(2) = f1(i)%limbs(1) * (rlo - 0.5_dp) * 2.0_dp**(-52)
+      call random_number(r); call random_number(rlo)
       f2(i)%limbs(1) = (r - 0.5_dp) * 8.0_dp + sign(0.25_dp, r - 0.5_dp)
-      f2(i)%limbs(2) = 0.0_dp
+      f2(i)%limbs(2) = f2(i)%limbs(1) * (rlo - 0.5_dp) * 2.0_dp**(-52)
       d1(i)%hi = f1(i)%limbs(1); d1(i)%lo = f1(i)%limbs(2)
       d2(i)%hi = f2(i)%limbs(1); d2(i)%lo = f2(i)%limbs(2)
     end do
@@ -96,7 +103,7 @@ contains
     real(dp) :: s
     integer :: j
     s = 0.0_dp
-    do j = 1, size(fres); s = s + fres(j)%limbs(1); end do
+    do j = 1, size(fres); s = s + fres(j)%limbs(1) + fres(j)%limbs(2); end do
     arr(1)%limbs(1) = arr(1)%limbs(1) + s * 1e-30_dp
     dd_sink = dd_sink + s
   end subroutine
@@ -107,7 +114,7 @@ contains
     real(dp) :: s
     integer :: j
     s = 0.0_dp
-    do j = 1, size(dres); s = s + dres(j)%hi; end do
+    do j = 1, size(dres); s = s + dres(j)%hi + dres(j)%lo; end do
     arr(1)%hi = arr(1)%hi + s * 1e-30_dp
     fc_sink = fc_sink + s
   end subroutine
@@ -118,7 +125,7 @@ contains
     real(dp) :: s
     integer :: j
     s = 0.0_dp
-    do j = 1, size(dres); s = s + dres(j)%hi; end do
+    do j = 1, size(dres); s = s + dres(j)%hi + dres(j)%lo; end do
     arr(1)%hi = arr(1)%hi + s * 1e-30_dp
     cw_sink = cw_sink + s
   end subroutine
@@ -164,9 +171,9 @@ contains
     end select
     tcw = elapsed(t0)
 
-    r1 = merge(tmf/tfc, 0.0_real64, tfc > 0)
-    r2 = merge(tmf/tcw, 0.0_real64, tcw > 0)
-    r3 = merge(tfc/tcw, 0.0_real64, tcw > 0)
+    r1 = 0.0_real64; if (tfc > 0.0_real64) r1 = tmf / tfc
+    r2 = 0.0_real64; if (tcw > 0.0_real64) r2 = tmf / tcw
+    r3 = 0.0_real64; if (tcw > 0.0_real64) r3 = tfc / tcw
     write(*, '(1x,a14,1x,i10,1x,f9.4,1x,f9.4,1x,f9.4,1x,f6.2,"x",1x,f6.2,"x",1x,f6.2,"x")') &
         op, n_ops, tmf, tfc, tcw, r1, r2, r3
   end subroutine

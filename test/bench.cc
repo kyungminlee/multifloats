@@ -367,7 +367,7 @@ static void qfeed(q_t *in) {
 __attribute__((noinline))
 static void ffeed(mf::float64x2 *in) {
   double s = 0.0;
-  for (int i = 0; i < N; ++i) s += fres[i]._limbs[0];
+  for (int i = 0; i < N; ++i) s += fres[i]._limbs[0] + fres[i]._limbs[1];
   in[0]._limbs[0] += s * DRAIN_FEEDBACK_SCALE;
   f_sink += s;
 }
@@ -381,7 +381,8 @@ static void zqfeed(__complex128 *in) {
 __attribute__((noinline))
 static void zffeed(complex64x2_t *in) {
   double s = 0.0;
-  for (int i = 0; i < N; ++i) s += zfres[i].re.hi;
+  for (int i = 0; i < N; ++i)
+    s += zfres[i].re.hi + zfres[i].re.lo + zfres[i].im.hi + zfres[i].im.lo;
   in[0].re.hi += s * DRAIN_FEEDBACK_SCALE;
   zf_sink += s;
 }

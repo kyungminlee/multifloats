@@ -33,8 +33,16 @@ struct Stats {
   double max_rel = 0.0;
   double sum_rel = 0.0;
   int count = 0;
+  int nonfinite = 0;
   void update(double rel) {
+    // A non-finite rel-err means the kernel diverged from the reference
+    // past the representable range — never silently drop it. Record the
+    // count so the ratchet / PASS summary can flag it, and clamp the
+    // accumulated max so mean_rel stays meaningful.
     if (!std::isfinite(rel)) {
+      ++nonfinite;
+      ++count;
+      if (max_rel < 1.0) max_rel = 1.0;
       return;
     }
     if (rel > max_rel) {
@@ -1528,8 +1536,16 @@ static void print_stats(char const *name, Stats const &s) {
     std::printf("  %-12s n=%d\n", name, s.count);
     return;
   }
-  std::printf("  %-12s n=%-6d max_rel=%.3e  mean_rel=%.3e\n", name, s.count,
-              s.max_rel, s.sum_rel / s.count);
+  int finite_count = s.count - s.nonfinite;
+  double mean_rel = finite_count > 0 ? s.sum_rel / finite_count : 0.0;
+  if (s.nonfinite > 0) {
+    std::printf("  %-12s n=%-6d max_rel=%.3e  mean_rel=%.3e  nonfinite=%d\n",
+                name, s.count, s.max_rel, mean_rel, s.nonfinite);
+    ++g_failures;
+  } else {
+    std::printf("  %-12s n=%-6d max_rel=%.3e  mean_rel=%.3e\n", name, s.count,
+                s.max_rel, mean_rel);
+  }
 }
 
 int main() {
