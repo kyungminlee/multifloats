@@ -8,6 +8,14 @@ on:
 permissions:
   contents: write
 
+# Release artifacts target the Haswell baseline (AVX2 + FMA + BMI2).
+# Exported as CFLAGS/CXXFLAGS/FFLAGS so CMake seeds CMAKE_<LANG>_FLAGS
+# from them — applied at compile AND link, which -flto needs.
+env:
+  CFLAGS: -march=haswell
+  CXXFLAGS: -march=haswell
+  FFLAGS: -march=haswell
+
 jobs:
   # ===========================================================================
   # C++ library — built once (compiler-independent ABI)
