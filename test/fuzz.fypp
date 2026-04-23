@@ -124,8 +124,27 @@ program multifloat_fuzz
       @:CHK1(aint)
       @:CHK1(anint)
     end if
+    ! Integer-returning rounding overloads (dd_floor / dd_ceiling / dd_nint /
+    ! dd_exponent). Distinct from aint/anint/fraction which return DD.
+    ! Gate |q1| < 2e9 so the default-integer return kind (int32 on mainstream
+    ! toolchains) doesn't overflow. Parallel to the C++ lround/llround/ilogb
+    ! coverage added in PR-2: an independent qp-oracle sanity check on the
+    ! dd_nint half-integer correction that PR-3 fixed.
+    if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 2.0e9_qp) then
+      call check(float64x2(real(floor(f1),   dp)), real(floor(q1),   qp), &
+          "floor",   q1, 0.0_qp, num_errors)
+      call check(float64x2(real(ceiling(f1), dp)), real(ceiling(q1), qp), &
+          "ceiling", q1, 0.0_qp, num_errors)
+      call check(float64x2(real(nint(f1),    dp)), real(nint(q1),    qp), &
+          "nint",    q1, 0.0_qp, num_errors)
+    end if
     if (ieee_is_finite(real(q1, 8)) .and. q1 /= 0.0_qp) then
       @:CHK1(fraction)
+      ! exponent: Fortran's intrinsic returns integer. No magnitude gate
+      ! needed (result bounded by ±1074 for any finite double). dd_exponent
+      ! uses hi only — same convention as C++ mf::ilogb(x) = ilogb(x.hi).
+      call check(float64x2(real(exponent(f1), dp)), real(exponent(q1), qp), &
+          "exponent", q1, 0.0_qp, num_errors)
     end if
 
     call check_comp(f1, f2, q1, q2, num_errors)
@@ -410,6 +429,7 @@ contains
           "cdd_acos_re", "cdd_acos_im", "cdd_acosh_re", "cdd_acosh_im", &
           "cdd_asin_im", "cdd_asinh_im", "cdd_atan_re", "cdd_atan_im", &
           "aint", "anint", "fraction", "scale", "set_exponent", &
+          "floor", "ceiling", "nint", "exponent", &
           "min3", "max3", &
           "arr_sum", "arr_max", "arr_min", "arr_dot", "arr_norm2", "arr_matmul", &
           "cdd_add_re", "cdd_add_im", "cdd_sub_re", "cdd_sub_im", &
