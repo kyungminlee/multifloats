@@ -136,6 +136,11 @@ program bench_abi
   call bench("gt")
   call bench("ge")
 
+  ! Phase-2 candidates (native only until the C ABI kernels land)
+  call bench_native("pow7")
+  call bench_native("pow20")
+  call bench_native("modulo")
+
   print '(a)', " --------------------------------------------------------------------"
   print '(a,es11.3,a,es11.3)', " sinks: dd=", dd_sink, " cw=", cw_sink
 
@@ -242,6 +247,9 @@ contains
     case ("le");    do r=1,REPS; do i=1,N; ires_n(i) = merge(1,0, f1(i) <= f2(i)); end do; call dd_drain_int(ires_n); end do
     case ("gt");    do r=1,REPS; do i=1,N; ires_n(i) = merge(1,0, f1(i) >  f2(i)); end do; call dd_drain_int(ires_n); end do
     case ("ge");    do r=1,REPS; do i=1,N; ires_n(i) = merge(1,0, f1(i) >= f2(i)); end do; call dd_drain_int(ires_n); end do
+    case ("pow7");   do r=1,REPS; do i=1,N; fres(i) = f1(i) ** 7;   end do; call dd_drain(f1); end do
+    case ("pow20");  do r=1,REPS; do i=1,N; fres(i) = f1(i) ** 20;  end do; call dd_drain(f1); end do
+    case ("modulo"); do r=1,REPS; do i=1,N; fres(i) = modulo(f1(i), f2(i)); end do; call dd_drain(f1); end do
     end select
     tsec = elapsed(t0)
   end subroutine
@@ -300,6 +308,26 @@ contains
 
     write(*, '(1x,a10,1x,i12,2x,f10.4,1x,f10.4,2x,f6.2,"x",2x,f8.2)') &
         op, n_ops, tn_best, tc_best, ratio, ns_per
+  end subroutine
+
+  ! Native-only variant for ops that do not yet have a C-ABI shim. Prints
+  ! the Fortran-native ns/op so a later stage can compare against it.
+  subroutine bench_native(op)
+    character(*), intent(in) :: op
+    integer(int64) :: n_ops
+    real(real64) :: tn, tn_best, ns_per
+    integer :: k
+
+    n_ops = int(N, int64) * int(REPS, int64)
+    call run_native(op, tn)              ! warmup
+    tn_best = huge(1.0_real64)
+    do k = 1, TRIALS
+      call run_native(op, tn); if (tn < tn_best) tn_best = tn
+    end do
+    ns_per = 0.0_real64
+    if (n_ops > 0) ns_per = tn_best * 1.0e9_real64 / real(n_ops, real64)
+    write(*, '(1x,a10,1x,i12,2x,f10.4,1x,"(native only)",6x,f8.2)') &
+        op, n_ops, tn_best, ns_per
   end subroutine
 
 end program
