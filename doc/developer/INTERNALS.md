@@ -174,7 +174,7 @@ you hit exactly the right input.
   `|Re z|` tiny relative to `|Im z|` because `|arg|² = 1` at the clog
   call. `catanh`'s `log((1+z)/(1−z))` has the same shape for `z` near
   the unit circle. Both were fixed by porting libquadmath's branching
-  (`casinhdd`, `catanhdd` in `multifloats_math_abi_complex.inc`): a
+  (`casinhdd`, `catanhdd` in `complex64x2_abi.inc`): a
   regime-picked `log1p` of a small positive sum replaces the
   cancelling `log`. Apply the same template before attempting TD
   internals on a complex transcendental.

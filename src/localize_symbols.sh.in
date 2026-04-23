@@ -32,7 +32,7 @@
 # added static helper that accidentally escapes gets localized here.
 set -e
 LIB="$1"
-HEADER="@MULTIFLOATS_PUBLIC_INCLUDE_DIR@/multifloats.h"
+HEADER="@MULTIFLOATS_PUBLIC_INCLUDE_DIR@/multifloats/float64x2.h"
 KEEP=$(mktemp)
 MANGLED=$(mktemp)
 DEMANGLED=$(mktemp)

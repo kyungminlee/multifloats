@@ -2836,7 +2836,7 @@ $:dd_minmax_body(func, n)
 
 #! Complex result: lift any non-complex operand to a complex64x2 via
 #! assignment overloads, then delegate to the C kernel c${opname}$dd so
-#! the arithmetic lives in C++ (see src/multifloats_math_abi_complex.inc).
+#! the arithmetic lives in C++ (see src/complex64x2_abi.inc).
 #:def cdd_arith_body(opname)
         block
             type(complex64x2) :: ca, cb

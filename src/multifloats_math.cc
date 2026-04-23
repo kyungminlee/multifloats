@@ -5,21 +5,21 @@
 // `cexpdd → multifloats::exp + multifloats::sincos`) without depending
 // on -flto.
 //
-//   multifloats_math_exp_log.inc     exp / exp2 / expm1 / log /
+//   float64x2_exp_log.inc     exp / exp2 / expm1 / log /
 //                                    log2 / log10 / log1p / pow
-//   multifloats_math_trig.inc        sin / cos / tan / sincos /
+//   float64x2_trig.inc        sin / cos / tan / sincos /
 //                                    sinpi / cospi / tanpi +
 //                                    inverse π-scaled helpers
-//   multifloats_math_hyp.inc         sinh / cosh / tanh / sinhcosh
-//   multifloats_math_inv_trig.inc    atan / asin / acos / atan2 +
+//   float64x2_hyp.inc         sinh / cosh / tanh / sinhcosh
+//   float64x2_inv_trig.inc    atan / asin / acos / atan2 +
 //                                    asinh / acosh / atanh
-//   multifloats_math_special.inc     erf / erfc / erfc_scaled /
+//   float64x2_special.inc     erf / erfc / erfc_scaled /
 //                                    tgamma / lgamma
-//   multifloats_math_bessel.inc      J0 / J1 / Y0 / Y1 / Jn / Yn
-//   multifloats_math_matmul.inc      compensated GEMM panels
-//   multifloats_math_abi_scalar.inc  extern "C" scalar wrappers,
+//   float64x2_bessel.inc      J0 / J1 / Y0 / Y1 / Jn / Yn
+//   float64x2_matmul.inc      compensated GEMM panels
+//   float64x2_abi.inc  extern "C" scalar wrappers,
 //                                    matmul entry points, comparisons
-//   multifloats_math_abi_complex.inc extern "C" complex DD kernels
+//   complex64x2_abi.inc extern "C" complex DD kernels
 //
 // Public transcendental kernels live in `namespace multifloats` with
 // matching declarations in multifloats.h. The `extern "C" *dd` shims
@@ -41,8 +41,8 @@
 // same-TU inline bodies they did before.
 namespace multifloats {
 namespace detail {
-#include "multifloats_math_td.inc"
-#include "multifloats_math_poly.inc"
+#include "float64x2_td.inc"
+#include "float64x2_poly.inc"
 } // namespace detail
 } // namespace multifloats
 
@@ -54,12 +54,12 @@ namespace detail {
 // qualifier.
 namespace multifloats {
 using namespace multifloats::detail;  // neval, deval, horner, float64x3, kernels
-#include "multifloats_math_exp_log.inc"
-#include "multifloats_math_trig.inc"
-#include "multifloats_math_hyp.inc"
-#include "multifloats_math_inv_trig.inc"
-#include "multifloats_math_special.inc"
-#include "multifloats_math_bessel.inc"
+#include "float64x2_exp_log.inc"
+#include "float64x2_trig.inc"
+#include "float64x2_hyp.inc"
+#include "float64x2_inv_trig.inc"
+#include "float64x2_special.inc"
+#include "float64x2_bessel.inc"
 } // namespace multifloats
 
 // Anon-namespace helpers `dd_cross_diff` and `dd_x2y2m1` are defined below
@@ -82,7 +82,7 @@ multifloats::float64x2 dd_x2y2m1(multifloats::float64x2 x,
 // the inclusion of multifloats.h at top.
 namespace multifloats {
 using namespace multifloats::detail;  // sincos_td + TD primitives
-#include "multifloats_math_abi_complex_kernels.inc"
+#include "complex64x2_abi_kernels.inc"
 } // namespace multifloats
 
 // =============================================================================
@@ -184,7 +184,7 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
   return float64x2(hi, lo);
 }
 
-#include "multifloats_math_matmul.inc"
+#include "float64x2_matmul.inc"
 } // anonymous namespace
 
 // Public C++ matmul entry points. The panel dispatchers above operate on
@@ -192,7 +192,7 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
 // extern "C" `matmuldd_*` shims. `multifloats::float64x2` is layout-compatible
 // (asserted in multifloats.h next to the declarations), so we reinterpret
 // pointers once at the boundary and hand off to the same dispatchers. The
-// `matmuldd_*` shims in multifloats_math_abi_scalar.inc are now one-line
+// `matmuldd_*` shims in float64x2_abi.inc are now one-line
 // wrappers calling these in the opposite direction.
 namespace multifloats {
 
@@ -278,10 +278,10 @@ void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
 // Pulled into namespace std so the explicit specialization syntax is in
 // the right enclosing namespace.
 namespace std {
-#include "multifloats_math_complex_std.inc"
+#include "complex64x2_std.inc"
 } // namespace std
 
 extern "C" {
-#include "multifloats_math_abi_scalar.inc"
-#include "multifloats_math_abi_complex.inc"
+#include "float64x2_abi.inc"
+#include "complex64x2_abi.inc"
 } // extern "C"

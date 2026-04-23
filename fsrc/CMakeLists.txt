@@ -61,3 +61,10 @@ endif()
 # Install: compiler-tagged library + .mod files + Config.cmake
 fortran_install_library(multifloatsf)
 fortran_install_modules(multifloatsf)
+
+# Also install the generated Fortran source alongside the installed .mod
+# files so downstream projects using a mismatched compiler can recompile
+# the module locally. .f90 source is compiler-independent, so it is
+# placed at <libdir>/fmod/ (no compiler-version subdirectory).
+install(FILES ${_GENERATED_SRC}
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/fmod)

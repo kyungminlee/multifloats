@@ -8,9 +8,9 @@ answer is a small difference of two O(1) quantities. `cexpm1dd`'s Re
 path is the one kernel that currently pays the TD cost; the primitives
 are reusable for any future kernel with the same cancellation shape.
 
-Source: `include/multifloats.h` (primitives), `src/multifloats_math_exp_log.inc`
-(TD exp), `src/multifloats_math_trig.inc` (TD sincos),
-`src/multifloats_math_abi_complex.inc::cexpm1dd` (consumer),
+Source: `include/multifloats.h` (primitives), `src/float64x2_exp_log.inc`
+(TD exp), `src/float64x2_trig.inc` (TD sincos),
+`src/complex64x2_abi.inc::cexpm1dd` (consumer),
 `scripts/gen_constants.py` → `src/dd_constants.hh` (TD constants).
 
 ## 1. Why TD (and why only narrowly)
