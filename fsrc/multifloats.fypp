@@ -1275,9 +1275,34 @@ contains
     elemental function dd_nint(x) result(res)
         type(float64x2), intent(in) :: x
         integer :: res
-        ! For all values where the closest integer is unambiguous, the
-        ! leading limb suffices: |lo| <= ulp(hi)/2 < 1/2.
-        res = nint(x%limbs(1))
+        real(dp) :: hi, lo, diff
+        ! Two half-integer hazards that hi alone misses:
+        !   (1) hi is itself a half-integer (nint rounds away from zero);
+        !       if lo has the opposite sign, the TRUE DD value falls on
+        !       the near side of the integer boundary and we over-rounded.
+        !   (2) hi is an exact integer and |lo| > 1/2 (possible once
+        !       ulp(hi) >= 1, i.e. |hi| >= 2^53); lo pushes the true
+        !       value past the next integer boundary.
+        ! Mirrors the detail::lround_adjust template in multifloats.h.
+        hi = x%limbs(1)
+        lo = x%limbs(2)
+        res = nint(hi)
+        diff = hi - real(res, dp)
+        if (diff == 0.0_dp) then
+            if (lo > 0.5_dp) then
+                res = res + 1
+            else if (lo < -0.5_dp) then
+                res = res - 1
+            else if (lo == 0.5_dp .and. hi >= 0.0_dp) then
+                res = res + 1
+            else if (lo == -0.5_dp .and. hi <= 0.0_dp) then
+                res = res - 1
+            end if
+        else if (diff == -0.5_dp .and. lo < 0.0_dp) then
+            res = res - 1
+        else if (diff == 0.5_dp .and. lo > 0.0_dp) then
+            res = res + 1
+        end if
     end function
 
     elemental function dd_to_double(x) result(res)

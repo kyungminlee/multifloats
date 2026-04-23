@@ -17,7 +17,7 @@ module crosscheck_bindings
   ! list would drop the operator interfaces and the compiler would
   ! reject `type(float64x2) + type(float64x2)`.
   use multifloats
-  use, intrinsic :: iso_c_binding, only: c_double, c_int
+  use, intrinsic :: iso_c_binding, only: c_double, c_int, c_long
   implicit none
   private
 
@@ -36,6 +36,17 @@ module crosscheck_bindings
   ! flips it), whereas Fortran `<=` is IEEE-strict (false on NaN). Any
   ! cross-check would fire on every NaN-bearing iteration for a
   ! pre-existing semantic difference that is out of scope for PR-1.
+  !
+  ! Integer-returning rounding / decomposition ops — common routines
+  ! implemented natively on BOTH sides (not routed through C_DELEGATE_*):
+  !
+  !   fnat_floor    ↔  C++ (long) mf::floor(x).hi
+  !   fnat_ceiling  ↔  C++ (long) mf::ceil(x).hi
+  !   fnat_nint     ↔  C++ mf::lround(x)
+  !   fnat_exponent ↔  C++ mf::ilogb(x) + 1   (Fortran convention: fraction
+  !                                            in [0.5, 1), so exp is 1
+  !                                            greater than the C ilogb.)
+  public :: fnat_floor, fnat_ceiling, fnat_nint, fnat_exponent
 
 contains
 
@@ -115,6 +126,34 @@ contains
     type(dd_c), intent(in), value :: a, b
     integer(c_int) :: res
     res = merge(1, 0, c_to_f(a) < c_to_f(b))
+  end function
+
+  ! floor / ceiling / nint return default integer in the DD-overloaded
+  ! interfaces; widen to c_long via explicit cast so the C side can use a
+  ! uniform `long` return type. Caller is expected to gate on |x| < 2e9
+  ! so the default-integer computation doesn't overflow int32.
+  pure function fnat_floor(a) result(res) bind(c, name='fnat_floor')
+    type(dd_c), intent(in), value :: a
+    integer(c_long) :: res
+    res = int(floor(c_to_f(a)), c_long)
+  end function
+
+  pure function fnat_ceiling(a) result(res) bind(c, name='fnat_ceiling')
+    type(dd_c), intent(in), value :: a
+    integer(c_long) :: res
+    res = int(ceiling(c_to_f(a)), c_long)
+  end function
+
+  pure function fnat_nint(a) result(res) bind(c, name='fnat_nint')
+    type(dd_c), intent(in), value :: a
+    integer(c_long) :: res
+    res = int(nint(c_to_f(a)), c_long)
+  end function
+
+  pure function fnat_exponent(a) result(res) bind(c, name='fnat_exponent')
+    type(dd_c), intent(in), value :: a
+    integer(c_int) :: res
+    res = exponent(c_to_f(a))
   end function
 
 end module crosscheck_bindings

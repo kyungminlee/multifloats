@@ -53,6 +53,14 @@ extern "C" {
   int         fnat_lt  (float64x2_t a, float64x2_t b);
   // fnat_le / fnat_ge intentionally omitted — see crosscheck_bindings.f90
   // for the NaN-semantics divergence that makes a direct cross-check noisy.
+
+  // Integer-returning rounding / decomposition. Gated on |x| < 2e9 by
+  // the caller so the Fortran-default-integer result doesn't overflow
+  // int32 before widening to c_long inside the wrapper.
+  long        fnat_floor   (float64x2_t a);
+  long        fnat_ceiling (float64x2_t a);
+  long        fnat_nint    (float64x2_t a);
+  int         fnat_exponent(float64x2_t a);
 }
 
 // -----------------------------------------------------------------------------
@@ -227,6 +235,10 @@ struct Stat {
   float64x2_t first_a{}, first_b{};
   float64x2_t first_cpp{}, first_f{};
   bool is_unary = false;
+  // Integer-return ops stash the raw integer pair in first_cpp/first_f via
+  // the `.hi` double slot so the reporter can still print a repro without
+  // a second code path.
+  bool is_int_return = false;
 };
 
 static void record_fail(Stat &s, float64x2_t a, float64x2_t b,
@@ -278,13 +290,20 @@ int main(int argc, char **argv) {
 
   enum { I_ADD, I_SUB, I_MUL, I_DIV,
          I_NEG, I_ABS, I_SQRT,
-         I_EQ,  I_NE,  I_LT,  I_N };
+         I_EQ,  I_NE,  I_LT,
+         I_FLOOR, I_CEILING, I_NINT, I_EXPONENT,
+         I_N };
   Stat stats[I_N] = {
     {"add"}, {"sub"}, {"mul"}, {"div"},
     {"neg",  0, 0, {}, {}, {}, {}, true},
     {"abs",  0, 0, {}, {}, {}, {}, true},
     {"sqrt", 0, 0, {}, {}, {}, {}, true},
     {"eq"}, {"ne"}, {"lt"},
+    // Integer-return ops. is_unary = true, is_int_return = true.
+    {"floor",    0, 0, {}, {}, {}, {}, true, true},
+    {"ceiling",  0, 0, {}, {}, {}, {}, true, true},
+    {"nint",     0, 0, {}, {}, {}, {}, true, true},
+    {"exponent", 0, 0, {}, {}, {}, {}, true, true},
   };
 
   for (long i = 0; i < iterations; ++i) {
@@ -332,6 +351,18 @@ int main(int argc, char **argv) {
         record_fail(stats[idx], c1, c2, cpp_mark, f_mark);
       }
     };
+    // Integer-return unary: compare raw integers (after both sides
+    // independently round/truncate). Repro on failure is stashed in the
+    // .hi slot of the float64x2_t pair so print_stats's %a format still
+    // reads something sensible.
+    auto check_int1 = [&](int idx, long cpp_i, long f_i) {
+      if (cpp_i == f_i) ++stats[idx].ok;
+      else {
+        float64x2_t cpp_mark = {(double)cpp_i, 0.0};
+        float64x2_t f_mark   = {(double)f_i,   0.0};
+        record_fail(stats[idx], c1, float64x2_t{0,0}, cpp_mark, f_mark);
+      }
+    };
 
     check_strict(I_ADD,  to_c(f1 + f2),        fnat_add(c1, c2),  true);
     check_strict(I_SUB,  to_c(f1 - f2),        fnat_sub(c1, c2),  true);
@@ -343,6 +374,63 @@ int main(int argc, char **argv) {
     check_bool2(I_EQ, f1 == f2, fnat_eq(c1, c2));
     check_bool2(I_NE, f1 != f2, fnat_ne(c1, c2));
     check_bool2(I_LT, f1 <  f2, fnat_lt(c1, c2));
+
+    // Integer-return unary: Fortran's floor / ceiling / nint return
+    // DEFAULT integer (int32 on mainstream Linux toolchains); gate |q1|
+    // below 2^31 ≈ 2.1e9 so the Fortran computation doesn't overflow
+    // before widening to c_long at the bind(c) boundary. exponent is
+    // bounded by ±1074 for any finite input — only the zero gate
+    // applies.
+    //
+    // C++ analogues, each using PRODUCTION multifloats.h ops:
+    //   Fortran floor(DD)   ≡  (long) mf::floor(DD).hi      (lo fully
+    //                            absorbed by the DD-floor renormalization
+    //                            so the hi limb IS the integer floor)
+    //   Fortran ceiling(DD) ≡  (long) mf::ceil(DD).hi
+    //   Fortran nint(DD)    ≡  mf::lround(DD)               (both
+    //                            round-half-away-from-zero)
+    //   Fortran exponent(DD)≡  mf::ilogb(DD) + 1            (Fortran
+    //                            normalizes to [0.5, 1) rather than C's
+    //                            [1, 2), so the bias differs by one)
+    if (q_isfinite(q1) && (q1 < 0 ? -q1 : q1) < (q_t)2.0e9q) {
+      check_int1(I_FLOOR,   (long)mf::floor(f1)._limbs[0], fnat_floor(c1));
+      check_int1(I_CEILING, (long)mf::ceil(f1)._limbs[0],  fnat_ceiling(c1));
+      check_int1(I_NINT,    mf::lround(f1),                 fnat_nint(c1));
+    }
+    if (q_isfinite(q1) && q1 != (q_t)0) {
+      check_int1(I_EXPONENT, (long)(mf::ilogb(f1) + 1), (long)fnat_exponent(c1));
+    }
+  }
+
+  // Adversarial probe for the half-integer-hi + opposite-sign-lo class:
+  // the random generator's uniform sampling misses this narrow input
+  // class (density ≈ 1/ulp near magnitude, astronomically small at the
+  // magnitudes the generator targets), but it's exactly where the
+  // integer-rounding ops differ between hi-only and full-DD logic.
+  // Without this probe a bug like the one PR-2 fixed in C++ nearbyint
+  // (and the mirror dd_nint bug this PR found in fsrc/multifloats.fypp)
+  // could live undetected. Inline the check since the scalar `check_int1`
+  // lambda captures the main loop's c1 and isn't reachable here.
+  {
+    auto probe_int = [&stats](int idx, float64x2_t c_in, long cpp_i, long f_i) {
+      if (cpp_i == f_i) { ++stats[idx].ok; }
+      else {
+        float64x2_t cpp_mark = {(double)cpp_i, 0.0};
+        float64x2_t f_mark   = {(double)f_i,   0.0};
+        record_fail(stats[idx], c_in, float64x2_t{0,0}, cpp_mark, f_mark);
+      }
+    };
+    double halves[] = {2.5, 3.5, 100.5, -2.5, -100.5};
+    double los[]    = {-0.01, +0.01};
+    for (double hi_v : halves) {
+      for (double lo_v : los) {
+        mf::float64x2 f; f._limbs[0] = hi_v; f._limbs[1] = lo_v;
+        float64x2_t c = to_c(f);
+        probe_int(I_FLOOR,   c, (long)mf::floor(f)._limbs[0], fnat_floor(c));
+        probe_int(I_CEILING, c, (long)mf::ceil(f)._limbs[0],  fnat_ceiling(c));
+        probe_int(I_NINT,    c, mf::lround(f),                fnat_nint(c));
+      }
+    }
   }
 
   print_stats(stats, I_N);
