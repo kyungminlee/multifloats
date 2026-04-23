@@ -247,12 +247,7 @@ program multifloat_fuzz
         end if
       end if
 
-      ! TODO: Fortran DD atan2(±0, ±0) currently returns 0 where IEEE /
-      ! libquadmath return ±π / 0 depending on signs. Gate the pure-zero
-      ! input corner until the DD atan2 kernel is fixed to match IEEE.
-      if (.not. (q1 == 0.0_qp .and. q2 == 0.0_qp)) then
-        @:CHK2(atan2)
-      end if
+      @:CHK2(atan2)
 
       ! Power operator: x**y for positive base, modest exponent. Range chosen
       ! so q1**q2 stays inside dp range — otherwise the kernel under/overflows.
@@ -445,6 +440,14 @@ contains
     end if
     h = real(q, 8)
     l = real(q - real(h, qp), 8)
+    ! Preserve signed zero: fast_two_sum below would fold -0 + 0 → +0
+    ! (IEEE round-to-nearest), silently stripping the sign and turning a
+    ! genuine signed-zero DD into +0 before it reaches the kernel.
+    if (h == 0.0d0 .and. l == 0.0d0) then
+      to_f64x2%limbs(1) = h
+      to_f64x2%limbs(2) = 0.0d0
+      return
+    end if
     block
       ! Inline fast_two_sum normalization (assumes |h| >= |l|).
       real(8) :: s, b_prime

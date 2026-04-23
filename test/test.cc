@@ -333,6 +333,26 @@ static void test_atan2_signed_zero() {
   REQUIRE(mf::atan2(y_pos, x_neg)._limbs[0] > 1.5);
   // y<0, x<0 → answer in (−π, −π/2), specifically ≈ −3π/4.
   REQUIRE(mf::atan2(y_neg, x_neg)._limbs[0] < -1.5);
+
+  // Pure signed-zero quadrant — both limbs zero, sign carried by hi's
+  // signbit. IEEE atan2(±0, ±0) returns ±0 or ±π at full precision.
+  // Regression for a bug where this path returned ±π only at dp precision
+  // (lo limb 0) instead of the DD-precision pi_dd constant.
+  mf::float64x2 pz = make_dd(+0.0, 0.0);
+  mf::float64x2 nz = make_dd(-0.0, 0.0);
+  // atan2(+0, +0) = +0
+  mf::float64x2 r_pp = mf::atan2(pz, pz);
+  REQUIRE(r_pp._limbs[0] == 0.0 && !std::signbit(r_pp._limbs[0]));
+  // atan2(-0, +0) = -0
+  mf::float64x2 r_np = mf::atan2(nz, pz);
+  REQUIRE(r_np._limbs[0] == 0.0 && std::signbit(r_np._limbs[0]));
+  // atan2(+0, -0) = +π at DD precision
+  mf::float64x2 r_pn = mf::atan2(pz, nz);
+  q_t pi_q = M_PIq;
+  REQUIRE(q_rel_err(to_q(r_pn), pi_q) < 1e-32);
+  // atan2(-0, -0) = -π at DD precision
+  mf::float64x2 r_nn = mf::atan2(nz, nz);
+  REQUIRE(q_rel_err(to_q(r_nn), -pi_q) < 1e-32);
 }
 
 // to_string / operator<< round-trip and format sanity checks. The public

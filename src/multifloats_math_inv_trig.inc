@@ -145,13 +145,38 @@ float64x2 atan2(float64x2 const &y, float64x2 const &x) {
     return r;
   }
   if (x._limbs[0] == 0.0 && y._limbs[0] == 0.0) {
-    // When a DD has hi == 0 the effective sign (including ±0 and signed
-    // subnormals) lives entirely in lo. Pass lo to libm's atan2 so the
-    // IEEE signed-zero quadrant rules still produce the right answer.
-    float64x2 r;
-    r._limbs[0] = std::atan2(y._limbs[1], x._limbs[1]);
-    r._limbs[1] = 0.0;
-    return r;
+    // Both hi limbs are zero. Two sub-cases:
+    //   * DD-subnormal (sign lives in lo, e.g. (+0, 1e-320)) — defer to
+    //     libm's atan2 on the lo limbs. The answer's magnitude is at dp
+    //     precision because the input already has no lo bits to refine
+    //     with; DD can't do better than libm here.
+    //   * True signed zero (hi carries the sign, lo is zero). The answer
+    //     is one of {±0, ±π/2, ±π}, which are DD constants we have full
+    //     106-bit precision for — return them directly instead of going
+    //     through libm's dp atan2.
+    if (y._limbs[1] != 0.0 || x._limbs[1] != 0.0) {
+      double ylo = (y._limbs[1] != 0.0) ? y._limbs[1]
+                                        : std::copysign(0.0, y._limbs[0]);
+      double xlo = (x._limbs[1] != 0.0) ? x._limbs[1]
+                                        : std::copysign(0.0, x._limbs[0]);
+      float64x2 r;
+      r._limbs[0] = std::atan2(ylo, xlo);
+      r._limbs[1] = 0.0;
+      return r;
+    }
+    // Pure signed-zero quadrant: IEEE atan2(±0, ±0) table.
+    bool ys = std::signbit(y._limbs[0]);
+    bool xs = std::signbit(x._limbs[0]);
+    if (!xs) {
+      // x = +0: result is ±0 with sign of y.
+      float64x2 r;
+      r._limbs[0] = std::copysign(0.0, y._limbs[0]);
+      r._limbs[1] = 0.0;
+      return r;
+    }
+    // x = -0: result is ±π with sign of y.
+    float64x2 pi_dd(pi_dd_hi, pi_dd_lo);
+    return ys ? -pi_dd : pi_dd;
   }
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
   float64x2 pi_half_dd = float64x2(pi_half_cw1, pi_half_cw2);
