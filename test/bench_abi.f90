@@ -1,13 +1,13 @@
 program bench_abi
-  ! Test whether bind(c) + value on Fortran-native DD kernels matches
-  ! the C wrapper speed. Three legs:
-  !   fortran_dd : current elemental float64x2 operator (Fortran ABI)
-  !   fortran_c  : same algorithm, but bind(c) with value args (C ABI)
+  ! Measure the speed gap between the Fortran-native DD operator path and
+  ! the C-ABI shim path for the five core ops. Two legs:
+  !   fortran_dd : elemental float64x2 operator (Fortran ABI, inline-able)
   !   c_wrapper  : extern "C" wrapper calling C++ multifloats.h (C ABI)
   !
-  ! If fortran_c ≈ c_wrapper, the remaining gap is purely ABI, not codegen.
+  ! If dd/cw ≈ 1.0x the paths are at parity; dd/cw < 1 means the native
+  ! operator inlines away enough overhead to beat the C call; dd/cw > 1
+  ! means the C kernel's codegen/inlining wins despite the call boundary.
   use multifloats
-  use dd_bindc
   use, intrinsic :: iso_fortran_env, only: int64, real64
   use, intrinsic :: iso_c_binding,   only: c_double
   implicit none
@@ -16,7 +16,12 @@ program bench_abi
   integer, parameter :: N = 1024
   integer, parameter :: REPS = 400
 
-  ! C wrapper interfaces (from multifloats_c.cc)
+  ! C wrapper DD struct — layout-compatible with float64x2_t in multifloats.h.
+  type, bind(c) :: dd_c
+    real(c_double) :: hi, lo
+  end type dd_c
+
+  ! C wrapper interfaces (from multifloats_math.cc).
   interface
     type(dd_c) function c_dd_add(a, b) bind(c, name='adddd')
       import :: dd_c; type(dd_c), value :: a, b
@@ -38,32 +43,39 @@ program bench_abi
   ! Data
   type(float64x2), allocatable :: f1(:), f2(:), fres(:)
   type(dd_c), allocatable :: d1(:), d2(:), dres(:)
-  real(dp) :: dd_sink = 0.0_dp, fc_sink = 0.0_dp, cw_sink = 0.0_dp
+  real(dp) :: dd_sink = 0.0_dp, cw_sink = 0.0_dp
   integer :: i
 
   allocate(f1(N), f2(N), fres(N), d1(N), d2(N), dres(N))
   block
-    real(dp) :: r
+    integer :: seed_size
+    integer, allocatable :: seed(:)
+    real(dp) :: r, rlo
+    call random_seed(size=seed_size)
+    allocate(seed(seed_size))
+    seed = 42
+    call random_seed(put=seed)
+    deallocate(seed)
     do i = 1, N
-      call random_number(r)
+      call random_number(r); call random_number(rlo)
       f1(i)%limbs(1) = (r - 0.5_dp) * 8.0_dp + sign(0.25_dp, r - 0.5_dp)
-      f1(i)%limbs(2) = 0.0_dp
-      call random_number(r)
+      f1(i)%limbs(2) = f1(i)%limbs(1) * (rlo - 0.5_dp) * 2.0_dp**(-52)
+      call random_number(r); call random_number(rlo)
       f2(i)%limbs(1) = (r - 0.5_dp) * 8.0_dp + sign(0.25_dp, r - 0.5_dp)
-      f2(i)%limbs(2) = 0.0_dp
+      f2(i)%limbs(2) = f2(i)%limbs(1) * (rlo - 0.5_dp) * 2.0_dp**(-52)
       d1(i)%hi = f1(i)%limbs(1); d1(i)%lo = f1(i)%limbs(2)
       d2(i)%hi = f2(i)%limbs(1); d2(i)%lo = f2(i)%limbs(2)
     end do
   end block
 
-  print '(a)', "================================================================"
-  print '(a)', " ABI test: Fortran-dd vs Fortran-bind(c) vs C-wrapper"
-  print '(a)', "================================================================"
+  print '(a)', "========================================================"
+  print '(a)', " ABI test: Fortran-dd vs C-wrapper"
+  print '(a)', "========================================================"
   print '(a)', ""
   print '(a)', &
-    " op              n_ops    dd [s]    fc [s]    cw [s]  dd/fc   dd/cw   fc/cw"
+    " op              n_ops    dd [s]    cw [s]  dd/cw"
   print '(a)', &
-    " ---------------------------------------------------------------------------"
+    " --------------------------------------------------------"
 
   call bench("add")
   call bench("sub")
@@ -72,9 +84,8 @@ program bench_abi
   call bench("sqrt")
 
   print '(a)', &
-    " ---------------------------------------------------------------------------"
-  print '(a,es11.3,a,es11.3,a,es11.3)', &
-    " sinks: dd=", dd_sink, " fc=", fc_sink, " cw=", cw_sink
+    " --------------------------------------------------------"
+  print '(a,es11.3,a,es11.3)', " sinks: dd=", dd_sink, " cw=", cw_sink
 
 contains
 
@@ -96,20 +107,9 @@ contains
     real(dp) :: s
     integer :: j
     s = 0.0_dp
-    do j = 1, size(fres); s = s + fres(j)%limbs(1); end do
+    do j = 1, size(fres); s = s + fres(j)%limbs(1) + fres(j)%limbs(2); end do
     arr(1)%limbs(1) = arr(1)%limbs(1) + s * 1e-30_dp
     dd_sink = dd_sink + s
-  end subroutine
-
-  subroutine fc_drain(arr)
-    !GCC$ ATTRIBUTES NOINLINE :: fc_drain
-    type(dd_c), intent(inout) :: arr(:)
-    real(dp) :: s
-    integer :: j
-    s = 0.0_dp
-    do j = 1, size(dres); s = s + dres(j)%hi; end do
-    arr(1)%hi = arr(1)%hi + s * 1e-30_dp
-    fc_sink = fc_sink + s
   end subroutine
 
   subroutine cw_drain(arr)
@@ -118,7 +118,7 @@ contains
     real(dp) :: s
     integer :: j
     s = 0.0_dp
-    do j = 1, size(dres); s = s + dres(j)%hi; end do
+    do j = 1, size(dres); s = s + dres(j)%hi + dres(j)%lo; end do
     arr(1)%hi = arr(1)%hi + s * 1e-30_dp
     cw_sink = cw_sink + s
   end subroutine
@@ -127,7 +127,7 @@ contains
     character(*), intent(in) :: op
     integer :: r
     integer(int64) :: t0, n_ops
-    real(real64) :: tmf, tfc, tcw, r1, r2, r3
+    real(real64) :: tmf, tcw, ratio
 
     n_ops = int(N, int64) * int(REPS, int64)
 
@@ -142,17 +142,6 @@ contains
     end select
     tmf = elapsed(t0)
 
-    ! --- Fortran bind(c) kernels (C ABI, gfortran codegen) ---
-    call tick(t0)
-    select case (op)
-    case ("add");  do r=1,REPS; do i=1,N; dres(i)=fc_add(d1(i),d2(i));  end do; call fc_drain(d1); end do
-    case ("sub");  do r=1,REPS; do i=1,N; dres(i)=fc_sub(d1(i),d2(i));  end do; call fc_drain(d1); end do
-    case ("mul");  do r=1,REPS; do i=1,N; dres(i)=fc_mul(d1(i),d2(i));  end do; call fc_drain(d1); end do
-    case ("div");  do r=1,REPS; do i=1,N; dres(i)=fc_div(d1(i),d2(i));  end do; call fc_drain(d1); end do
-    case ("sqrt"); do r=1,REPS; do i=1,N; dres(i)=fc_sqrt(d1(i));       end do; call fc_drain(d1); end do
-    end select
-    tfc = elapsed(t0)
-
     ! --- C wrapper (C ABI, g++ codegen) ---
     call tick(t0)
     select case (op)
@@ -164,11 +153,9 @@ contains
     end select
     tcw = elapsed(t0)
 
-    r1 = merge(tmf/tfc, 0.0_real64, tfc > 0)
-    r2 = merge(tmf/tcw, 0.0_real64, tcw > 0)
-    r3 = merge(tfc/tcw, 0.0_real64, tcw > 0)
-    write(*, '(1x,a14,1x,i10,1x,f9.4,1x,f9.4,1x,f9.4,1x,f6.2,"x",1x,f6.2,"x",1x,f6.2,"x")') &
-        op, n_ops, tmf, tfc, tcw, r1, r2, r3
+    ratio = 0.0_real64; if (tcw > 0.0_real64) ratio = tmf / tcw
+    write(*, '(1x,a14,1x,i10,1x,f9.4,1x,f9.4,1x,f6.2,"x")') &
+        op, n_ops, tmf, tcw, ratio
   end subroutine
 
 end program

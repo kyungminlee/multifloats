@@ -33,8 +33,16 @@ struct Stats {
   double max_rel = 0.0;
   double sum_rel = 0.0;
   int count = 0;
+  int nonfinite = 0;
   void update(double rel) {
+    // A non-finite rel-err means the kernel diverged from the reference
+    // past the representable range — never silently drop it. Record the
+    // count so the ratchet / PASS summary can flag it, and clamp the
+    // accumulated max so mean_rel stays meaningful.
     if (!std::isfinite(rel)) {
+      ++nonfinite;
+      ++count;
+      if (max_rel < 1.0) max_rel = 1.0;
       return;
     }
     if (rel > max_rel) {
@@ -325,6 +333,26 @@ static void test_atan2_signed_zero() {
   REQUIRE(mf::atan2(y_pos, x_neg)._limbs[0] > 1.5);
   // y<0, x<0 → answer in (−π, −π/2), specifically ≈ −3π/4.
   REQUIRE(mf::atan2(y_neg, x_neg)._limbs[0] < -1.5);
+
+  // Pure signed-zero quadrant — both limbs zero, sign carried by hi's
+  // signbit. IEEE atan2(±0, ±0) returns ±0 or ±π at full precision.
+  // Regression for a bug where this path returned ±π only at dp precision
+  // (lo limb 0) instead of the DD-precision pi_dd constant.
+  mf::float64x2 pz = make_dd(+0.0, 0.0);
+  mf::float64x2 nz = make_dd(-0.0, 0.0);
+  // atan2(+0, +0) = +0
+  mf::float64x2 r_pp = mf::atan2(pz, pz);
+  REQUIRE(r_pp._limbs[0] == 0.0 && !std::signbit(r_pp._limbs[0]));
+  // atan2(-0, +0) = -0
+  mf::float64x2 r_np = mf::atan2(nz, pz);
+  REQUIRE(r_np._limbs[0] == 0.0 && std::signbit(r_np._limbs[0]));
+  // atan2(+0, -0) = +π at DD precision
+  mf::float64x2 r_pn = mf::atan2(pz, nz);
+  q_t pi_q = M_PIq;
+  REQUIRE(q_rel_err(to_q(r_pn), pi_q) < 1e-32);
+  // atan2(-0, -0) = -π at DD precision
+  mf::float64x2 r_nn = mf::atan2(nz, nz);
+  REQUIRE(q_rel_err(to_q(r_nn), -pi_q) < 1e-32);
 }
 
 // to_string / operator<< round-trip and format sanity checks. The public
@@ -1528,8 +1556,16 @@ static void print_stats(char const *name, Stats const &s) {
     std::printf("  %-12s n=%d\n", name, s.count);
     return;
   }
-  std::printf("  %-12s n=%-6d max_rel=%.3e  mean_rel=%.3e\n", name, s.count,
-              s.max_rel, s.sum_rel / s.count);
+  int finite_count = s.count - s.nonfinite;
+  double mean_rel = finite_count > 0 ? s.sum_rel / finite_count : 0.0;
+  if (s.nonfinite > 0) {
+    std::printf("  %-12s n=%-6d max_rel=%.3e  mean_rel=%.3e  nonfinite=%d\n",
+                name, s.count, s.max_rel, mean_rel, s.nonfinite);
+    ++g_failures;
+  } else {
+    std::printf("  %-12s n=%-6d max_rel=%.3e  mean_rel=%.3e\n", name, s.count,
+                s.max_rel, mean_rel);
+  }
 }
 
 int main() {

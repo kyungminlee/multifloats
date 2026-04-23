@@ -194,7 +194,15 @@ contains
     allocate(cq1(N), cq2(N), cqres(N))
     allocate(cf1(N), cf2(N), cfres(N))
 
-    call random_seed()
+    block
+      integer :: seed_size
+      integer, allocatable :: seed(:)
+      call random_seed(size=seed_size)
+      allocate(seed(seed_size))
+      seed = 42
+      call random_seed(put=seed)
+      deallocate(seed)
+    end block
     do i = 1, N
       call random_number(r)
       q1(i) = real((r(1) - 0.5_dp) * 8.0_dp + sign(0.25_dp, r(1) - 0.5_dp), qp)
@@ -264,7 +272,7 @@ contains
     integer :: i
     s = 0.0_dp
     do i = 1, size(fres)
-      s = s + fres(i)%limbs(1)
+      s = s + fres(i)%limbs(1) + fres(i)%limbs(2)
     end do
     f_in(1)%limbs(1) = f_in(1)%limbs(1) + s * 1.0e-30_dp
     f_sink%limbs(1) = f_sink%limbs(1) + s
@@ -291,8 +299,8 @@ contains
     integer :: i
     sr = 0.0_dp; si = 0.0_dp
     do i = 1, size(cfres)
-      sr = sr + cfres(i)%re%limbs(1)
-      si = si + cfres(i)%im%limbs(1)
+      sr = sr + cfres(i)%re%limbs(1) + cfres(i)%re%limbs(2)
+      si = si + cfres(i)%im%limbs(1) + cfres(i)%im%limbs(2)
     end do
     cf_in(1)%re%limbs(1) = cf_in(1)%re%limbs(1) + sr * 1.0e-30_dp
     cf_sink%re%limbs(1) = cf_sink%re%limbs(1) + sr

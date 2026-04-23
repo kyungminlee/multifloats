@@ -143,10 +143,16 @@ static inline bool match_strict(float64x2_t a, float64x2_t b) {
 static inline double rel_err_dd(float64x2_t a, float64x2_t b) {
   q_t qa = (q_t)a.hi + (q_t)a.lo;
   q_t qb = (q_t)b.hi + (q_t)b.lo;
+  bool a_nan = q_isnan(qa);
+  bool b_nan = q_isnan(qb);
+  if (a_nan && b_nan) return 0.0;                        // both NaN ≡ agree
+  if (a_nan != b_nan) return INFINITY;                   // NaN vs finite/inf — bug
   bool a_fin = q_isfinite(qa);
   bool b_fin = q_isfinite(qb);
-  if (!a_fin && !b_fin) return 0.0;        // shared indeterminate
-  if (a_fin != b_fin) return INFINITY;     // one side non-finite, bug
+  // Remaining non-finite case is ±inf on both sides: signs must match.
+  if (!a_fin || !b_fin) {
+    return (a_fin == b_fin && (qa < 0) == (qb < 0)) ? 0.0 : INFINITY;
+  }
   q_t diff = qa - qb; if (diff < 0) diff = -diff;
   q_t mag  = qa < 0 ? -qa : qa;
   if (mag == 0) return (double)diff;
@@ -287,8 +293,25 @@ static void print_stats(Stat const *stats, int n) {
 int main(int argc, char **argv) {
   long iterations = 10000;
   std::uint64_t seed = 42ULL;
-  if (argc > 1) iterations = std::strtol(argv[1], nullptr, 0);
-  if (argc > 2) seed = std::strtoull(argv[2], nullptr, 0);
+  if (argc > 1) {
+    char *end = nullptr;
+    iterations = std::strtol(argv[1], &end, 0);
+    if (end == argv[1] || *end != '\0' || iterations <= 0) {
+      std::fprintf(stderr,
+                   "[crosscheck] bad iterations arg '%s' "
+                   "(must be a positive integer)\n",
+                   argv[1]);
+      return 2;
+    }
+  }
+  if (argc > 2) {
+    char *end = nullptr;
+    seed = std::strtoull(argv[2], &end, 0);
+    if (end == argv[2] || *end != '\0') {
+      std::fprintf(stderr, "[crosscheck] bad seed arg '%s'\n", argv[2]);
+      return 2;
+    }
+  }
   std::printf("[crosscheck] iterations=%ld seed=0x%llx\n",
               iterations, (unsigned long long)seed);
 

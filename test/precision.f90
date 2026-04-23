@@ -11,6 +11,22 @@ program test_multifloats_precision
   integer :: failures
 
   failures = 0
+
+  ! Seed the RNG deterministically so test_rounding_and_random's
+  ! random_number() draw is byte-stable across runs (the ctest
+  ! `fuzz_fortran_determinism` / back-to-back diff idiom applied
+  ! to this file via its own test would fail with the gfortran
+  ! default, which is process-local but not guaranteed stable).
+  block
+    integer :: seed_size
+    integer, allocatable :: seed(:)
+    call random_seed(size=seed_size)
+    allocate(seed(seed_size))
+    seed = 42
+    call random_seed(put=seed)
+    deallocate(seed)
+  end block
+
   write(*,'(a)') 'Native Float64x2 vs quad-precision reference'
 
   call test_scalar_constructors(failures)

@@ -33,8 +33,7 @@ Determinism is enforced by two extra ctest entries (`fuzz_cpp_determinism`,
 
 | File | Target | ctest name | Purpose |
 |---|---|---|---|
-| `dd_bindc.f90` | `dd-bindc` (OBJECT) | — | Hand-written `bind(c)` reimplementation of `add/sub/mul/div/sqrt` used as a pure-Fortran control. |
-| `abi_equivalence.f90` | `fortran_abi_equivalence` | `precision_abi_equivalence` | Pins native / C-ABI / `bind(c)` DD results to the same HI limb (bit-exact) and LO within 4 ulp. |
+| `abi_equivalence.f90` | `fortran_abi_equivalence` | `precision_abi_equivalence` | Pins native / C-ABI DD results to the same HI limb (bit-exact) and LO within 4 ulp on `add/sub/mul/div/sqrt`. |
 
 ### Benchmarks (not wired into ctest)
 
@@ -42,7 +41,7 @@ Determinism is enforced by two extra ctest entries (`fuzz_cpp_determinism`,
 |---|---|---|
 | `bench.cc` | `cpp_bench` | Times every C-ABI kernel (`sindd`, `cdd_muldd`, `j0dd`, ...); qp vs DD speedup. |
 | `bench.f90` | `fortran_bench` | Fortran elemental counterpart — same kernels, Fortran hidden-pointer ABI. |
-| `bench_abi.f90` | `fortran_bench_abi` | Isolates ABI overhead from codegen (`bind(c)`-value vs native derived-type ABI) on 5 core ops. |
+| `bench_abi.f90` | `fortran_bench_abi` | Compares Fortran-native operator path to C-ABI wrapper on the 5 core ops. |
 
 All benchmarks use a cross-rep feedback drain inside the timed region so
 `-O3` cannot hoist or elide the inner loop; see the header comment in

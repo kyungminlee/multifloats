@@ -1,37 +1,31 @@
-! Assert that the three DD entry points for each of {add, sub, mul, div,
+! Assert that the two DD entry points for each of {add, sub, mul, div,
 ! sqrt} produce precision-equivalent results on the same inputs:
-!   - native  : Fortran elemental operator (`a + b`, ..., sqrt(a))
-!   - c_abi   : extern "C" from src/multifloats_math.cc (adddd, subdd, ...)
-!   - bindc   : Fortran reimplementation of the same algorithm, declared
-!               with bind(c, value) (used as a pure-Fortran control in
-!               bench_abi to isolate ABI overhead from codegen).
+!   - native : Fortran elemental operator (`a + b`, ..., sqrt(a))
+!   - c_abi  : extern "C" from src/multifloats_math.cc (adddd, subdd, ...)
 !
 ! We require:
 !   (a) bit-exact agreement on the HI limb (anything else is an
 !       algorithmic regression; 1 dp ULP on hi is ~10^-16 of relative
 !       error, way above DD precision).
 !   (b) LO limbs within 4 ULPs of each other (sub-DD-ULP variation is
-!       tolerated — different compensated-error algorithms pick
-!       slightly different lo limbs that both still represent the true
-!       result to full DD precision).
-!
-! Bit-identity across all three was attempted and rejected: the bindc
-! sqrt uses a slightly different Newton iteration than the C++ sqrtdd
-! (1 ULP divergence in lo on sqrt(2), sqrt(1e-10), etc.), and the C
-! divdd likewise picks a different residual for -7/3 style inputs.
-! Both remain well within the DD precision envelope — tightening
-! further would require aligning all three algorithms byte-for-byte,
-! which is not worth the cost for a benchmarking harness.
+!       tolerated — the C divdd picks a slightly different residual for
+!       -7/3 style inputs and sqrtdd uses a slightly different Newton
+!       iteration than the native Fortran sqrt. Both remain well within
+!       the DD precision envelope).
 program abi_equivalence
   use multifloats
-  use dd_bindc
   use, intrinsic :: iso_c_binding, only: c_double
   implicit none
 
   integer, parameter :: dp = 8
   integer :: failures = 0
 
-  ! C wrapper interfaces mirroring those in bench_abi.f90.
+  ! C wrapper DD struct (layout-compatible with float64x2_t).
+  type, bind(c) :: dd_c
+    real(c_double) :: hi, lo
+  end type dd_c
+
+  ! C wrapper interfaces.
   interface
     type(dd_c) function c_dd_add(a, b) bind(c, name='adddd')
       import :: dd_c; type(dd_c), value :: a, b
@@ -64,30 +58,25 @@ program abi_equivalence
 
 contains
 
-  subroutine record(label, hi_native, lo_native, hi_cabi, lo_cabi, &
-                    hi_bindc, lo_bindc)
+  subroutine record(label, hi_native, lo_native, hi_cabi, lo_cabi)
     character(*), intent(in) :: label
-    real(dp), intent(in) :: hi_native, lo_native, hi_cabi, lo_cabi, &
-                             hi_bindc, lo_bindc
+    real(dp), intent(in) :: hi_native, lo_native, hi_cabi, lo_cabi
 
     logical :: hi_ok
     real(dp) :: ulp_scale
 
-    ! Hi must match bit-exactly across all three paths.
-    hi_ok = raw_eq(hi_native, hi_cabi) .and. raw_eq(hi_native, hi_bindc)
+    ! Hi must match bit-exactly across both paths.
+    hi_ok = raw_eq(hi_native, hi_cabi)
     ! Lo tolerance: 4 dp ULPs relative to the hi magnitude. Accommodates
-    ! the different compensated-error algorithms without losing sensitivity
+    ! compensated-error algorithmic variance without losing sensitivity
     ! to real regressions (any algorithmic break would easily exceed 4 ulp).
     ulp_scale = spacing(max(abs(hi_native), 1.0e-300_dp)) * 4.0_dp
 
-    if (.not. hi_ok .or. &
-        abs(lo_native - lo_cabi)  > ulp_scale .or. &
-        abs(lo_native - lo_bindc) > ulp_scale) then
+    if (.not. hi_ok .or. abs(lo_native - lo_cabi) > ulp_scale) then
       failures = failures + 1
       write(*,'(a,1x,a)') 'FAIL', trim(label)
       write(*,'(a,2es24.16)') '  native : ', hi_native, lo_native
       write(*,'(a,2es24.16)') '  c_abi  : ', hi_cabi, lo_cabi
-      write(*,'(a,2es24.16)') '  bindc  : ', hi_bindc, lo_bindc
       write(*,'(a,es24.16)')  '  tol    : ', ulp_scale
     end if
   end subroutine
@@ -119,7 +108,7 @@ contains
       -1.0_dp,                -1.0_dp ], [2, 12])
     integer :: i
     type(float64x2) :: fa, fb, fr_native
-    type(dd_c) :: da, db, dr_cabi, dr_bindc
+    type(dd_c) :: da, db, dr_cabi
     character(len=80) :: tag
     real(dp) :: a_hi, b_hi
 
@@ -135,29 +124,24 @@ contains
       case (1)
         fr_native = fa + fb
         dr_cabi = c_dd_add(da, db)
-        dr_bindc = fc_add(da, db)
       case (2)
         fr_native = fa - fb
         dr_cabi = c_dd_sub(da, db)
-        dr_bindc = fc_sub(da, db)
       case (3)
         fr_native = fa * fb
         dr_cabi = c_dd_mul(da, db)
-        dr_bindc = fc_mul(da, db)
       case (4)
-        ! Skip division by zero — the three paths handle it consistently,
+        ! Skip division by zero — both paths handle it consistently,
         ! but +inf vs -inf depends on limb sign; covered elsewhere.
         if (b_hi == 0.0_dp) cycle
         fr_native = fa / fb
         dr_cabi = c_dd_div(da, db)
-        dr_bindc = fc_div(da, db)
       end select
 
       write(tag, '(a,a,i0,a)') trim(label), '(', i, ')'
       call record(trim(tag), &
                   fr_native%limbs(1), fr_native%limbs(2), &
-                  dr_cabi%hi, dr_cabi%lo, &
-                  dr_bindc%hi, dr_bindc%lo)
+                  dr_cabi%hi, dr_cabi%lo)
     end do
   end subroutine
 
@@ -167,7 +151,7 @@ contains
       1.0e-10_dp, 1.0e20_dp, 123.456_dp ]
     integer :: i
     type(float64x2) :: fa, fr_native
-    type(dd_c) :: da, dr_cabi, dr_bindc
+    type(dd_c) :: da, dr_cabi
     character(len=80) :: tag
 
     do i = 1, size(inputs)
@@ -175,12 +159,10 @@ contains
       da%hi = inputs(i);  da%lo = 0.0_dp
       fr_native = sqrt(fa)
       dr_cabi = c_dd_sqrt(da)
-      dr_bindc = fc_sqrt(da)
       write(tag, '(a,i0,a)') 'sqrt(', i, ')'
       call record(trim(tag), &
                   fr_native%limbs(1), fr_native%limbs(2), &
-                  dr_cabi%hi, dr_cabi%lo, &
-                  dr_bindc%hi, dr_bindc%lo)
+                  dr_cabi%hi, dr_cabi%lo)
     end do
   end subroutine
 

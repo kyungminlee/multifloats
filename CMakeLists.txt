@@ -144,12 +144,11 @@ add_test(NAME fuzz_fortran_determinism
     COMMAND bash -c
     "diff <($<TARGET_FILE:fortran_fuzz>) <($<TARGET_FILE:fortran_fuzz>)")
 
-# ABI equivalence: three DD entry points (native operator / C wrapper /
-# bind(c) Fortran reimpl) must produce bit-identical results on the same
-# inputs. Catches ABI drift or a divergence in the hand-written bindc
-# reimplementation in dd_bindc.f90.
-mf_add_fortran_executable(fortran_abi_equivalence ./test/abi_equivalence.f90
-    LINK dd-bindc)
+# ABI equivalence: the two DD entry points (native operator / C wrapper)
+# must produce bit-identical HI and near-identical LO (4 dp ULPs) on
+# the same inputs. Catches ABI drift between the Fortran-native operator
+# path and the C-ABI kernels in multifloats_math.cc.
+mf_add_fortran_executable(fortran_abi_equivalence ./test/abi_equivalence.f90)
 add_test(NAME precision_abi_equivalence COMMAND fortran_abi_equivalence)
 
 # fortran_bench is generated from a fypp template. The .fypp file uses
@@ -175,14 +174,7 @@ target_link_libraries(blas-multifloat PRIVATE multifloatsf)
 # Fortran library uses C++ DD kernels via bind(C) (extern "C" in multifloats_math.cc)
 target_link_libraries(multifloatsf PUBLIC multifloats)
 
-add_library(dd-bindc OBJECT ./test/dd_bindc.f90)
-target_compile_options(dd-bindc PRIVATE -O3)
-set_target_properties(dd-bindc PROPERTIES
-    Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fmod/test)
-target_include_directories(dd-bindc PUBLIC ${CMAKE_BINARY_DIR}/fmod/test)
-
-mf_add_fortran_executable(fortran_bench_abi ./test/bench_abi.f90
-    LINK dd-bindc)
+mf_add_fortran_executable(fortran_bench_abi ./test/bench_abi.f90)
 
 # Cross-language differential fuzz. Drives the C++ and Fortran kernels
 # of add/sub/mul/div/neg/abs/sqrt/{==,!=,<} from a single C++ binary on
