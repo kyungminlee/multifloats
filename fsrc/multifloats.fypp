@@ -735,7 +735,6 @@ module multifloats
     ('dd_atan2pi_full', 'atan2pidd'), &
     ('dd_hypot_full',   'hypotdd'),   &
     ('dd_fmod_full',    'fmoddd'),    &
-    ('dd_modulo_full',  'modulodd'),  &
     ('dd_pow_full',     'powdd') ]
 
     interface
@@ -1676,10 +1675,15 @@ $:C_DELEGATE_BINARY(ffull, csym)
 #:elif func == 'mod'
         res = dd_fmod_full(x, y)
 #:elif func == 'modulo'
-        ! Delegate to multifloats::modulo. The C++ sign-adjust uses
-        ! signbit() (first-nonzero-limb), which fixes the old Fortran
-        ! composition's bug on non-canonical DDs with hi == 0.
-        res = dd_modulo_full(x, y)
+        ! Floored modulo mirroring multifloats::modulo: fmod for the
+        ! truncated remainder, then add y when signbit(r) != signbit(y).
+        ! dd_signbit is first-nonzero-limb, so non-canonical DDs like
+        ! (0, -eps) get the correct sign adjust — something the prior
+        ! hi-only check missed.
+        res = dd_fmod_full(x, y)
+        if (res%limbs(1) /= 0.0_dp .or. res%limbs(2) /= 0.0_dp) then
+            if (dd_signbit(res) .neqv. dd_signbit(y)) res = res + y
+        end if
 #:elif func == 'dim'
         ! multifloats::fdim : (x > y) ? x - y : 0
         if (x > y) then
@@ -2964,8 +2968,11 @@ $:cdd_arith_body(opname)
         end block
 #:else
         ! Integer-power on a real base: delegate to multifloats::powi
-        ! (exponentiation-by-squaring in C++), so the algorithm stays
-        ! single-sourced and O(log n) mults instead of O(n).
+        ! (exponentiation-by-squaring in C++). Keeping this delegated
+        ! rather than reinlined because the C++ inline-constexpr body
+        ! pipelines the inner DD mults ~2x tighter than the gfortran
+        ! rendering of the same loop — a real codegen gap on a
+        ! non-hot path that still exceeds Fortran's reach.
         block
             type(float64x2) :: base
             type(float64x2_t) :: r
