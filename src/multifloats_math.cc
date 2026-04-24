@@ -62,6 +62,21 @@ using namespace multifloats::detail;  // neval, deval, horner, float64x3, kernel
 #include "multifloats_math_bessel.inc"
 } // namespace multifloats
 
+// Anon-namespace helpers `dd_cross_diff` and `dd_x2y2m1` are defined below
+// (around line 140 originally); the std::complex specializations and C-ABI
+// wrappers consume them. The kernels.inc complex log1p also wants
+// dd_x2y2m1, so we forward-declare them at file scope here. The same-anon-ns
+// definition below provides the body; the redeclaration is permitted within
+// a single TU as both refer to the same internal-linkage entity.
+namespace {
+multifloats::float64x2 dd_cross_diff(multifloats::float64x2 a,
+                                     multifloats::float64x2 b,
+                                     multifloats::float64x2 c,
+                                     multifloats::float64x2 d);
+multifloats::float64x2 dd_x2y2m1(multifloats::float64x2 x,
+                                 multifloats::float64x2 y);
+}
+
 // Complex overloads for Kind-D parity (sinpi/cospi/expm1/log2/log10/log1p
 // on std::complex<float64x2>). Pulled in after <complex> is visible via
 // the inclusion of multifloats.h at top.

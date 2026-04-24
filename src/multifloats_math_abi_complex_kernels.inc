@@ -84,26 +84,48 @@ std::complex<float64x2> expm1(std::complex<float64x2> const &z) {
   return {re, im};
 }
 
+// Compute (π·b) to triple-double precision, returning the leading DD pair
+// `pib_dd` and a residual `pib_lo` (a single double). Used by complex
+// sinpi/cospi to avoid the linear-in-|π·b| relative-error amplification
+// when sinh/cosh are evaluated at a DD argument: a plain `pi_dd * b` carries
+// ~ulp_dd of relative input error which sinh blows up to ~|π·b|·ulp_dd of
+// output relative error (≈ 88 DD ulp for |b|≈30 in fuzz). Capturing the
+// 159-bit residual and applying the linear correction `sh += ch·pib_lo`
+// recovers full DD precision.
+inline void pi_times_dd_td(float64x2 const &b, float64x2 &pib_dd, double &pib_lo) {
+  float64x3 pi_td{pi_dd_hi, pi_dd_lo, pi_dd_lo2};
+  float64x3 t = td_mul_dd(pi_td, b);
+  pib_dd = float64x2(t._limbs[0], t._limbs[1]);
+  pib_lo = t._limbs[2];
+}
+
 // sin(π·z) = sin(π·a) cosh(π·b) + i cos(π·a) sinh(π·b).
 std::complex<float64x2> sinpi(std::complex<float64x2> const &z) {
-  static const float64x2 pi_dd(pi_dd_hi, pi_dd_lo);
   float64x2 a = z.real(), b = z.imag();
   float64x2 s = sinpi(a);
   float64x2 c = cospi(a);
-  float64x2 pib = pi_dd * b;
+  float64x2 pib_dd; double pib_lo;
+  pi_times_dd_td(b, pib_dd, pib_lo);
   float64x2 sh, ch;
-  sinhcosh(pib, sh, ch);
-  return {s * ch, c * sh};
+  sinhcosh(pib_dd, sh, ch);
+  // Linear correction for the bits beyond DD: sinh(x+ε) ≈ sinh + cosh·ε,
+  // cosh(x+ε) ≈ cosh + sinh·ε. ε = pib_lo is small enough that higher-order
+  // terms are below DD precision.
+  float64x2 sh_new = sh + ch * float64x2(pib_lo);
+  float64x2 ch_new = ch + sh * float64x2(pib_lo);
+  return {s * ch_new, c * sh_new};
 }
 
 // cos(π·z) = cos(π·a) cosh(π·b) − i sin(π·a) sinh(π·b).
 std::complex<float64x2> cospi(std::complex<float64x2> const &z) {
-  static const float64x2 pi_dd(pi_dd_hi, pi_dd_lo);
   float64x2 a = z.real(), b = z.imag();
   float64x2 s = sinpi(a);
   float64x2 c = cospi(a);
-  float64x2 pib = pi_dd * b;
+  float64x2 pib_dd; double pib_lo;
+  pi_times_dd_td(b, pib_dd, pib_lo);
   float64x2 sh, ch;
-  sinhcosh(pib, sh, ch);
-  return {c * ch, -(s * sh)};
+  sinhcosh(pib_dd, sh, ch);
+  float64x2 sh_new = sh + ch * float64x2(pib_lo);
+  float64x2 ch_new = ch + sh * float64x2(pib_lo);
+  return {c * ch_new, -(s * sh_new)};
 }

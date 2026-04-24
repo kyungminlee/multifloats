@@ -18,10 +18,50 @@
 // ---- Exponential / logarithmic --------------------------------------------
 
 // exp(a+bi) = e^a · (cos b + i·sin b). 2 transcendentals (exp + sincos).
+// Annex G.6.3.1 special-value matrix: most edge cases would give NaN through
+// the bare formula (e^∞·sin(0) = ∞·0 = NaN). Handle them up front.
 template <>
 complex<multifloats::float64x2>
 exp(complex<multifloats::float64x2> const &z) {
-  multifloats::float64x2 a = z.real(), b = z.imag();
+  using multifloats::float64x2;
+  float64x2 a = z.real(), b = z.imag();
+  double a_hi = a._limbs[0], b_hi = b._limbs[0];
+  bool b_zero = (b_hi == 0.0 && b._limbs[1] == 0.0);
+  if (!std::isfinite(a_hi) || !std::isfinite(b_hi)) {
+    double inf = std::numeric_limits<double>::infinity();
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    if (std::isnan(a_hi)) {
+      // NaN + i·0  → NaN + i·0; otherwise NaN + i·NaN.
+      return b_zero ? complex<float64x2>(float64x2(nan, 0.0), b)
+                    : complex<float64x2>(float64x2(nan, 0.0), float64x2(nan, 0.0));
+    }
+    if (std::isinf(b_hi)) {
+      // finite + i·∞ or ±∞ + i·∞ → NaN + i·NaN (invalid).
+      return complex<float64x2>(float64x2(nan, 0.0), float64x2(nan, 0.0));
+    }
+    if (std::isnan(b_hi)) {
+      // ±∞ + i·NaN: +∞ → +∞ + i·NaN; -∞ → ±0 + i·±0.
+      if (a_hi > 0.0)
+        return complex<float64x2>(float64x2(inf, 0.0), float64x2(nan, 0.0));
+      return complex<float64x2>(float64x2(0.0, 0.0), float64x2(0.0, 0.0));
+    }
+    // a is ±∞, b is finite.
+    if (a_hi > 0.0) {
+      // +∞ + i·0 → +∞ + i·0 (preserve b's sign).
+      if (b_zero) return complex<float64x2>(float64x2(inf, 0.0), b);
+      // +∞ · cis(b): each component is ±∞ with sign from cos(b)/sin(b).
+      float64x2 s, c;
+      multifloats::sincos(b, s, c);
+      return complex<float64x2>(float64x2(std::copysign(inf, c._limbs[0]), 0.0),
+                                float64x2(std::copysign(inf, s._limbs[0]), 0.0));
+    }
+    // -∞ + i·y, y finite: +0 · cis(y).
+    if (b_zero) return complex<float64x2>(float64x2(0.0, 0.0), b);
+    float64x2 s, c;
+    multifloats::sincos(b, s, c);
+    return complex<float64x2>(float64x2(std::copysign(0.0, c._limbs[0]), 0.0),
+                              float64x2(std::copysign(0.0, s._limbs[0]), 0.0));
+  }
   multifloats::float64x2 ea = multifloats::exp(a);
   multifloats::float64x2 s, c;
   multifloats::sincos(b, s, c);
@@ -109,7 +149,10 @@ pow(complex<multifloats::float64x2> const &z,
   complex<multifloats::float64x2> l = std::log(zn);
   float64x2 lr = l.real(), li = l.imag();
   float64x2 wr = w.real(), wi = w.imag();
-  // w * log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr)
+  // w * log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr).
+  // The dominant error here is |Im(w·log z)|·ulp_dd amplified by exp;
+  // this scales with |w|·|log z| ≈ a few hundred DD ulp at fuzz extremes.
+  // Compensated cross-diff for the real part doesn't move the needle.
   complex<multifloats::float64x2> p(wr * lr - wi * li, wr * li + wi * lr);
   return std::exp(p);
 }
@@ -205,6 +248,19 @@ tanh(complex<multifloats::float64x2> const &z) {
   multifloats::sinhcosh(a, sa, ca);
   multifloats::sincos(b, sb, cb);
   float64x2 den = sa * sa + cb * cb;
+  // Pole at a = 0 with b = π/2+kπ ⇒ den = 0. Annex G.6.2.6 says ctanh at
+  // an imaginary-axis pole is (NaN, NaN).
+  if (den._limbs[0] == 0.0) {
+    double nan = std::numeric_limits<double>::quiet_NaN();
+    return complex<multifloats::float64x2>(float64x2(nan, 0.0),
+                                            float64x2(nan, 0.0));
+  }
+  // Overflow in sinh(a) for |a| ≳ 710 pushes den to +∞. Mathematical limit
+  // is tanh(a + i·b) → sign(a); bypass division so it doesn't return NaN.
+  if (!std::isfinite(den._limbs[0])) {
+    float64x2 re_sign(std::copysign(1.0, a._limbs[0]), 0.0);
+    return complex<multifloats::float64x2>(re_sign, float64x2(0.0, 0.0));
+  }
   return complex<multifloats::float64x2>((sa * ca) / den, (sb * cb) / den);
 }
 

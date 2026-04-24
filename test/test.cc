@@ -277,6 +277,74 @@ static void test_bessel_jn_miller_precision(Stats &stats) {
   }
 }
 
+// Spot-test J0/J1/Y0/Y1 just to either side of their leading roots. Random
+// fuzz almost never lands within ulp-distance of these, but they are the
+// regions where catastrophic cancellation is most punishing — the Hankel
+// asymptotic involves cos/sin of (x − π/4) that hit zero at the roots,
+// and the J/Y mix relies on those being computed accurately. A relative
+// tolerance is appropriate even where the value is small, because the
+// expected magnitude is what we're measuring against. Tolerance scales
+// the dp_tol by 1e-15 because the asymptotic uses sin/cos at large args.
+static void test_bessel_near_roots(Stats &stats) {
+  struct Case { char const *fn; double x; q_t (*ref)(q_t); };
+  // Roots from DLMF 10.21:
+  //   j0 zeros: 2.4048255576957727686..., 5.5200781102863106496..., 8.6537279129110122170...
+  //   j1 zeros: 3.8317059702075123156..., 7.0155866698156187535..., 10.1734681350627079834...
+  //   y0 zeros: 0.8935769662791675215..., 3.9576784193148578684..., 7.0860510603017726976...
+  //   y1 zeros: 2.1971413260310170351..., 5.4296810407941351327..., 8.5960058683311689265...
+  // Test slightly off-root (±1e-6) so the value is small but not zero.
+  double const dx = 1e-6;
+  // Lambda wrappers because the libm-flavored Bessel functions take int + q_t
+  // and we want a uniform `q_t (*)(q_t)` signature for the table.
+  auto bj0 = [](q_t x) { return j0q(x); };
+  auto bj1 = [](q_t x) { return j1q(x); };
+  auto by0 = [](q_t x) { return y0q(x); };
+  auto by1 = [](q_t x) { return y1q(x); };
+  Case const cases[] = {
+      {"bj0_near_root", 2.4048255576957727686 + dx, bj0},
+      {"bj0_near_root", 2.4048255576957727686 - dx, bj0},
+      {"bj0_near_root", 5.5200781102863106496 + dx, bj0},
+      {"bj1_near_root", 3.8317059702075123156 + dx, bj1},
+      {"bj1_near_root", 7.0155866698156187535 - dx, bj1},
+      {"by0_near_root", 0.8935769662791675215 + dx, by0},
+      {"by0_near_root", 3.9576784193148578684 - dx, by0},
+      {"by1_near_root", 2.1971413260310170351 + dx, by1},
+  };
+  for (Case const &c : cases) {
+    mf::float64x2 xdd(c.x);
+    q_t expected = c.ref((q_t)c.x);
+    if (std::strcmp(c.fn, "bj0_near_root") == 0) {
+      mf::float64x2 g(::j0dd(static_cast<float64x2_t>(xdd)));
+      // Relative tolerance is loose because the value at root + 1e-6 is
+      // tiny (~5e-7); 1 DD ulp of magnitude 1 reads as ~5e-26 of magnitude
+      // 5e-7. Absolute error stays ~0.1 DD ulp here. Set tol = 1e-25 to
+      // catch a >2× regression while accepting near-root cancellation.
+      check_q(c.fn, g, expected, 1e-25, stats);
+    } else if (std::strcmp(c.fn, "bj1_near_root") == 0) {
+      mf::float64x2 g(::j1dd(static_cast<float64x2_t>(xdd)));
+      // Relative tolerance is loose because the value at root + 1e-6 is
+      // tiny (~5e-7); 1 DD ulp of magnitude 1 reads as ~5e-26 of magnitude
+      // 5e-7. Absolute error stays ~0.1 DD ulp here. Set tol = 1e-25 to
+      // catch a >2× regression while accepting near-root cancellation.
+      check_q(c.fn, g, expected, 1e-25, stats);
+    } else if (std::strcmp(c.fn, "by0_near_root") == 0) {
+      mf::float64x2 g(::y0dd(static_cast<float64x2_t>(xdd)));
+      // Relative tolerance is loose because the value at root + 1e-6 is
+      // tiny (~5e-7); 1 DD ulp of magnitude 1 reads as ~5e-26 of magnitude
+      // 5e-7. Absolute error stays ~0.1 DD ulp here. Set tol = 1e-25 to
+      // catch a >2× regression while accepting near-root cancellation.
+      check_q(c.fn, g, expected, 1e-25, stats);
+    } else {
+      mf::float64x2 g(::y1dd(static_cast<float64x2_t>(xdd)));
+      // Relative tolerance is loose because the value at root + 1e-6 is
+      // tiny (~5e-7); 1 DD ulp of magnitude 1 reads as ~5e-26 of magnitude
+      // 5e-7. Absolute error stays ~0.1 DD ulp here. Set tol = 1e-25 to
+      // catch a >2× regression while accepting near-root cancellation.
+      check_q(c.fn, g, expected, 1e-25, stats);
+    }
+  }
+}
+
 // C99 G.6.4.2: csqrt(±0 + ±0·i) returns +0 + ±0·i — the real part is always
 // +0 regardless of the sign of the input real component, and the imaginary
 // sign is preserved. Regression/guard test so a future "preserve sign of a"
@@ -525,6 +593,60 @@ static void test_log_root_edges(Stats &stats) {
   // Sign preservation and signed-zero propagation.
   mf::float64x2 cb_nz = mf::cbrt(mf::float64x2(-0.0));
   REQUIRE(cb_nz._limbs[0] == 0.0);
+  REQUIRE(std::signbit(cb_nz._limbs[0]) == 1);  // cbrt(-0) = -0 per IEEE
+  // ±Inf must propagate cleanly (no NaN poisoning from the residual step).
+  double dinf = std::numeric_limits<double>::infinity();
+  mf::float64x2 cb_pinf = mf::cbrt(mf::float64x2(dinf));
+  REQUIRE(cb_pinf._limbs[0] == dinf);
+  mf::float64x2 cb_ninf = mf::cbrt(mf::float64x2(-dinf));
+  REQUIRE(cb_ninf._limbs[0] == -dinf);
+}
+
+// Annex G special-value checks for the complex transcendentals fixed in
+// the audit pass: cexp special values per G.6.3.1, and ctanh's overflow
+// guard for |Re(z)| ≳ 710 (matching ctan's existing guard).
+static void test_complex_annex_g_specials() {
+  using cq_t = __complex128;
+  using mf::float64x2;
+  double dinf = std::numeric_limits<double>::infinity();
+  double dnan = std::numeric_limits<double>::quiet_NaN();
+
+  // cexp(+inf + i·0) = +inf + i·0 (was +inf + i·NaN before fix).
+  {
+    auto r = std::exp(std::complex<float64x2>(float64x2(dinf), float64x2(0.0)));
+    REQUIRE(r.real()._limbs[0] == dinf);
+    REQUIRE(r.imag()._limbs[0] == 0.0);
+  }
+  // cexp(-inf + i·0) = +0 + i·0.
+  {
+    auto r = std::exp(std::complex<float64x2>(float64x2(-dinf), float64x2(0.0)));
+    REQUIRE(r.real()._limbs[0] == 0.0);
+    REQUIRE(r.imag()._limbs[0] == 0.0);
+  }
+  // cexp(NaN + i·0) = NaN + i·0.
+  {
+    auto r = std::exp(std::complex<float64x2>(float64x2(dnan), float64x2(0.0)));
+    REQUIRE(std::isnan(r.real()._limbs[0]));
+    REQUIRE(r.imag()._limbs[0] == 0.0);
+  }
+  // cexp(finite + i·inf) = NaN + i·NaN.
+  {
+    auto r = std::exp(std::complex<float64x2>(float64x2(1.0), float64x2(dinf)));
+    REQUIRE(std::isnan(r.real()._limbs[0]));
+    REQUIRE(std::isnan(r.imag()._limbs[0]));
+  }
+  // ctanh(+large + i·1) → finite (was NaN before fix). Limit is sign(Re).
+  {
+    auto r = std::tanh(std::complex<float64x2>(float64x2(800.0), float64x2(1.0)));
+    REQUIRE(std::isfinite(r.real()._limbs[0]));
+    REQUIRE(r.real()._limbs[0] == 1.0);
+    REQUIRE(std::isfinite(r.imag()._limbs[0]));
+  }
+  // ctanh(-large + i·1) = -1 + 0i.
+  {
+    auto r = std::tanh(std::complex<float64x2>(float64x2(-800.0), float64x2(1.0)));
+    REQUIRE(r.real()._limbs[0] == -1.0);
+  }
 }
 
 // C99 Annex G branch-cut behavior for complex log, sqrt, asin, acos on
@@ -1574,7 +1696,7 @@ int main() {
   test_classification();
   test_nextafter_symmetry();
 
-  Stats add, sub, mul, div, una, abs_fmm, csgn, ldx, atn, lrp, cxa, bjn, cxn, lre, htr, cbr, tdp;
+  Stats add, sub, mul, div, una, abs_fmm, csgn, ldx, atn, lrp, cxa, bjn, bnr, cxn, lre, htr, cbr, tdp;
   test_unary(una);
   test_addition(add);
   test_subtraction(sub);
@@ -1595,7 +1717,9 @@ int main() {
   test_log_root_edges(lre);
   test_huge_argument_trig(htr);
   test_complex_branch_cuts(cbr);
+  test_complex_annex_g_specials();
   test_bessel_jn_miller_precision(bjn);
+  test_bessel_near_roots(bnr);
   test_td_primitives(tdp);
 
   std::printf("[multifloats_test] %d checks, %d failures\n", g_checks,
@@ -1618,6 +1742,7 @@ int main() {
   print_stats("huge arg trig", htr);
   print_stats("cx branch cuts", cbr);
   print_stats("bessel jn (Miller)", bjn);
+  print_stats("bessel near roots", bnr);
   print_stats("td primitives", tdp);
 
   // ----------------------------------------------------------------

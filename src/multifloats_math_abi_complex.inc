@@ -93,13 +93,52 @@ complex64x2_t cmuldd(complex64x2_t a, complex64x2_t b) {
 //   im = (b·c − a·d) / (c² + d²)         — cancels when bc ≈ ad
 // The imaginary numerator uses dd_cross_diff to recover the full DD
 // precision lost by the naïve (DD_mul)−(DD_mul) subtraction.
+//
+// Overflow guard: the unscaled c²+d² overflows once max(|c|,|d|) >
+// √DBL_MAX ≈ 1.34e154, well inside DD's representable range. Pre-scale
+// the denominator by an exact power of 2 (chosen so |max| ∈ [0.5, 1)),
+// compute the formula, then unscale the result. Power-of-2 scaling is
+// exact at every limb (no precision lost), and the post-scale denom is
+// bounded by 2 so no overflow can occur.
 complex64x2_t cdivdd(complex64x2_t a, complex64x2_t b) {
   float64x2 ar = from(a.re), ai = from(a.im);
   float64x2 br = from(b.re), bi = from(b.im);
+
+  // Fast path: b is in the range where br²+bi² won't overflow/underflow.
+  // The square of √DBL_MAX (~1.34e154) is the boundary; allow a generous
+  // margin and skip the ldexp/frexp pre/post-scaling for typical inputs.
+  double abs_br = std::fabs(br._limbs[0]);
+  double abs_bi = std::fabs(bi._limbs[0]);
+  double max_b = abs_br > abs_bi ? abs_br : abs_bi;
+  if (max_b < 1e150 && max_b > 1e-150) {
+    float64x2 denom = br * br + bi * bi;
+    float64x2 num_re = ar * br + ai * bi;
+    float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
+    return { to(num_re / denom), to(num_im / denom) };
+  }
+  // Slow path: scale b by an exact power of 2 so |max element| ∈ [0.5, 1)
+  // and br²+bi² is bounded by 2. Power-of-2 scaling preserves all DD limbs
+  // exactly; we unscale the result by the same power at the end.
+  int e = 0;
+  if (max_b > 0.0 && std::isfinite(max_b)) {
+    std::frexp(max_b, &e);
+    br = float64x2(std::ldexp(br._limbs[0], -e),
+                   std::ldexp(br._limbs[1], -e));
+    bi = float64x2(std::ldexp(bi._limbs[0], -e),
+                   std::ldexp(bi._limbs[1], -e));
+  }
   float64x2 denom = br * br + bi * bi;
   float64x2 num_re = ar * br + ai * bi;
   float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
-  return { to(num_re / denom), to(num_im / denom) };
+  float64x2 res_re = num_re / denom;
+  float64x2 res_im = num_im / denom;
+  if (e != 0) {
+    res_re = float64x2(std::ldexp(res_re._limbs[0], -e),
+                       std::ldexp(res_re._limbs[1], -e));
+    res_im = float64x2(std::ldexp(res_im._limbs[0], -e),
+                       std::ldexp(res_im._limbs[1], -e));
+  }
+  return { to(res_re), to(res_im) };
 }
 
 // ---- Transcendentals → std:: specializations ------------------------------

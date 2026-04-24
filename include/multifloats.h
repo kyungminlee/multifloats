@@ -1009,8 +1009,15 @@ inline constexpr float64x2 sqrt(float64x2 const &x) {
 }
 
 inline constexpr float64x2 cbrt(float64x2 const &x) {
-  if (x._limbs[0] == 0.0) return float64x2();
   const double s = std::cbrt(x._limbs[0]);
+  // Bail on 0/-0/±Inf/NaN — the residual would compute `inf - inf` for ±Inf
+  // and `0/0` for ±0, poisoning both limbs. std::cbrt already returns the
+  // correctly-signed special-value result for the leading limb.
+  if (x._limbs[0] == 0.0 || !std::isfinite(s)) {
+    float64x2 r;
+    r._limbs[0] = s;
+    return r;
+  }
   const float64x2 s_dd(s);
   const float64x2 residual = x - s_dd * s_dd * s_dd;
   const float64x2 correction(residual._limbs[0] / (3.0 * s * s));

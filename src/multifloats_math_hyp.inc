@@ -6,10 +6,11 @@ float64x2 sinh(float64x2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
-  if (std::abs(x._limbs[0]) < 0.1) {
-    // 9-term Taylor: x * (1 + x²/6 + x⁴/120 + ...).
-    // 9 coefs → degree 8 → Estrin case in neval.
-    return x * neval(x * x, sinh_taylor_hi, sinh_taylor_lo, 8);
+  if (std::abs(x._limbs[0]) < 0.5) {
+    // 13-term Taylor: x * (1 + x²/6 + x⁴/120 + ... + x²²/23!).
+    // 13 coefs → degree 12 → Estrin case in neval. Cutoff at |x|<0.5
+    // bypasses the (e^x − e^-x) cancellation that costs ~3 ulp_dd.
+    return x * neval(x * x, sinh_taylor_hi, sinh_taylor_lo, 12);
   }
   float64x2 e = exp(x);
   float64x2 ei = exp(-x);
@@ -37,13 +38,12 @@ void sinhcosh(float64x2 const &x, float64x2 &s, float64x2 &c) {
     c._limbs[0] = std::cosh(x._limbs[0]); c._limbs[1] = 0.0;
     return;
   }
-  if (std::abs(x._limbs[0]) < 0.1) {
-    // Small-|x| Taylor: sinh via shared coefficients, cosh via 1 + x²·Q(x²).
-    // The cosh Taylor here mirrors the structure of sinh's path.
+  if (std::abs(x._limbs[0]) < 0.5) {
+    // Small-|x| Taylor: sinh via shared coefficients, cosh via the
+    // non-cancellation-prone exp form (cosh's leading 1+1=2 doesn't cancel).
     float64x2 x2 = x * x;
-    // 9 coefs → degree 8 → Estrin case in neval.
-    s = x * neval(x2, sinh_taylor_hi, sinh_taylor_lo, 8);
-    // cosh(x) = 1 + x²/2 + x⁴/24 + … — reuse separate kernel to keep code small.
+    // 13 coefs → degree 12 → Estrin case in neval.
+    s = x * neval(x2, sinh_taylor_hi, sinh_taylor_lo, 12);
     c = cosh(x);
     return;
   }

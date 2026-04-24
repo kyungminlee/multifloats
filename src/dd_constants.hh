@@ -1296,18 +1296,22 @@ inline constexpr double cos_taylor_lo2[13] = {
 // ==========================================================================
 
 // sinh(x)/x Taylor: c[k] = 1/(2k+1)!
-inline constexpr double sinh_taylor_hi[9] = {
+inline constexpr double sinh_taylor_hi[13] = {
     0x1.0000000000000p+0, 0x1.5555555555555p-3,
     0x1.1111111111111p-7, 0x1.a01a01a01a01ap-13,
     0x1.71de3a556c734p-19, 0x1.ae64567f544e4p-26,
     0x1.6124613a86d09p-33, 0x1.ae7f3e733b81fp-41,
-    0x1.952c77030ad4ap-49};
-inline constexpr double sinh_taylor_lo[9] = {
+    0x1.952c77030ad4ap-49, 0x1.2f49b46814157p-57,
+    0x1.71b8ef6dcf572p-66, 0x1.761b41316381ap-75,
+    0x1.3f3ccdd165fa9p-84};
+inline constexpr double sinh_taylor_lo[13] = {
     0x0.0p+0, 0x1.5555555555555p-57,
     0x1.1111111111111p-63, 0x1.a01a01a01a01ap-73,
     -0x1.c154f8ddc6c00p-73, -0x1.c062e06d1f209p-80,
     0x1.f28e0cc748ebep-87, 0x1.1d8656b0ee8cbp-97,
-    0x1.ac981465ddc6cp-103};
+    0x1.ac981465ddc6cp-103, 0x1.2650f61dbdcb4p-112,
+    -0x1.d043ae40c4647p-120, -0x1.3423c7d91404fp-130,
+    -0x1.58ddadf344487p-139};
 
 // asinh(x)/x Taylor: c[k] = (-1)^k(2k)!/(4^k(k!)^2(2k+1))
 inline constexpr double asinh_taylor_hi[15] = {

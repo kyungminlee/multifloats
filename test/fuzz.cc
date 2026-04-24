@@ -304,6 +304,8 @@ static bool is_full_dd(char const *op) {
       "bj0", "bj1", "bjn", "by0", "by1", "byn", "yn_range",
       "arr_sum", "arr_prod", "arr_max", "arr_min",
       "arr_dot", "arr_norm2", "arr_matmul",
+      "arr_matmul_mm", "arr_matmul_vm", "jn_range",
+      "sin_huge", "cos_huge",
       "cadd_re", "cadd_im", "csub_re", "csub_im",
       "cmul_re", "cmul_im", "cdiv_re", "cdiv_im",
       "cabs", "carg", "cconjg_re", "cconjg_im",
@@ -780,6 +782,11 @@ static void check_comp(mf::float64x2 const &f1, mf::float64x2 const &f2, q_t q1,
 // The matmul kernel is the same `matmuldd_mv` C ABI symbol Fortran's
 // `matmul` delegates to, with renorm_interval matching DD_FMA_RENORM_INTERVAL.
 static constexpr int kArrayN = 8;
+// Preserve baseline main-rng consumption pattern: kArrayInterval=1000 with
+// the main `rng` (so existing arr_sum/prod/max/min/dot/norm2/matmul columns
+// keep comparability across runs). New array ops (matmul_mm, matmul_vm) that
+// weren't in the baseline use a separate RNG in the outer loop below so
+// they don't perturb scalar fuzz input distribution.
 static constexpr int kArrayInterval = 1000;
 static constexpr int64_t kArrayRenorm = 8;
 
@@ -900,6 +907,91 @@ static void fuzz_arrays(Rng &rng) {
       }
       q_t mag = max_m * max_a * (q_t)kArrayN;
       check("arr_matmul", y_dd[row], y_q, mag, (q_t)0, y_mp);
+    }
+  }
+
+}
+
+// Separate matmul_mm/vm coverage. Uses its own rng so the presence of this
+// function doesn't perturb the main-loop scalar fuzz input distribution
+// (inputs are a, b vectors freshly drawn from `rng`, independent of main).
+static void fuzz_matmul_mm_vm_only(Rng &rng) {
+  q_t qa[kArrayN];
+  mf::float64x2 a[kArrayN];
+  mp_t ma[kArrayN];
+  q_t max_a = 0;
+  for (int k = 0; k < kArrayN; ++k) {
+    qa[k] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+    a[k] = from_q(qa[k]);
+    ma[k] = to_mp(a[k]);
+    q_t aa = qa[k] < 0 ? -qa[k] : qa[k];
+    if (aa > max_a) max_a = aa;
+  }
+
+  // mm: 8x8 × 8x8 → 8x8.
+  {
+    q_t qm[kArrayN * kArrayN], qn[kArrayN * kArrayN];
+    mf::float64x2 m_arr[kArrayN * kArrayN], n_arr[kArrayN * kArrayN];
+    mp_t mm_arr[kArrayN * kArrayN], mn_arr[kArrayN * kArrayN];
+    q_t max_m = 0, max_n = 0;
+    for (int i = 0; i < kArrayN * kArrayN; ++i) {
+      qm[i] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+      qn[i] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+      m_arr[i] = from_q(qm[i]);
+      n_arr[i] = from_q(qn[i]);
+      mm_arr[i] = to_mp(m_arr[i]);
+      mn_arr[i] = to_mp(n_arr[i]);
+      q_t am = qm[i] < 0 ? -qm[i] : qm[i];
+      q_t an = qn[i] < 0 ? -qn[i] : qn[i];
+      if (am > max_m) max_m = am;
+      if (an > max_n) max_n = an;
+    }
+    mf::float64x2 c_dd[kArrayN * kArrayN];
+    matmuldd_mm(reinterpret_cast<float64x2_t const *>(m_arr),
+                reinterpret_cast<float64x2_t const *>(n_arr),
+                reinterpret_cast<float64x2_t *>(c_dd),
+                kArrayN, kArrayN, kArrayN, kArrayRenorm);
+    for (int row = 0; row < kArrayN; ++row) {
+      for (int col = 0; col < kArrayN; ++col) {
+        q_t cq = (q_t)0;
+        mp_t cmp = mp_t(0);
+        for (int p = 0; p < kArrayN; ++p) {
+          cq += qm[p * kArrayN + row] * qn[col * kArrayN + p];
+          cmp += mm_arr[p * kArrayN + row] * mn_arr[col * kArrayN + p];
+        }
+        q_t mag = max_m * max_n * (q_t)kArrayN;
+        check("arr_matmul_mm", c_dd[col * kArrayN + row], cq, mag, (q_t)0, cmp);
+      }
+    }
+  }
+
+  // vm: 8-vector × 8x8 → 8-vector.
+  {
+    q_t qm[kArrayN * kArrayN];
+    mf::float64x2 m_arr[kArrayN * kArrayN];
+    mp_t mm_arr[kArrayN * kArrayN];
+    q_t max_m = 0;
+    for (int i = 0; i < kArrayN * kArrayN; ++i) {
+      qm[i] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+      m_arr[i] = from_q(qm[i]);
+      mm_arr[i] = to_mp(m_arr[i]);
+      q_t am = qm[i] < 0 ? -qm[i] : qm[i];
+      if (am > max_m) max_m = am;
+    }
+    mf::float64x2 y_dd[kArrayN];
+    matmuldd_vm(reinterpret_cast<float64x2_t const *>(a),
+                reinterpret_cast<float64x2_t const *>(m_arr),
+                reinterpret_cast<float64x2_t *>(y_dd),
+                kArrayN, kArrayN, kArrayRenorm);
+    for (int col = 0; col < kArrayN; ++col) {
+      q_t y_q = (q_t)0;
+      mp_t y_mp = mp_t(0);
+      for (int p = 0; p < kArrayN; ++p) {
+        y_q += qa[p] * qm[col * kArrayN + p];
+        y_mp += ma[p] * mm_arr[col * kArrayN + p];
+      }
+      q_t mag = max_a * max_m * (q_t)kArrayN;
+      check("arr_matmul_vm", y_dd[col], y_q, mag, (q_t)0, y_mp);
     }
   }
 }
@@ -1072,6 +1164,32 @@ int main(int argc, char **argv) {
         CHK("sincos_c", mf::float64x2(sc_c), cosq(q1),
             q1, (q_t)0, mpfr::cos(m1));
       }
+
+      // Trig at huge arguments: |x| in [1e6, 1e15]. The Cody-Waite + π/8
+      // split range reduction is supposed to hold full DD precision up
+      // to ~2^55 ≈ 3.6e16. Without this bucket, the random distribution
+      // (10^±30 magnitude) almost never lands in this regime, and the
+      // |x|<1e6 gate above explicitly excludes it from the headline trig
+      // stat. Sample every 4 iterations to amortize cost without
+      // dominating the run.
+#ifdef USE_MPFR
+      if ((i & 3) == 0 && q_isfinite(q1) && aq1 > (q_t)1e-3q && aq1 < (q_t)1) {
+        // Synthesize q_huge = q1 * 2^scale, scale ∈ {20, 30, 40, 50},
+        // covering 10^6 .. 10^15. Multiply is exact (power of two).
+        int scales[4] = {20, 30, 40, 50};
+        int scale = scales[(unsigned)(i >> 2) & 3];
+        q_t q_huge = scalbnq(q1, scale);
+        if (fabsq(q_huge) < (q_t)1e15q) {
+          mf::float64x2 f_huge =
+              mf::scalbn(f1, scale);  // exact in DD too
+          mp_t m_huge = scalbn(m1, scale);
+          CHK("sin_huge", mf::sin(f_huge), sinq(q_huge),
+              q_huge, (q_t)0, mpfr::sin(m_huge));
+          CHK("cos_huge", mf::cos(f_huge), cosq(q_huge),
+              q_huge, (q_t)0, mpfr::cos(m_huge));
+        }
+      }
+#endif
       CHK1_IF(asin, q_isfinite(q1) && aq1 <= (q_t)1);
       CHK1_IF(acos, q_isfinite(q1) && aq1 <= (q_t)1);
       CHK1_IF(atan, q_isfinite(q1));
@@ -1129,10 +1247,65 @@ int main(int argc, char **argv) {
             q1, (q_t)d2, mpfr::pow(m1, to_mp(d2)));
         CHK("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2),
             (q_t)d1, q2, mpfr::pow(to_mp(d1), m2));
+
+#ifdef USE_MPFR
+        // pow = exp2(y·log2(x)) decomposition diagnostic. Three stat
+        // rows isolate each stage so we can see which one dominates the
+        // observed `pow` ulp floor:
+        //   pow_diag_log2  — mf::log2 vs mpfr::log2 (the A leg alone)
+        //   pow_diag_exp2  — mf::exp2 on a DD-rounded exact y·log2(x)
+        //                    (the C leg alone)
+        //   pow_diag_nomul — same DD-rounded input through exp2, vs
+        //                    mpfr::pow(x,y) directly (A+C with a
+        //                    correctly-rounded mul intermediate)
+        // If pow's max_rel ≫ pow_diag_nomul, the multiply is the
+        // bottleneck. If pow ≈ nomul, the mul is fine and the A+C
+        // kernels set the ceiling.
+        CHK("pow_diag_log2", mf::log2(f1), log2q(q1),
+            q1, (q_t)0, mpfr::log2(m1));
+
+        // Correctly-rounded-to-DD version of y · log2(x): compute at
+        // 200-bit, then split into (hi, lo) via round-to-nearest.
+        mp_t P_exact = mpfr::log2(m1) * m2;
+        if (mp_isfinite(P_exact)) {
+          double P_hi = P_exact.toDouble();
+          double P_lo = 0.0;
+          if (std::isfinite(P_hi)) {
+            P_lo = (P_exact - mp_t(P_hi)).toDouble();
+          }
+          mf::float64x2 P_dd;
+          P_dd._limbs[0] = P_hi;
+          P_dd._limbs[1] = P_lo;
+          q_t P_q = to_q(P_dd);
+          CHK("pow_diag_exp2", mf::exp2(P_dd), exp2q(P_q),
+              P_q, (q_t)0, mpfr::exp2(to_mp(P_q)));
+          CHK("pow_diag_nomul", mf::exp2(P_dd), powq(q1, q2),
+              q1, q2, mpfr::pow(m1, m2));
+        }
+#endif
       }
-      CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e10q, "pow_int",
-             mf::pow(f1, mf::float64x2(3.0)), powq(q1, (q_t)3),
-             q1, (q_t)3, mpfr::pow(m1, to_mp(3.0)));
+      // Vary the integer exponent across iterations so we exercise the
+      // repeated-squaring path with a mix of positive/negative/odd/even
+      // exponents (was hard-coded at n=3, missing the integer-fast-path
+      // and negative-base regressions). Skip n=0 (trivially 1). Restrict
+      // |q1|^|n| to stay within normal double range — denormal results
+      // cliff DD precision below the 1e-26 full-DD tolerance bound.
+      {
+        static const int kPowInts[] = {1, 2, 3, 5, 7, 10, 17, 30,
+                                       -1, -2, -3, -5, -10, -17};
+        int n = kPowInts[(unsigned)i % (sizeof(kPowInts)/sizeof(int))];
+        if (q_isfinite(q1) && aq1 > (q_t)1e-9q && aq1 < (q_t)1e9q) {
+          q_t res_q = powq(q1, (q_t)n);
+          // Skip when the math result is denormal/Inf — DD can't carry full
+          // 1e-26 relative error there (subnormal cliff).
+          q_t a_res = res_q < 0 ? -res_q : res_q;
+          if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
+            CHK("pow_int",
+                mf::pow(f1, mf::float64x2((double)n)), res_q,
+                q1, (q_t)n, mpfr::pow(m1, to_mp((double)n)));
+          }
+        }
+      }
 
       // scalbn(x, 5) = x · 2^5; the ·32 is exact at any precision.
       CHK_IF(q_isfinite(q1), "scalbn", mf::scalbn(f1, 5), scalbnq(q1, 5),
@@ -1231,6 +1404,16 @@ int main(int argc, char **argv) {
             CHK("yn_range",
                 mf::float64x2(yn_out[n]), ynq(n, q1),
                 q1, (q_t)n, mpfr::besselyn((long)n, m1));
+
+          // jndd_range: same idea but for J. The kernel internally loops
+          // over jndd, so this exercises the n=0..5 sweep path that was
+          // previously only hit one n at a time via CHK("bjn", ...).
+          float64x2_t jn_out[6];
+          ::jndd_range(0, 5, static_cast<float64x2_t>(f1), jn_out);
+          for (int n = 0; n <= 5; ++n)
+            CHK("jn_range",
+                mf::float64x2(jn_out[n]), jnq(n, q1),
+                q1, (q_t)n, mpfr::besseljn((long)n, m1));
         }
       }
 
@@ -1412,7 +1595,14 @@ int main(int argc, char **argv) {
     }
 
 #ifdef USE_MPFR
+    // Main-loop array fuzz uses the main rng (baseline-equivalent).
     if (i % kArrayInterval == 0) fuzz_arrays(rng);
+    // New matmul_mm/vm coverage uses an independent rng so its presence
+    // doesn't perturb the scalar fuzz input distribution.
+    if (i % kArrayInterval == 0) {
+      static Rng extra_rng(0xa110ca7eULL);
+      fuzz_matmul_mm_vm_only(extra_rng);
+    }
 #endif
 
     if (i % 100000 == 0) {

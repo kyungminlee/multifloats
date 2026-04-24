@@ -850,7 +850,7 @@ def collect_all():
             'in-house Taylor',
             'sinh / asinh / atanh Taylor series for small |x|')
     # --- hyperbolic ---
-    array('sinh_taylor', gen_sinh_taylor(9),
+    array('sinh_taylor', gen_sinh_taylor(13),
           'sinh(x)/x Taylor: c[k] = 1/(2k+1)!')
     array('asinh_taylor', gen_asinh_taylor(15),
           'asinh(x)/x Taylor: c[k] = (-1)^k(2k)!/(4^k(k!)^2(2k+1))')

@@ -101,7 +101,7 @@ FORTRAN_SECTIONS: list[Section] = [
         Op("atan2pi","atan2pi","original: atan2(y,x)/\u03c0 with exact-DD \u03c0 division",                            "full DD", "atan2pi"),
     ]),
     Section("Hyperbolic", [
-        Op("sinh",  "sinh",  "original: Taylor series (\\|x\\|<0.1) or (exp\u2212exp\u207b\u00b9)/2", "full DD", "sinh"),
+        Op("sinh",  "sinh",  "original: Taylor series (\\|x\\|<0.5, n=13) or (exp\u2212exp\u207b\u00b9)/2", "full DD", "sinh"),
         Op("cosh",  "cosh",  "original: (exp+exp\u207b\u00b9)/2",                                    "full DD", "cosh"),
         Op("sinhcosh", "sinhcosh", "fused sinh/cosh: one range-reduction, two outputs",              "full DD",
             fuzz=[("sinh", "sinhcosh_s"), ("cosh", "sinhcosh_c")]),
@@ -254,7 +254,7 @@ C_SECTIONS: list[Section] = [
         Op("atan2pi","atan2pi","original: atan2(y,x)/\u03c0 with exact-DD \u03c0 division",         fuzz="atan2pi"),
     ]),
     Section("Hyperbolic", [
-        Op("sinh",  "sinh",  "original: Taylor series (\\|x\\|<0.1) or (exp\u2212exp\u207b\u00b9)/2",  fuzz="sinh"),
+        Op("sinh",  "sinh",  "original: Taylor series (\\|x\\|<0.5, n=13) or (exp\u2212exp\u207b\u00b9)/2",  fuzz="sinh"),
         Op("cosh",  "cosh",  "original: (exp+exp\u207b\u00b9)/2",                                     fuzz="cosh"),
         Op("sinhcosh", "sinhcosh", "fused sinh/cosh: one range-reduction, two outputs",
             fuzz=[("sinh", "sinhcosh_s"), ("cosh", "sinhcosh_c")]),
