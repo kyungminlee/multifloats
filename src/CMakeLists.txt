@@ -55,17 +55,23 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
     target_compile_options(multifloats PRIVATE -fp-model=precise)
 endif()
 
-# LTO via CMake's standard abstraction. Per-config so a Debug build leaves
-# IPO off (LTO destroys debuggability and noticeably slows the link).
-# check_ipo_supported errors out by default on toolchains that don't do
-# IPO; LANGUAGES CXX scopes the probe to the language we care about.
-include(CheckIPOSupported)
-check_ipo_supported(RESULT MULTIFLOATS_IPO_SUPPORTED LANGUAGES CXX)
-if(MULTIFLOATS_IPO_SUPPORTED)
-    set_target_properties(multifloats PROPERTIES
-        INTERPROCEDURAL_OPTIMIZATION_RELEASE        TRUE
-        INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
-        INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     TRUE)
+# LTO via CMake's standard abstraction, gated on the project-wide
+# MULTIFLOATS_USE_LTO option (defined in the top-level CMakeLists.txt).
+# Per-config so a Debug build leaves IPO off (LTO destroys debuggability
+# and noticeably slows the link). check_ipo_supported errors out by
+# default on toolchains that don't do IPO; LANGUAGES CXX scopes the
+# probe to the language we care about.
+set(MULTIFLOATS_LTO_ON FALSE)
+if(MULTIFLOATS_USE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT MULTIFLOATS_IPO_SUPPORTED LANGUAGES CXX)
+    if(MULTIFLOATS_IPO_SUPPORTED)
+        set_target_properties(multifloats PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE        TRUE
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+            INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     TRUE)
+        set(MULTIFLOATS_LTO_ON TRUE)
+    endif()
 endif()
 
 # Fat LTO: emit both LTO bitcode and ordinary object code so the archive
@@ -73,7 +79,7 @@ endif()
 # (e.g. a GCC-built libmultifloats.a consumed by a Clang-driven link).
 # CMake doesn't model fat-LTO directly, so we probe + add the flag manually,
 # scoped to the optimized configs that actually enable IPO.
-if(MULTIFLOATS_IPO_SUPPORTED)
+if(MULTIFLOATS_LTO_ON)
     include(CheckCXXCompilerFlag)
     check_cxx_compiler_flag(-ffat-lto-objects MULTIFLOATS_CXX_HAS_FAT_LTO)
     if(MULTIFLOATS_CXX_HAS_FAT_LTO)

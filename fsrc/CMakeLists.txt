@@ -49,23 +49,26 @@ if(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
     target_compile_options(multifloatsf PRIVATE -fp-model=precise)
 endif()
 
-# LTO via CMake's IPO abstraction. Gated on GNU / LLVMFlang because other
-# Fortran compilers (Intel ifx, NVIDIA, NAG, Cray) either don't have a
-# usable LTO mode or produce LTO bytecode no other compiler can consume,
-# defeating the cross-toolchain ABI surface this library exposes. The
-# CheckIPOSupported probe alone wouldn't catch the interop concern.
-include(CheckIPOSupported)
-check_ipo_supported(RESULT MULTIFLOATSF_IPO_SUPPORTED LANGUAGES Fortran)
-if(MULTIFLOATSF_IPO_SUPPORTED
+# LTO via CMake's IPO abstraction, gated on the project-wide
+# MULTIFLOATS_USE_LTO option (defined in the top-level CMakeLists.txt)
+# AND on GNU / LLVMFlang because other Fortran compilers (Intel ifx,
+# NVIDIA, NAG, Cray) either don't have a usable LTO mode or produce LTO
+# bytecode no other compiler can consume, defeating the cross-toolchain
+# ABI surface this library exposes. The CheckIPOSupported probe alone
+# wouldn't catch the interop concern.
+set(MULTIFLOATSF_LTO_ON FALSE)
+if(MULTIFLOATS_USE_LTO
    AND (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU"
         OR CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang"))
-    set_target_properties(multifloatsf PROPERTIES
-        INTERPROCEDURAL_OPTIMIZATION_RELEASE        TRUE
-        INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
-        INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     TRUE)
-    set(MULTIFLOATSF_LTO_ON TRUE)
-else()
-    set(MULTIFLOATSF_LTO_ON FALSE)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT MULTIFLOATSF_IPO_SUPPORTED LANGUAGES Fortran)
+    if(MULTIFLOATSF_IPO_SUPPORTED)
+        set_target_properties(multifloatsf PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE        TRUE
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+            INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     TRUE)
+        set(MULTIFLOATSF_LTO_ON TRUE)
+    endif()
 endif()
 
 # Fat LTO: keep regular object code alongside the LTO bitcode so the

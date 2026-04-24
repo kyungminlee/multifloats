@@ -77,6 +77,15 @@ add_test(NAME fortran_abi_sync
 # not affect the installed library.
 option(BUILD_MPFR_TESTS "Build MPFR-based precision tests (mpreal + libmpfr)" OFF)
 
+# Link-time optimization for the installed libraries. ON (default)
+# enables LTO + fat-LTO objects in src/ and fsrc/ so the static
+# archives can be linked by an LTO-aware *or* a non-LTO toolchain. Turn
+# OFF to slim builds, debug LTO-induced miscompiles, or work around
+# toolchains where the LTO probe lies. Probed support and per-config
+# gating happen inside src/ and fsrc/ — this option is purely the
+# opt-in switch.
+option(MULTIFLOATS_USE_LTO "Build the libraries with LTO (-flto + fat objects)" ON)
+
 # =============================================================================
 # Library subprojects
 # =============================================================================
