@@ -30,6 +30,8 @@
 #include <random>
 
 namespace mf = multifloats;
+using multifloats::float64x2;
+using multifloats::complex64x2;
 using q_t = multifloats_test::q_t;
 using multifloats_test::from_q;
 using multifloats_test::to_q;
@@ -38,35 +40,35 @@ using multifloats_test::q_isnan;
 
 // ABI boundary: Fortran bind(c) wrappers over NATIVE float64x2
 // elementals (see test/crosscheck_bindings.f90). Return / argument
-// type is float64x2_t from multifloats.h — layout-identical to the
+// type is float64x2 from multifloats.h — layout-identical to the
 // Fortran `type, bind(c) :: dd_c`.
 extern "C" {
-  float64x2_t fnat_add (float64x2_t a, float64x2_t b);
-  float64x2_t fnat_sub (float64x2_t a, float64x2_t b);
-  float64x2_t fnat_mul (float64x2_t a, float64x2_t b);
-  float64x2_t fnat_div (float64x2_t a, float64x2_t b);
-  float64x2_t fnat_neg (float64x2_t a);
-  float64x2_t fnat_abs (float64x2_t a);
-  float64x2_t fnat_sqrt(float64x2_t a);
-  int         fnat_eq  (float64x2_t a, float64x2_t b);
-  int         fnat_ne  (float64x2_t a, float64x2_t b);
-  int         fnat_lt  (float64x2_t a, float64x2_t b);
+  float64x2 fnat_add (float64x2 a, float64x2 b);
+  float64x2 fnat_sub (float64x2 a, float64x2 b);
+  float64x2 fnat_mul (float64x2 a, float64x2 b);
+  float64x2 fnat_div (float64x2 a, float64x2 b);
+  float64x2 fnat_neg (float64x2 a);
+  float64x2 fnat_abs (float64x2 a);
+  float64x2 fnat_sqrt(float64x2 a);
+  int         fnat_eq  (float64x2 a, float64x2 b);
+  int         fnat_ne  (float64x2 a, float64x2 b);
+  int         fnat_lt  (float64x2 a, float64x2 b);
   // fnat_le / fnat_ge intentionally omitted — see crosscheck_bindings.f90
   // for the NaN-semantics divergence that makes a direct cross-check noisy.
 
   // Integer-returning rounding / decomposition. Gated on |x| < 2e9 by
   // the caller so the Fortran-default-integer result doesn't overflow
   // int32 before widening to c_long inside the wrapper.
-  long        fnat_floor   (float64x2_t a);
-  long        fnat_ceiling (float64x2_t a);
-  long        fnat_nint    (float64x2_t a);
-  int         fnat_exponent(float64x2_t a);
+  long        fnat_floor   (float64x2 a);
+  long        fnat_ceiling (float64x2 a);
+  long        fnat_nint    (float64x2 a);
+  int         fnat_exponent(float64x2 a);
 
   // DD-returning scaling ops. Both sides implement native per-limb
   // multiplication by 2^n (scale is exact for any limb), so bit-exact
   // agreement is expected.
-  float64x2_t fnat_scale       (float64x2_t a, int n);
-  float64x2_t fnat_set_exponent(float64x2_t a, int n);
+  float64x2 fnat_scale       (float64x2 a, int n);
+  float64x2 fnat_set_exponent(float64x2 a, int n);
 }
 
 // -----------------------------------------------------------------------------
@@ -99,8 +101,8 @@ static inline bool bit_eq(double a, double b) {
   std::memcpy(&bi, &b, sizeof bi);
   return ai == bi;
 }
-static inline bool bit_eq(float64x2_t a, float64x2_t b) {
-  return bit_eq(a.hi, b.hi) && bit_eq(a.lo, b.lo);
+static inline bool bit_eq(float64x2 a, float64x2 b) {
+  return bit_eq(a.limbs[0], b.limbs[0]) && bit_eq(a.limbs[1], b.limbs[1]);
 }
 
 // Per-op normal-scale tolerances, measured empirically against the
@@ -136,13 +138,13 @@ static constexpr double kEdgeLoAbs = 1.0e-150;    // ~2^-498
 static constexpr double kEdgeHiAbs = 1.0e+150;    // ~2^+498
 static constexpr double kTolEdge   = 1.0e-14;
 
-static inline bool match_strict(float64x2_t a, float64x2_t b) {
+static inline bool match_strict(float64x2 a, float64x2 b) {
   return bit_eq(a, b);
 }
 
-static inline double rel_err_dd(float64x2_t a, float64x2_t b) {
-  q_t qa = (q_t)a.hi + (q_t)a.lo;
-  q_t qb = (q_t)b.hi + (q_t)b.lo;
+static inline double rel_err_dd(float64x2 a, float64x2 b) {
+  q_t qa = (q_t)a.limbs[0] + (q_t)a.limbs[1];
+  q_t qb = (q_t)b.limbs[0] + (q_t)b.limbs[1];
   bool a_nan = q_isnan(qa);
   bool b_nan = q_isnan(qb);
   if (a_nan && b_nan) return 0.0;                        // both NaN ≡ agree
@@ -159,8 +161,8 @@ static inline double rel_err_dd(float64x2_t a, float64x2_t b) {
   return (double)(diff / mag);
 }
 
-static inline float64x2_t to_c(mf::float64x2 const &x) {
-  return static_cast<float64x2_t>(x);
+static inline float64x2 to_c(mf::float64x2 const &x) {
+  return static_cast<float64x2>(x);
 }
 
 // -----------------------------------------------------------------------------
@@ -244,17 +246,17 @@ struct Stat {
   long edge_fail = 0;
   double max_rel_normal = 0.0; // worst rel_err in the normal-scale bucket
   double max_rel_edge = 0.0;   // worst rel_err in the edge bucket
-  float64x2_t first_a{}, first_b{};
-  float64x2_t first_cpp{}, first_f{};
+  float64x2 first_a{}, first_b{};
+  float64x2 first_cpp{}, first_f{};
   bool is_unary = false;
   // Integer-return ops stash the raw integer pair in first_cpp/first_f via
-  // the `.hi` double slot so the reporter can still print a repro without
+  // the `.limbs[0]` double slot so the reporter can still print a repro without
   // a second code path.
   bool is_int_return = false;
 };
 
-static void record_fail(Stat &s, float64x2_t a, float64x2_t b,
-                        float64x2_t cpp, float64x2_t f) {
+static void record_fail(Stat &s, float64x2 a, float64x2 b,
+                        float64x2 cpp, float64x2 f) {
   if (s.fail == 0) {
     s.first_a = a;
     s.first_b = b;
@@ -280,11 +282,11 @@ static void print_stats(Stat const *stats, int n) {
     Stat const &s = stats[i];
     if (s.fail == 0) continue;
     std::printf("First normal-scale mismatch on %s:\n", s.name);
-    std::printf("  a   = {%a, %a}\n", s.first_a.hi, s.first_a.lo);
+    std::printf("  a   = {%a, %a}\n", s.first_a.limbs[0], s.first_a.limbs[1]);
     if (!s.is_unary)
-      std::printf("  b   = {%a, %a}\n", s.first_b.hi, s.first_b.lo);
-    std::printf("  cpp = {%a, %a}\n", s.first_cpp.hi, s.first_cpp.lo);
-    std::printf("  f   = {%a, %a}\n", s.first_f.hi, s.first_f.lo);
+      std::printf("  b   = {%a, %a}\n", s.first_b.limbs[0], s.first_b.limbs[1]);
+    std::printf("  cpp = {%a, %a}\n", s.first_cpp.limbs[0], s.first_cpp.limbs[1]);
+    std::printf("  f   = {%a, %a}\n", s.first_f.limbs[0], s.first_f.limbs[1]);
   }
 }
 
@@ -345,8 +347,8 @@ int main(int argc, char **argv) {
     rng.generate_pair(q1, q2);
     mf::float64x2 f1 = from_q(q1);
     mf::float64x2 f2 = from_q(q2);
-    float64x2_t c1 = to_c(f1);
-    float64x2_t c2 = to_c(f2);
+    float64x2 c1 = to_c(f1);
+    float64x2 c2 = to_c(f2);
 
     // IEEE-edge regime where DD precision degrades (see
     // kEdgeLoAbs / kEdgeHiAbs). Tallied separately so a signal in the
@@ -355,14 +357,14 @@ int main(int argc, char **argv) {
       double a = std::fabs(h);
       return a < kEdgeLoAbs || a > kEdgeHiAbs;
     };
-    bool edge_in = in_edge(c1.hi) || in_edge(c2.hi);
+    bool edge_in = in_edge(c1.limbs[0]) || in_edge(c2.limbs[0]);
 
-    auto check_strict = [&](int idx, float64x2_t cpp_r, float64x2_t f_r,
+    auto check_strict = [&](int idx, float64x2 cpp_r, float64x2 f_r,
                              bool binary) {
       if (match_strict(cpp_r, f_r)) ++stats[idx].ok;
-      else record_fail(stats[idx], c1, binary ? c2 : float64x2_t{0,0}, cpp_r, f_r);
+      else record_fail(stats[idx], c1, binary ? c2 : float64x2{0,0}, cpp_r, f_r);
     };
-    auto check_tolerant = [&](int idx, float64x2_t cpp_r, float64x2_t f_r,
+    auto check_tolerant = [&](int idx, float64x2 cpp_r, float64x2 f_r,
                               double normal_tol) {
       double rel = rel_err_dd(cpp_r, f_r);
       Stat &s = stats[idx];
@@ -380,21 +382,21 @@ int main(int argc, char **argv) {
       int cb = cpp_b ? 1 : 0;
       if (cb == f_b) ++stats[idx].ok;
       else {
-        float64x2_t cpp_mark = {(double)cb, 0.0};
-        float64x2_t f_mark   = {(double)f_b, 0.0};
+        float64x2 cpp_mark = {(double)cb, 0.0};
+        float64x2 f_mark   = {(double)f_b, 0.0};
         record_fail(stats[idx], c1, c2, cpp_mark, f_mark);
       }
     };
     // Integer-return unary: compare raw integers (after both sides
     // independently round/truncate). Repro on failure is stashed in the
-    // .hi slot of the float64x2_t pair so print_stats's %a format still
+    // .limbs[0] slot of the float64x2 pair so print_stats's %a format still
     // reads something sensible.
     auto check_int1 = [&](int idx, long cpp_i, long f_i) {
       if (cpp_i == f_i) ++stats[idx].ok;
       else {
-        float64x2_t cpp_mark = {(double)cpp_i, 0.0};
-        float64x2_t f_mark   = {(double)f_i,   0.0};
-        record_fail(stats[idx], c1, float64x2_t{0,0}, cpp_mark, f_mark);
+        float64x2 cpp_mark = {(double)cpp_i, 0.0};
+        float64x2 f_mark   = {(double)f_i,   0.0};
+        record_fail(stats[idx], c1, float64x2{0,0}, cpp_mark, f_mark);
       }
     };
 
@@ -417,18 +419,18 @@ int main(int argc, char **argv) {
     // applies.
     //
     // C++ analogues, each using PRODUCTION multifloats.h ops:
-    //   Fortran floor(DD)   ≡  (long) mf::floor(DD).hi      (lo fully
+    //   Fortran floor(DD)   ≡  (long) mf::floor(DD).limbs[0]      (lo fully
     //                            absorbed by the DD-floor renormalization
     //                            so the hi limb IS the integer floor)
-    //   Fortran ceiling(DD) ≡  (long) mf::ceil(DD).hi
+    //   Fortran ceiling(DD) ≡  (long) mf::ceil(DD).limbs[0]
     //   Fortran nint(DD)    ≡  mf::lround(DD)               (both
     //                            round-half-away-from-zero)
     //   Fortran exponent(DD)≡  mf::ilogb(DD) + 1            (Fortran
     //                            normalizes to [0.5, 1) rather than C's
     //                            [1, 2), so the bias differs by one)
     if (q_isfinite(q1) && (q1 < 0 ? -q1 : q1) < (q_t)2.0e9q) {
-      check_int1(I_FLOOR,   (long)mf::floor(f1)._limbs[0], fnat_floor(c1));
-      check_int1(I_CEILING, (long)mf::ceil(f1)._limbs[0],  fnat_ceiling(c1));
+      check_int1(I_FLOOR,   (long)mf::floor(f1).limbs[0], fnat_floor(c1));
+      check_int1(I_CEILING, (long)mf::ceil(f1).limbs[0],  fnat_ceiling(c1));
       check_int1(I_NINT,    mf::lround(f1),                 fnat_nint(c1));
     }
     if (q_isfinite(q1) && q1 != (q_t)0) {
@@ -464,22 +466,22 @@ int main(int argc, char **argv) {
   // could live undetected. Inline the check since the scalar `check_int1`
   // lambda captures the main loop's c1 and isn't reachable here.
   {
-    auto probe_int = [&stats](int idx, float64x2_t c_in, long cpp_i, long f_i) {
+    auto probe_int = [&stats](int idx, float64x2 c_in, long cpp_i, long f_i) {
       if (cpp_i == f_i) { ++stats[idx].ok; }
       else {
-        float64x2_t cpp_mark = {(double)cpp_i, 0.0};
-        float64x2_t f_mark   = {(double)f_i,   0.0};
-        record_fail(stats[idx], c_in, float64x2_t{0,0}, cpp_mark, f_mark);
+        float64x2 cpp_mark = {(double)cpp_i, 0.0};
+        float64x2 f_mark   = {(double)f_i,   0.0};
+        record_fail(stats[idx], c_in, float64x2{0,0}, cpp_mark, f_mark);
       }
     };
     double halves[] = {2.5, 3.5, 100.5, -2.5, -100.5};
     double los[]    = {-0.01, +0.01};
     for (double hi_v : halves) {
       for (double lo_v : los) {
-        mf::float64x2 f; f._limbs[0] = hi_v; f._limbs[1] = lo_v;
-        float64x2_t c = to_c(f);
-        probe_int(I_FLOOR,   c, (long)mf::floor(f)._limbs[0], fnat_floor(c));
-        probe_int(I_CEILING, c, (long)mf::ceil(f)._limbs[0],  fnat_ceiling(c));
+        mf::float64x2 f; f.limbs[0] = hi_v; f.limbs[1] = lo_v;
+        float64x2 c = to_c(f);
+        probe_int(I_FLOOR,   c, (long)mf::floor(f).limbs[0], fnat_floor(c));
+        probe_int(I_CEILING, c, (long)mf::ceil(f).limbs[0],  fnat_ceiling(c));
         probe_int(I_NINT,    c, mf::lround(f),                fnat_nint(c));
       }
     }

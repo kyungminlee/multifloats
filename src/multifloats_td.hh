@@ -17,9 +17,9 @@ namespace multifloats {
 namespace detail {
 
 struct float64x3 {
-  double _limbs[3] = {0.0, 0.0, 0.0};
+  double limbs[3] = {0.0, 0.0, 0.0};
   constexpr float64x3() = default;
-  constexpr float64x3(double h, double m, double l) : _limbs{h, m, l} {}
+  constexpr float64x3(double h, double m, double l) : limbs{h, m, l} {}
 };
 
 // a + b + c = s + t + u, exact. Two_sum variant; input ordering is not

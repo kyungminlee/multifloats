@@ -79,8 +79,8 @@ static void bessel_pq1(double xinv_d, float64x2 const &z, float64x2 &p, float64x
 
 float64x2 j0(float64x2 const &x) {
   float64x2 ax = x;
-  if (ax._limbs[0] < 0.0) { ax._limbs[0] = -ax._limbs[0]; ax._limbs[1] = -ax._limbs[1]; }
-  double xx = ax._limbs[0];
+  if (ax.limbs[0] < 0.0) { ax.limbs[0] = -ax.limbs[0]; ax.limbs[1] = -ax.limbs[1]; }
+  double xx = ax.limbs[0];
   if (xx == 0.0) return float64x2(1.0);
   if (!std::isfinite(xx)) return float64x2(0.0);
 
@@ -111,9 +111,9 @@ float64x2 j0(float64x2 const &x) {
 float64x2 j1(float64x2 const &x) {
   // j1 is odd, so (+0, -eps) must be detected as negative — checking
   // only the hi limb would miss that case.
-  bool neg = x._limbs[0] < 0.0 || (x._limbs[0] == 0.0 && x._limbs[1] < 0.0);
+  bool neg = x.limbs[0] < 0.0 || (x.limbs[0] == 0.0 && x.limbs[1] < 0.0);
   float64x2 ax = neg ? -x : x;
-  double xx = ax._limbs[0];
+  double xx = ax.limbs[0];
   if (xx == 0.0) return float64x2(0.0);
   if (!std::isfinite(xx)) return float64x2(0.0);
 
@@ -138,17 +138,17 @@ float64x2 j1(float64x2 const &x) {
     float64x2 tpi = float64x2(two_over_pi_hi, two_over_pi_lo);
     res = multifloats::sqrt(tpi / ax) * (p * c - q * s);
   }
-  if (neg) { res._limbs[0] = -res._limbs[0]; res._limbs[1] = -res._limbs[1]; }
+  if (neg) { res.limbs[0] = -res.limbs[0]; res.limbs[1] = -res.limbs[1]; }
   return res;
 }
 
 float64x2 y0(float64x2 const &x) {
-  double xx = x._limbs[0];
+  double xx = x.limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
     float64x2 r;
-    r._limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
+    r.limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
                                : std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
+    r.limbs[1] = 0.0;
     return r;
   }
 
@@ -179,12 +179,12 @@ float64x2 y0(float64x2 const &x) {
 }
 
 float64x2 y1(float64x2 const &x) {
-  double xx = x._limbs[0];
+  double xx = x.limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
     float64x2 r;
-    r._limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
+    r.limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
                                : std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
+    r.limbs[1] = 0.0;
     return r;
   }
 
@@ -237,9 +237,9 @@ float64x2 jn(int n, float64x2 const &x_in) {
     float64x2 r = j1(x);
     return parity ? -r : r;
   }
-  if (x._limbs[0] < 0.0) { x = -x; parity ^= (n & 1); }
+  if (x.limbs[0] < 0.0) { x = -x; parity ^= (n & 1); }
 
-  double xx = x._limbs[0];
+  double xx = x.limbs[0];
   if (xx == 0.0 || !std::isfinite(xx)) return float64x2(0.0);
 
   float64x2 result;
@@ -265,7 +265,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
     float64x2 z = w + h;
     float64x2 q1 = w * z - float64x2(1.0);
     int k = 1;
-    while (q1._limbs[0] < 1e32 && k < 1000) {
+    while (q1.limbs[0] < 1e32 && k < 1000) {
       ++k;
       z = z + h;
       float64x2 tmp = z * q1 - q0;
@@ -283,12 +283,12 @@ float64x2 jn(int n, float64x2 const &x_in) {
     float64x2 v = float64x2(2.0 / xx);
     float64x2 log_arg = float64x2(static_cast<double>(n)) *
                    log(multifloats::abs(v * float64x2(static_cast<double>(n))));
-    bool rescale = log_arg._limbs[0] >= 1.1356e4;
+    bool rescale = log_arg.limbs[0] >= 1.1356e4;
     for (int i = n - 1; i >= 1; --i) {
       float64x2 temp = b;
       b = float64x2(static_cast<double>(2 * i)) * b / x - a;
       a = temp;
-      if (rescale && b._limbs[0] > 1e100) {
+      if (rescale && b.limbs[0] > 1e100) {
         a = a / b;
         t = t / b;
         b = float64x2(1.0);
@@ -296,7 +296,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
     }
     float64x2 z0 = j0(x);
     float64x2 z1 = j1(x);
-    if (std::abs(z0._limbs[0]) >= std::abs(z1._limbs[0])) {
+    if (std::abs(z0.limbs[0]) >= std::abs(z1.limbs[0])) {
       result = t * z0 / b;
     } else {
       result = t * z1 / a;
@@ -309,12 +309,12 @@ float64x2 yn(int n, float64x2 const &x) {
   // Y_{-n}(x) = (-1)^n Y_n(x). No x-sign identity — Y is undefined on x < 0.
   int parity = 0;
   if (n < 0) { n = -n; parity ^= (n & 1); }
-  double xx = x._limbs[0];
+  double xx = x.limbs[0];
   if (xx <= 0.0) {
     float64x2 r;
-    r._limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
+    r.limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
                               :  std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
+    r.limbs[1] = 0.0;
     return r;
   }
   if (n == 0) {
@@ -332,7 +332,7 @@ float64x2 yn(int n, float64x2 const &x) {
     float64x2 temp = b;
     b = float64x2(static_cast<double>(2 * i)) / x * b - a;
     a = temp;
-    if (!std::isfinite(b._limbs[0])) break;
+    if (!std::isfinite(b.limbs[0])) break;
   }
   return parity ? -b : b;
 }
@@ -363,7 +363,7 @@ void yn(int n1, int n2, float64x2 const &x, float64x2 *out) {
     b = float64x2(static_cast<double>(2 * (n - 1))) / x * b - a;
     a = temp;
     if (n >= n1) out[n - n1] = b;
-    if (!std::isfinite(b._limbs[0])) {
+    if (!std::isfinite(b.limbs[0])) {
       for (int j = std::max(n - n1 + 1, 0); j < size; ++j) out[j] = b;
       return;
     }

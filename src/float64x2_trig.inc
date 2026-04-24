@@ -25,8 +25,8 @@ constexpr double kPiTrigArgumentCap = 0x1p52;
 inline bool pi_trig_arg_too_large(double a) { return !(a < kPiTrigArgumentCap); }
 inline float64x2 pi_trig_nan() {
   float64x2 r;
-  r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-  r._limbs[1] = 0.0;
+  r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
+  r.limbs[1] = 0.0;
   return r;
 }
 // sin/cos/tan argument cap: through |x| ≤ 2^54, reduce_pi_half stays
@@ -44,11 +44,11 @@ inline bool trig_arg_too_large(double a) {
 }
 
 float64x2 sinpi(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
-  bool sign = x._limbs[0] < 0.0;
+  if (!std::isfinite(x.limbs[0])) return pi_trig_nan();
+  bool sign = x.limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
-  if (pi_trig_arg_too_large(ax._limbs[0])) return pi_trig_nan();
-  double n_float = std::nearbyint(2.0 * ax._limbs[0]);
+  if (pi_trig_arg_too_large(ax.limbs[0])) return pi_trig_nan();
+  double n_float = std::nearbyint(2.0 * ax.limbs[0]);
   float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
   float64x2 pr = pi_dd * rx;
@@ -65,10 +65,10 @@ float64x2 sinpi(float64x2 const &x) {
 
 // cospi is even; no sign flip on the result.
 float64x2 cospi(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
-  float64x2 ax = (x._limbs[0] < 0.0) ? -x : x;
-  if (pi_trig_arg_too_large(ax._limbs[0])) return pi_trig_nan();
-  double n_float = std::nearbyint(2.0 * ax._limbs[0]);
+  if (!std::isfinite(x.limbs[0])) return pi_trig_nan();
+  float64x2 ax = (x.limbs[0] < 0.0) ? -x : x;
+  if (pi_trig_arg_too_large(ax.limbs[0])) return pi_trig_nan();
+  double n_float = std::nearbyint(2.0 * ax.limbs[0]);
   float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
   float64x2 pr = pi_dd * rx;
@@ -84,11 +84,11 @@ float64x2 cospi(float64x2 const &x) {
 // tanpi: fuses sin/cos eval so both come from one Taylor pair. Poles at
 // half-integers fall out naturally (sin(0)=+0 ⇒ ±c/0 = ±inf).
 float64x2 tanpi(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) return pi_trig_nan();
-  bool sign = x._limbs[0] < 0.0;
+  if (!std::isfinite(x.limbs[0])) return pi_trig_nan();
+  bool sign = x.limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
-  if (pi_trig_arg_too_large(ax._limbs[0])) return pi_trig_nan();
-  double n_float = std::nearbyint(2.0 * ax._limbs[0]);
+  if (pi_trig_arg_too_large(ax.limbs[0])) return pi_trig_nan();
+  double n_float = std::nearbyint(2.0 * ax.limbs[0]);
   float64x2 rx = ax + float64x2(-0.5 * n_float, 0.0);
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
   float64x2 pr = pi_dd * rx;
@@ -117,9 +117,9 @@ namespace detail {
 void reduce_pi_half(float64x2 const &x, float64x2 &r, int &n_mod4) {
   using multifloats::detail::two_sum;
   using multifloats::detail::fast_two_sum;
-  double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);
-  double rh = x._limbs[0];
-  double rl = x._limbs[1];
+  double n_float = std::nearbyint(x.limbs[0] * 0.6366197723675814);
+  double rh = x.limbs[0];
+  double rl = x.limbs[1];
   double ph, pl;
   double sh, sl, tl, tll;
   // One IEEE DD-subtract step: (rh, rl) ← (rh, rl) - (ph, pl).
@@ -142,8 +142,8 @@ void reduce_pi_half(float64x2 const &x, float64x2 &r, int &n_mod4) {
   // Step 3: cw3 small enough that n·cw3 fits one double exactly (pl ≡ 0).
   ph = n_float * pi_half_cw3;
   dd_sub_step(ph, 0.0);
-  r._limbs[0] = rh;
-  r._limbs[1] = rl;
+  r.limbs[0] = rh;
+  r.limbs[1] = rl;
   long long nn = static_cast<long long>(std::fabs(n_float)) & 3LL;
   if (n_float < 0.0) nn = (4 - nn) & 3;
   n_mod4 = static_cast<int>(nn);
@@ -167,10 +167,10 @@ float64x2 cos_kernel(float64x2 const &x) {
 // (x² ≤ 0.154 vs 0.616) so the 13-term Taylor hits full DD at the boundary.
 float64x2 sin_eval(float64x2 const &r) {
   constexpr double pi8 = 0.392699081698724;
-  if (std::fabs(r._limbs[0]) <= pi8) return sin_kernel(r);
+  if (std::fabs(r.limbs[0]) <= pi8) return sin_kernel(r);
   float64x2 pi4_dd = float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 inv_sqrt2 = float64x2(inv_sqrt2_hi, inv_sqrt2_lo);
-  bool pos = r._limbs[0] > 0.0;
+  bool pos = r.limbs[0] > 0.0;
   float64x2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
   float64x2 sk = sin_kernel(rp);
   float64x2 ck = cos_kernel(rp);
@@ -179,10 +179,10 @@ float64x2 sin_eval(float64x2 const &r) {
 
 float64x2 cos_eval(float64x2 const &r) {
   constexpr double pi8 = 0.392699081698724;
-  if (std::fabs(r._limbs[0]) <= pi8) return cos_kernel(r);
+  if (std::fabs(r.limbs[0]) <= pi8) return cos_kernel(r);
   float64x2 pi4_dd = float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 inv_sqrt2 = float64x2(inv_sqrt2_hi, inv_sqrt2_lo);
-  bool pos = r._limbs[0] > 0.0;
+  bool pos = r.limbs[0] > 0.0;
   float64x2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
   float64x2 sk = sin_kernel(rp);
   float64x2 ck = cos_kernel(rp);
@@ -194,14 +194,14 @@ float64x2 cos_eval(float64x2 const &r) {
 // and c=cos(r) save one 13-term Horner (~40% of the eval cost).
 void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c) {
   constexpr double pi8 = 0.392699081698724;
-  if (std::fabs(r._limbs[0]) <= pi8) {
+  if (std::fabs(r.limbs[0]) <= pi8) {
     s = sin_kernel(r);
     c = cos_kernel(r);
     return;
   }
   float64x2 pi4_dd = float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 inv_sqrt2 = float64x2(inv_sqrt2_hi, inv_sqrt2_lo);
-  bool pos = r._limbs[0] > 0.0;
+  bool pos = r.limbs[0] > 0.0;
   float64x2 rp = pos ? (r - pi4_dd) : (r + pi4_dd);
   float64x2 sk = sin_kernel(rp);
   float64x2 ck = cos_kernel(rp);
@@ -218,10 +218,10 @@ void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c) {
 // Fused sin/cos of the full-range argument — one call to reduce_pi_half
 // plus one sincos_eval, with the per-quadrant sign/swap applied last.
 void sincos(float64x2 const &x, float64x2 &s, float64x2 &c) {
-  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) {
     float64x2 nan;
-    nan._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    nan._limbs[1] = 0.0;
+    nan.limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    nan.limbs[1] = 0.0;
     s = nan;
     c = nan;
     return;
@@ -240,7 +240,7 @@ void sincos(float64x2 const &x, float64x2 &s, float64x2 &c) {
 }
 
 float64x2 sin(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
+  if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
@@ -253,7 +253,7 @@ float64x2 sin(float64x2 const &x) {
 }
 
 float64x2 cos(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
+  if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
@@ -266,7 +266,7 @@ float64x2 cos(float64x2 const &x) {
 }
 
 float64x2 tan(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) return pi_trig_nan();
+  if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);
@@ -289,7 +289,7 @@ float64x2 tan(float64x2 const &x) {
 namespace detail {
 
 void reduce_pi_half_td(float64x2 const &x, float64x3 &r, int &n_mod4) {
-  double n_float = std::nearbyint(x._limbs[0] * 0.6366197723675814);
+  double n_float = std::nearbyint(x.limbs[0] * 0.6366197723675814);
   // TSUM accumulator: start from x (DD) and subtract n·π/2 in four
   // Cody-Waite stages. Every n·cwk is captured as an exact FMA pair so
   // |n| can grow up to kTrigArgumentCap (2^55) without losing the
@@ -298,8 +298,8 @@ void reduce_pi_half_td(float64x2 const &x, float64x3 &r, int &n_mod4) {
   // |n| > 2^20; the DD path hides this via dd_sub_step's FMA, but the
   // single-limb `-(n_float*cw1)` shortcut here does not.
   double T0 = 0.0, T1 = 0.0, T2 = 0.0;
-  tsum3(T0, T1, T2, x._limbs[0]);
-  tsum3(T0, T1, T2, x._limbs[1]);
+  tsum3(T0, T1, T2, x.limbs[0]);
+  tsum3(T0, T1, T2, x.limbs[1]);
   auto sub_fma_pair = [&](double cw) {
     double ph = n_float * cw;
     double pl = std::fma(n_float, cw, -ph);
@@ -345,14 +345,14 @@ float64x3 cos_kernel_td(float64x3 const &x) {
 // [-π/8, π/8] and the 13-term polynomial hits full TD at the edge.
 void sincos_eval_td(float64x3 const &r, float64x3 &s, float64x3 &c) {
   constexpr double pi8 = 0.392699081698724;
-  if (std::fabs(r._limbs[0]) <= pi8) {
+  if (std::fabs(r.limbs[0]) <= pi8) {
     s = sin_kernel_td(r);
     c = cos_kernel_td(r);
     return;
   }
   float64x3 pi4_td = {pi_quarter_hi, pi_quarter_lo, pi_quarter_lo2};
   float64x3 inv_sqrt2_td = {inv_sqrt2_hi, inv_sqrt2_lo, inv_sqrt2_lo2};
-  bool pos = r._limbs[0] > 0.0;
+  bool pos = r.limbs[0] > 0.0;
   float64x3 rp = pos ? td_add_td(r, td_negate(pi4_td))
                      : td_add_td(r, pi4_td);
   float64x3 sk = sin_kernel_td(rp);
@@ -367,7 +367,7 @@ void sincos_eval_td(float64x3 const &r, float64x3 &s, float64x3 &c) {
 }
 
 void sincos_td(float64x2 const &x, float64x3 &s, float64x3 &c) {
-  if (!std::isfinite(x._limbs[0]) || trig_arg_too_large(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) {
     double nan = std::numeric_limits<double>::quiet_NaN();
     s = {nan, 0.0, 0.0};
     c = {nan, 0.0, 0.0};

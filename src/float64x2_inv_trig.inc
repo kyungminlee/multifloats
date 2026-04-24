@@ -5,8 +5,8 @@ namespace {
 template <typename ScalarFn>
 inline float64x2 _nonfinite_scalar_fallback(float64x2 const &x, ScalarFn fn) {
   float64x2 r;
-  r._limbs[0] = fn(x._limbs[0]);
-  r._limbs[1] = 0.0;
+  r.limbs[0] = fn(x.limbs[0]);
+  r.limbs[1] = 0.0;
   return r;
 }
 } // namespace
@@ -19,15 +19,15 @@ inline float64x2 _nonfinite_scalar_fallback(float64x2 const &x, ScalarFn fn) {
 // Large branch (|x| >= 32/3): k = 86 (pi/2), t = -1/|x|; cutover placed at
 //   32/3 so worst-case |t| = 3/32 = 0.09375 hits the fitted edge exactly.
 float64x2 atan(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::atan(d); });
   }
-  double ax_d = std::abs(x._limbs[0]);
+  double ax_d = std::abs(x.limbs[0]);
   // atan(x) = x - x³/3 + …; for |x| < sqrt(3)·2⁻⁵³ ≈ 1.85e-16 the
   // cubic term is below 0.5 DD ulp, so identity is correct to DD.
   if (ax_d < 1.85e-16) return x;
 
-  bool neg = x._limbs[0] < 0.0;
+  bool neg = x.limbs[0] < 0.0;
   float64x2 ax = neg ? -x : x;
 
   int k;
@@ -57,21 +57,21 @@ float64x2 atan(float64x2 const &x) {
 // Region 2: 0.5 <= |x| < 0.625 — centered at 0.5625
 // Region 3: 0.625 <= |x| < 1   — half-angle: asin(x) = pi/2 - 2*asin(sqrt((1-x)/2))
 float64x2 asin(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::asin(d); });
   }
-  double ax_d = std::abs(x._limbs[0]);
+  double ax_d = std::abs(x.limbs[0]);
   if (ax_d > 1.0) {
     float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
+    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    r.limbs[1] = 0.0;
     return r;
   }
   // asin(x) = x + x³/6 + …; for |x| < sqrt(3)·2⁻⁵³ ≈ 1.85e-16 the
   // cubic term is below 0.5 DD ulp, so identity is correct to DD.
   if (ax_d < 1.85e-16) return x;
 
-  bool neg = x._limbs[0] < 0.0;
+  bool neg = x.limbs[0] < 0.0;
   float64x2 ax = neg ? -x : x;
   float64x2 res;
 
@@ -103,14 +103,14 @@ float64x2 asin(float64x2 const &x) {
 
 // ---- acos (derived from asin polynomial) ------------------------------------
 float64x2 acos(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::acos(d); });
   }
-  double ax_d = std::abs(x._limbs[0]);
+  double ax_d = std::abs(x.limbs[0]);
   if (ax_d > 1.0) {
     float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
+    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    r.limbs[1] = 0.0;
     return r;
   }
 
@@ -119,7 +119,7 @@ float64x2 acos(float64x2 const &x) {
   if (ax_d <= 0.5) {
     // acos(x) = pi/2 - asin(x) — no cancellation since result ∈ [π/3, 2π/3]
     return pi_half - asin(x);
-  } else if (x._limbs[0] > 0.0) {
+  } else if (x.limbs[0] > 0.0) {
     // x > 0.5: acos(x) = 2*asin(sqrt((1-x)/2))
     float64x2 t = (float64x2(1.0) - x) * float64x2(0.5);
     float64x2 s = sqrt(t);
@@ -138,13 +138,13 @@ float64x2 acos(float64x2 const &x) {
 
 // ---- atan2 ------------------------------------------------------------------
 float64x2 atan2(float64x2 const &y, float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0]) || !std::isfinite(y._limbs[0])) {
+  if (!std::isfinite(x.limbs[0]) || !std::isfinite(y.limbs[0])) {
     float64x2 r;
-    r._limbs[0] = std::atan2(y._limbs[0], x._limbs[0]);
-    r._limbs[1] = 0.0;
+    r.limbs[0] = std::atan2(y.limbs[0], x.limbs[0]);
+    r.limbs[1] = 0.0;
     return r;
   }
-  if (x._limbs[0] == 0.0 && y._limbs[0] == 0.0) {
+  if (x.limbs[0] == 0.0 && y.limbs[0] == 0.0) {
     // Both hi limbs are zero. Two sub-cases:
     //   * DD-subnormal (sign lives in lo, e.g. (+0, 1e-320)) — defer to
     //     libm's atan2 on the lo limbs. The answer's magnitude is at dp
@@ -154,24 +154,24 @@ float64x2 atan2(float64x2 const &y, float64x2 const &x) {
     //     is one of {±0, ±π/2, ±π}, which are DD constants we have full
     //     106-bit precision for — return them directly instead of going
     //     through libm's dp atan2.
-    if (y._limbs[1] != 0.0 || x._limbs[1] != 0.0) {
-      double ylo = (y._limbs[1] != 0.0) ? y._limbs[1]
-                                        : std::copysign(0.0, y._limbs[0]);
-      double xlo = (x._limbs[1] != 0.0) ? x._limbs[1]
-                                        : std::copysign(0.0, x._limbs[0]);
+    if (y.limbs[1] != 0.0 || x.limbs[1] != 0.0) {
+      double ylo = (y.limbs[1] != 0.0) ? y.limbs[1]
+                                        : std::copysign(0.0, y.limbs[0]);
+      double xlo = (x.limbs[1] != 0.0) ? x.limbs[1]
+                                        : std::copysign(0.0, x.limbs[0]);
       float64x2 r;
-      r._limbs[0] = std::atan2(ylo, xlo);
-      r._limbs[1] = 0.0;
+      r.limbs[0] = std::atan2(ylo, xlo);
+      r.limbs[1] = 0.0;
       return r;
     }
     // Pure signed-zero quadrant: IEEE atan2(±0, ±0) table.
-    bool ys = std::signbit(y._limbs[0]);
-    bool xs = std::signbit(x._limbs[0]);
+    bool ys = std::signbit(y.limbs[0]);
+    bool xs = std::signbit(x.limbs[0]);
     if (!xs) {
       // x = +0: result is ±0 with sign of y.
       float64x2 r;
-      r._limbs[0] = std::copysign(0.0, y._limbs[0]);
-      r._limbs[1] = 0.0;
+      r.limbs[0] = std::copysign(0.0, y.limbs[0]);
+      r.limbs[1] = 0.0;
       return r;
     }
     // x = -0: result is ±π with sign of y.
@@ -181,17 +181,17 @@ float64x2 atan2(float64x2 const &y, float64x2 const &x) {
   float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
   float64x2 pi_half_dd = float64x2(pi_half_cw1, pi_half_cw2);
   float64x2 res;
-  if (std::abs(x._limbs[0]) >= std::abs(y._limbs[0])) {
+  if (std::abs(x.limbs[0]) >= std::abs(y.limbs[0])) {
     res = atan(y / x);
-    if (x._limbs[0] < 0.0) {
+    if (x.limbs[0] < 0.0) {
       // Use signbit so y = -0 picks the −π branch (IEEE: -0 >= 0 is true,
       // so `>= 0.0` mishandles the negative-real-axis branch cut).
-      if (!std::signbit(y._limbs[0])) res = res + pi_dd;
+      if (!std::signbit(y.limbs[0])) res = res + pi_dd;
       else res = res - pi_dd;
     }
   } else {
     res = atan(x / y);
-    if (y._limbs[0] > 0.0) res = pi_half_dd - res;
+    if (y.limbs[0] > 0.0) res = pi_half_dd - res;
     else res = -pi_half_dd - res;
   }
   return res;
@@ -210,14 +210,14 @@ float64x2 acospi(float64x2 const &x) {
 // only dp precision — then inv_pi multiplication can't recover the missing
 // low limb. Short-circuit so atanpi(±inf) = ±0.5 exactly.
 float64x2 atanpi(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0])) {
     float64x2 r;
-    if (std::isnan(x._limbs[0])) {
-      r._limbs[0] = x._limbs[0];
+    if (std::isnan(x.limbs[0])) {
+      r.limbs[0] = x.limbs[0];
     } else {
-      r._limbs[0] = std::signbit(x._limbs[0]) ? -0.5 : 0.5;
+      r.limbs[0] = std::signbit(x.limbs[0]) ? -0.5 : 0.5;
     }
-    r._limbs[1] = 0.0;
+    r.limbs[1] = 0.0;
     return r;
   }
   return atan(x) * float64x2(inv_pi_hi, inv_pi_lo);
@@ -228,16 +228,16 @@ float64x2 atan2pi(float64x2 const &y, float64x2 const &x) {
 
 // ---- asinh / acosh / atanh -------------------------------------------------
 float64x2 asinh(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::asinh(d); });
   }
-  if (std::abs(x._limbs[0]) < 0.01) {
+  if (std::abs(x.limbs[0]) < 0.01) {
     // 15 coefs → degree 14 → Estrin case in neval.
     return x * neval(x * x, asinh_taylor_hi, asinh_taylor_lo, 14);
   }
-  bool sign = x._limbs[0] < 0.0;
+  bool sign = x.limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
-  if (ax._limbs[0] > 1e150) {
+  if (ax.limbs[0] > 1e150) {
     // log(2|x|) asymptotic to avoid x² overflow
     float64x2 r = log(ax) + float64x2(ln_2_hi, ln_2_lo);
     return sign ? -r : r;
@@ -247,7 +247,7 @@ float64x2 asinh(float64x2 const &x) {
   // For ax < 1, ax + root ≈ 1 → log cancels; route via log1p using
   // (root - 1) = ax² / (root + 1). For ax ≥ 1, plain log is accurate.
   float64x2 res;
-  if (ax._limbs[0] < 1.0) {
+  if (ax.limbs[0] < 1.0) {
     float64x2 rm1 = axsq / (root + float64x2(1.0));
     res = log1p(ax + rm1);
   } else {
@@ -257,16 +257,16 @@ float64x2 asinh(float64x2 const &x) {
 }
 
 float64x2 acosh(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::acosh(d); });
   }
-  if (x._limbs[0] < 1.0) {
+  if (x.limbs[0] < 1.0) {
     float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
+    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    r.limbs[1] = 0.0;
     return r;
   }
-  if (x._limbs[0] > 1e150) {
+  if (x.limbs[0] > 1e150) {
     return log(x) + float64x2(ln_2_hi, ln_2_lo);
   }
   float64x2 root = sqrt(x * x - float64x2(1.0));
@@ -274,16 +274,16 @@ float64x2 acosh(float64x2 const &x) {
 }
 
 float64x2 atanh(float64x2 const &x) {
-  if (!std::isfinite(x._limbs[0])) {
+  if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::atanh(d); });
   }
-  if (std::abs(x._limbs[0]) > 1.0) {
+  if (std::abs(x.limbs[0]) > 1.0) {
     float64x2 r;
-    r._limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r._limbs[1] = 0.0;
+    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    r.limbs[1] = 0.0;
     return r;
   }
-  if (std::abs(x._limbs[0]) < 0.01) {
+  if (std::abs(x.limbs[0]) < 0.01) {
     // 15 coefs → degree 14 → Estrin case in neval.
     return x * neval(x * x, atanh_taylor_hi, atanh_taylor_lo, 14);
   }

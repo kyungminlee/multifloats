@@ -33,7 +33,7 @@ static inline void renorm_inl(double &s_hi, double &s_lo) {
 }
 
 __attribute__((always_inline))
-static inline float64x2_t finalize_inl(double s_hi, double s_lo) {
+static inline float64x2 finalize_inl(double s_hi, double s_lo) {
   renorm_inl(s_hi, s_lo);
   return {s_hi, s_lo};
 }
@@ -45,20 +45,20 @@ static inline float64x2_t finalize_inl(double s_hi, double s_lo) {
 // accumulator pair every `renorm_interval` reductions (keeps s_lo
 // bounded and precision ~DD for large k, matching dot_product).
 template <int MR>
-static inline void gaxpy_mv_panel(const float64x2_t *__restrict__ a,
-                                     const float64x2_t *__restrict__ x,
-                                     float64x2_t *__restrict__ y, int64_t lda,
+static inline void gaxpy_mv_panel(const float64x2 *__restrict__ a,
+                                     const float64x2 *__restrict__ x,
+                                     float64x2 *__restrict__ y, int64_t lda,
                                      int64_t k, int64_t renorm_interval) {
   double s_hi[MR] = {}, s_lo[MR] = {};
   // Fast path: if no intermediate renorm is needed, drop the chunking
   // scaffolding entirely — the p-loop is a single tight sweep.
   if (renorm_interval <= 0 || k <= renorm_interval) {
     for (int64_t p = 0; p < k; ++p) {
-      const double xh = x[p].hi;
-      const double xl = x[p].lo;
-      const float64x2_t *__restrict__ acol = a + p * lda;
+      const double xh = x[p].limbs[0];
+      const double xl = x[p].limbs[1];
+      const float64x2 *__restrict__ acol = a + p * lda;
       for (int i = 0; i < MR; ++i) {
-        mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
+        mac_inl(acol[i].limbs[0], acol[i].limbs[1], xh, xl, s_hi[i], s_lo[i]);
       }
     }
     for (int i = 0; i < MR; ++i) y[i] = finalize_inl(s_hi[i], s_lo[i]);
@@ -72,11 +72,11 @@ static inline void gaxpy_mv_panel(const float64x2_t *__restrict__ a,
     int64_t pend = p0 + chunk;
     if (pend > k) pend = k;
     for (int64_t p = p0; p < pend; ++p) {
-      const double xh = x[p].hi;
-      const double xl = x[p].lo;
-      const float64x2_t *__restrict__ acol = a + p * lda;
+      const double xh = x[p].limbs[0];
+      const double xl = x[p].limbs[1];
+      const float64x2 *__restrict__ acol = a + p * lda;
       for (int i = 0; i < MR; ++i) {
-        mac_inl(acol[i].hi, acol[i].lo, xh, xl, s_hi[i], s_lo[i]);
+        mac_inl(acol[i].limbs[0], acol[i].limbs[1], xh, xl, s_hi[i], s_lo[i]);
       }
     }
     p0 = pend;
@@ -92,9 +92,9 @@ static inline void gaxpy_mv_panel(const float64x2_t *__restrict__ a,
 // into matmuldd_mv — otherwise the 7 extra template instantiations
 // would bloat the caller and push the accumulators out of registers.
 __attribute__((noinline))
-static void gaxpy_mv_tail(const float64x2_t *__restrict__ a,
-                             const float64x2_t *__restrict__ x,
-                             float64x2_t *__restrict__ y, int tail,
+static void gaxpy_mv_tail(const float64x2 *__restrict__ a,
+                             const float64x2 *__restrict__ x,
+                             float64x2 *__restrict__ y, int tail,
                              int64_t lda, int64_t k,
                              int64_t renorm_interval) {
   switch (tail) {
@@ -110,9 +110,9 @@ static void gaxpy_mv_tail(const float64x2_t *__restrict__ a,
 
 // Tile any m into MR=8 row panels plus a 1..7 tail. Keep this small so
 // the hot panel<8> body inlines — accumulators need to stay in registers.
-static inline void gaxpy_mv_dispatch(const float64x2_t *__restrict__ a,
-                                        const float64x2_t *__restrict__ x,
-                                        float64x2_t *__restrict__ y, int64_t m,
+static inline void gaxpy_mv_dispatch(const float64x2 *__restrict__ a,
+                                        const float64x2 *__restrict__ x,
+                                        float64x2 *__restrict__ y, int64_t m,
                                         int64_t k, int64_t lda,
                                         int64_t renorm_interval) {
   constexpr int MR = 8;
@@ -130,20 +130,20 @@ static inline void gaxpy_mv_dispatch(const float64x2_t *__restrict__ a,
 // machines with < 32 FP regs, but the spill cost is paid once per p
 // and dwarfed by the DD-mac FLOPs).
 template <int MR, int NR>
-static inline void gemm_panel(const float64x2_t *__restrict__ a,
-                                 const float64x2_t *__restrict__ b,
-                                 float64x2_t *__restrict__ c,
+static inline void gemm_panel(const float64x2 *__restrict__ a,
+                                 const float64x2 *__restrict__ b,
+                                 float64x2 *__restrict__ c,
                                  int64_t lda, int64_t ldb, int64_t ldc,
                                  int64_t k, int64_t renorm_interval) {
   double s_hi[MR][NR] = {}, s_lo[MR][NR] = {};
   auto kernel_block = [&](int64_t p0, int64_t pend) {
     for (int64_t p = p0; p < pend; ++p) {
-      const float64x2_t *__restrict__ acol = a + p * lda;
+      const float64x2 *__restrict__ acol = a + p * lda;
       double ah[MR], al[MR];
-      for (int i = 0; i < MR; ++i) { ah[i] = acol[i].hi; al[i] = acol[i].lo; }
+      for (int i = 0; i < MR; ++i) { ah[i] = acol[i].limbs[0]; al[i] = acol[i].limbs[1]; }
       for (int jj = 0; jj < NR; ++jj) {
-        const double bh = b[jj * ldb + p].hi;
-        const double bl = b[jj * ldb + p].lo;
+        const double bh = b[jj * ldb + p].limbs[0];
+        const double bl = b[jj * ldb + p].limbs[1];
         for (int i = 0; i < MR; ++i) {
           mac_inl(ah[i], al[i], bh, bl, s_hi[i][jj], s_lo[i][jj]);
         }

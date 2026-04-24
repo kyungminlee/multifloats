@@ -65,9 +65,9 @@ std::complex<float64x2> expm1(std::complex<float64x2> const &z) {
   float64x2 re_dd = term1 + cos_m1;
   float64x2 im = ea * s;
 
-  double abs_re    = std::fabs(re_dd._limbs[0]);
-  double abs_term1 = std::fabs(term1._limbs[0]);
-  double abs_cosm1 = std::fabs(cos_m1._limbs[0]);
+  double abs_re    = std::fabs(re_dd.limbs[0]);
+  double abs_term1 = std::fabs(term1.limbs[0]);
+  double abs_cosm1 = std::fabs(cos_m1.limbs[0]);
   double abs_max   = abs_term1 > abs_cosm1 ? abs_term1 : abs_cosm1;
   constexpr double kCancelThresh = 0x1p-1;
   float64x2 re;
@@ -95,8 +95,8 @@ std::complex<float64x2> expm1(std::complex<float64x2> const &z) {
 inline void pi_times_dd_td(float64x2 const &b, float64x2 &pib_dd, double &pib_lo) {
   float64x3 pi_td{pi_dd_hi, pi_dd_lo, pi_dd_lo2};
   float64x3 t = td_mul_dd(pi_td, b);
-  pib_dd = float64x2(t._limbs[0], t._limbs[1]);
-  pib_lo = t._limbs[2];
+  pib_dd = float64x2(t.limbs[0], t.limbs[1]);
+  pib_lo = t.limbs[2];
 }
 
 // sin(π·z) = sin(π·a) cosh(π·b) + i cos(π·a) sinh(π·b).
@@ -113,7 +113,7 @@ std::complex<float64x2> sinpi(std::complex<float64x2> const &z) {
   // terms are below DD precision. Skip when sh/ch saturate (|π·b| > ~710):
   // inf·finite (still inf) is harmless but inf·0 = NaN poisons the answer.
   float64x2 sh_new = sh, ch_new = ch;
-  if (std::isfinite(ch._limbs[0]) && std::isfinite(sh._limbs[0])) {
+  if (std::isfinite(ch.limbs[0]) && std::isfinite(sh.limbs[0])) {
     sh_new = sh + ch * float64x2(pib_lo);
     ch_new = ch + sh * float64x2(pib_lo);
   }
@@ -130,7 +130,7 @@ std::complex<float64x2> cospi(std::complex<float64x2> const &z) {
   float64x2 sh, ch;
   sinhcosh(pib_dd, sh, ch);
   float64x2 sh_new = sh, ch_new = ch;
-  if (std::isfinite(ch._limbs[0]) && std::isfinite(sh._limbs[0])) {
+  if (std::isfinite(ch.limbs[0]) && std::isfinite(sh.limbs[0])) {
     sh_new = sh + ch * float64x2(pib_lo);
     ch_new = ch + sh * float64x2(pib_lo);
   }

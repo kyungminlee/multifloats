@@ -1,26 +1,22 @@
 
 // Every `NAMEdd` here is a thin marshaling shim around the matching
 // `multifloats::NAME` free function (defined in multifloats_math.cc via
-// the per-topic .inc files). They cross `float64x2_t` ↔ `float64x2` at
-// the boundary using the file-scope `from` / `to` helpers and otherwise
-// don't add behavior. The MF_ABI_* macros collapse the boilerplate;
-// shims that don't fit the pattern (multi-output fused kernels, range
-// sweeps, matmul, integer-first Bessel) stay explicit below.
+// the per-topic .inc files). `float64x2` / `complex64x2` are the unified
+// C/C++ types, so the boundary is a plain call — no conversion needed.
+// The MF_ABI_* macros collapse the boilerplate; shims that don't fit the
+// pattern (multi-output fused kernels, range sweeps, matmul, integer-first
+// Bessel) stay explicit below.
 
 #define MF_ABI_UNARY(NAME) \
-  float64x2_t NAME##dd(float64x2_t a) { return to(multifloats::NAME(from(a))); }
+  float64x2 NAME##dd(float64x2 a) { return multifloats::NAME(a); }
 #define MF_ABI_BINARY(NAME) \
-  float64x2_t NAME##dd(float64x2_t a, float64x2_t b) { \
-    return to(multifloats::NAME(from(a), from(b))); \
+  float64x2 NAME##dd(float64x2 a, float64x2 b) { \
+    return multifloats::NAME(a, b); \
   }
 #define MF_ABI_BINARY_OP(NAME, OP) \
-  float64x2_t NAME##dd(float64x2_t a, float64x2_t b) { \
-    return to(from(a) OP from(b)); \
-  }
+  float64x2 NAME##dd(float64x2 a, float64x2 b) { return a OP b; }
 #define MF_ABI_CMP(NAME, OP) \
-  int NAME##dd(float64x2_t a, float64x2_t b) { \
-    return from(a) OP from(b) ? 1 : 0; \
-  }
+  int NAME##dd(float64x2 a, float64x2 b) { return a OP b ? 1 : 0; }
 
 // Arithmetic — C++ operators, not free functions.
 MF_ABI_BINARY_OP(add, +)
@@ -29,7 +25,7 @@ MF_ABI_BINARY_OP(mul, *)
 MF_ABI_BINARY_OP(div, /)
 
 // Unary
-float64x2_t negdd(float64x2_t a) { return to(-from(a)); }
+float64x2 negdd(float64x2 a) { return -a; }
 MF_ABI_UNARY(fabs)
 MF_ABI_UNARY(sqrt)
 
@@ -44,15 +40,13 @@ MF_ABI_BINARY(hypot)
 MF_ABI_BINARY(pow)
 // Integer-exponent power: exponent is a plain int, not a DD, so it
 // does not fit the MF_ABI_BINARY macro shape.
-float64x2_t powidd(float64x2_t a, int n) {
-  return to(multifloats::powi(from(a), n));
-}
+float64x2 powidd(float64x2 a, int n) { return multifloats::powi(a, n); }
 MF_ABI_BINARY(fmod)
 MF_ABI_BINARY(modulo)
 MF_ABI_BINARY(fdim)
 MF_ABI_BINARY(copysign)
-float64x2_t fmadd(float64x2_t a, float64x2_t b, float64x2_t c) {
-  return to(multifloats::fma(from(a), from(b), from(c)));
+float64x2 fmadd(float64x2 a, float64x2 b, float64x2 c) {
+  return multifloats::fma(a, b, c);
 }
 
 // Exponential / logarithmic
@@ -107,71 +101,46 @@ MF_ABI_UNARY(y0)
 MF_ABI_UNARY(y1)
 
 // Integer-order Bessel functions (recurrence from j0/j1, y0/y1).
-float64x2_t jndd(int n, float64x2_t a) { return to(multifloats::jn(n, from(a))); }
-float64x2_t yndd(int n, float64x2_t a) { return to(multifloats::yn(n, from(a))); }
+float64x2 jndd(int n, float64x2 a) { return multifloats::jn(n, a); }
+float64x2 yndd(int n, float64x2 a) { return multifloats::yn(n, a); }
 // Range sweeps: Yn uses the stable forward-recurrence single-sweep kernel;
 // Jn loops over Miller-backward per output (forward is unstable for n > x).
-// `float64x2_t` and `multifloats::float64x2` are layout-compatible (asserted
-// in multifloats.h), so reinterpret_cast the caller's buffer in place — no
-// std::vector allocation, no copy, and no `bad_alloc` hazard across the
-// extern "C" boundary.
-void jndd_range(int n1, int n2, float64x2_t a, float64x2_t *out) {
+void jndd_range(int n1, int n2, float64x2 a, float64x2 *out) {
   if (n2 < n1) return;
-  multifloats::jn(n1, n2, from(a),
-                  reinterpret_cast<multifloats::float64x2 *>(out));
+  multifloats::jn(n1, n2, a, out);
 }
-void yndd_range(int n1, int n2, float64x2_t a, float64x2_t *out) {
+void yndd_range(int n1, int n2, float64x2 a, float64x2 *out) {
   if (n2 < n1) return;
-  multifloats::yn(n1, n2, from(a),
-                  reinterpret_cast<multifloats::float64x2 *>(out));
+  multifloats::yn(n1, n2, a, out);
 }
 
 // Fused sincos / sinhcosh. Out-pointer style (C has no multi-value return).
-void sincosdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
-  float64x2 ss, cc;
-  multifloats::sincos(from(a), ss, cc);
-  *s = to(ss);
-  *c = to(cc);
+void sincosdd(float64x2 a, float64x2 *s, float64x2 *c) {
+  multifloats::sincos(a, *s, *c);
 }
 
-void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c) {
-  float64x2 ss, cc;
-  multifloats::sinhcosh(from(a), ss, cc);
-  *s = to(ss);
-  *c = to(cc);
+void sinhcoshdd(float64x2 a, float64x2 *s, float64x2 *c) {
+  multifloats::sinhcosh(a, *s, *c);
 }
 
 // Matmul: thin wrappers around multifloats::matmul_* (implementations in
-// multifloats_math.cc). The reinterpret_cast at the boundary is backed by a
-// static_assert on layout compatibility in multifloats.h.
-void matmuldd_mm(const float64x2_t *a, const float64x2_t *b,
-                 float64x2_t *c, int64_t m, int64_t k, int64_t n,
+// multifloats_math.cc).
+void matmuldd_mm(const float64x2 *a, const float64x2 *b,
+                 float64x2 *c, int64_t m, int64_t k, int64_t n,
                  int64_t renorm_interval) {
-  multifloats::matmul_mm(
-      reinterpret_cast<const multifloats::float64x2 *>(a),
-      reinterpret_cast<const multifloats::float64x2 *>(b),
-      reinterpret_cast<multifloats::float64x2 *>(c),
-      m, k, n, renorm_interval);
+  multifloats::matmul_mm(a, b, c, m, k, n, renorm_interval);
 }
 
-void matmuldd_mv(const float64x2_t *a, const float64x2_t *x,
-                 float64x2_t *y, int64_t m, int64_t k,
+void matmuldd_mv(const float64x2 *a, const float64x2 *x,
+                 float64x2 *y, int64_t m, int64_t k,
                  int64_t renorm_interval) {
-  multifloats::matmul_mv(
-      reinterpret_cast<const multifloats::float64x2 *>(a),
-      reinterpret_cast<const multifloats::float64x2 *>(x),
-      reinterpret_cast<multifloats::float64x2 *>(y),
-      m, k, renorm_interval);
+  multifloats::matmul_mv(a, x, y, m, k, renorm_interval);
 }
 
-void matmuldd_vm(const float64x2_t *x, const float64x2_t *b,
-                 float64x2_t *y, int64_t k, int64_t n,
+void matmuldd_vm(const float64x2 *x, const float64x2 *b,
+                 float64x2 *y, int64_t k, int64_t n,
                  int64_t renorm_interval) {
-  multifloats::matmul_vm(
-      reinterpret_cast<const multifloats::float64x2 *>(x),
-      reinterpret_cast<const multifloats::float64x2 *>(b),
-      reinterpret_cast<multifloats::float64x2 *>(y),
-      k, n, renorm_interval);
+  multifloats::matmul_vm(x, b, y, k, n, renorm_interval);
 }
 
 // Comparison (return int: 1 = true, 0 = false)
@@ -196,63 +165,50 @@ MF_ABI_BINARY(nextafter)
 MF_ABI_BINARY(remainder)
 
 // Out-pointer / int-arg variants — don't fit MF_ABI_UNARY/BINARY.
-float64x2_t frexpdd(float64x2_t a, int *exp) {
-  return to(multifloats::frexp(from(a), exp));
+float64x2 frexpdd(float64x2 a, int *exp) { return multifloats::frexp(a, exp); }
+float64x2 modfdd(float64x2 a, float64x2 *iptr) {
+  return multifloats::modf(a, iptr);
 }
-float64x2_t modfdd(float64x2_t a, float64x2_t *iptr) {
-  multifloats::float64x2 ip;
-  multifloats::float64x2 frac = multifloats::modf(from(a), &ip);
-  *iptr = to(ip);
-  return to(frac);
+float64x2 ldexpdd(float64x2 a, int n) { return multifloats::ldexp(a, n); }
+float64x2 scalbndd(float64x2 a, int n) { return multifloats::scalbn(a, n); }
+float64x2 scalblndd(float64x2 a, long n) { return multifloats::scalbln(a, n); }
+float64x2 remquodd(float64x2 a, float64x2 b, int *quo) {
+  return multifloats::remquo(a, b, quo);
 }
-float64x2_t ldexpdd(float64x2_t a, int n) {
-  return to(multifloats::ldexp(from(a), n));
-}
-float64x2_t scalbndd(float64x2_t a, int n) {
-  return to(multifloats::scalbn(from(a), n));
-}
-float64x2_t scalblndd(float64x2_t a, long n) {
-  return to(multifloats::scalbln(from(a), n));
-}
-float64x2_t remquodd(float64x2_t a, float64x2_t b, int *quo) {
-  return to(multifloats::remquo(from(a), from(b), quo));
-}
-int ilogbdd(float64x2_t a) { return multifloats::ilogb(from(a)); }
+int ilogbdd(float64x2 a) { return multifloats::ilogb(a); }
 
 // Integer rounding
-long      lrounddd (float64x2_t a) { return multifloats::lround (from(a)); }
-long long llrounddd(float64x2_t a) { return multifloats::llround(from(a)); }
-long      lrintdd  (float64x2_t a) { return multifloats::lrint  (from(a)); }
-long long llrintdd (float64x2_t a) { return multifloats::llrint (from(a)); }
+long      lrounddd (float64x2 a) { return multifloats::lround (a); }
+long long llrounddd(float64x2 a) { return multifloats::llround(a); }
+long      lrintdd  (float64x2 a) { return multifloats::lrint  (a); }
+long long llrintdd (float64x2 a) { return multifloats::llrint (a); }
 
 // Classification
-int isnandd   (float64x2_t a) { return multifloats::isnan   (from(a)) ? 1 : 0; }
-int isinfdd   (float64x2_t a) { return multifloats::isinf   (from(a)) ? 1 : 0; }
-int isfinitedd(float64x2_t a) { return multifloats::isfinite(from(a)) ? 1 : 0; }
-int finitedd  (float64x2_t a) { return multifloats::isfinite(from(a)) ? 1 : 0; }
-int signbitdd (float64x2_t a) { return multifloats::signbit (from(a)) ? 1 : 0; }
+int isnandd   (float64x2 a) { return multifloats::isnan   (a) ? 1 : 0; }
+int isinfdd   (float64x2 a) { return multifloats::isinf   (a) ? 1 : 0; }
+int isfinitedd(float64x2 a) { return multifloats::isfinite(a) ? 1 : 0; }
+int finitedd  (float64x2 a) { return multifloats::isfinite(a) ? 1 : 0; }
+int signbitdd (float64x2 a) { return multifloats::signbit (a) ? 1 : 0; }
 
-int issignalingdd(float64x2_t a) {
+int issignalingdd(float64x2 a) {
 #if defined(__has_builtin)
 #  if __has_builtin(__builtin_issignaling)
-  return __builtin_issignaling(a.hi) ? 1 : 0;
+  return __builtin_issignaling(a.limbs[0]) ? 1 : 0;
 #  else
   (void)a; return 0;
 #  endif
 #elif defined(__GNUC__) && __GNUC__ >= 13 && !defined(__clang__)
-  return __builtin_issignaling(a.hi) ? 1 : 0;
+  return __builtin_issignaling(a.limbs[0]) ? 1 : 0;
 #else
   (void)a; return 0;
 #endif
 }
 
 // NaN with payload tag
-float64x2_t nandd(const char *tagp) { return to(multifloats::nan(tagp)); }
+float64x2 nandd(const char *tagp) { return multifloats::nan(tagp); }
 
 // cis(x) = cos(x) + i sin(x)
-complex64x2_t cexpidd(float64x2_t a) {
-  return cc_to(multifloats::cexpi(from(a)));
-}
+complex64x2 cexpidd(float64x2 a) { return multifloats::cexpi(a); }
 
 #undef MF_ABI_UNARY
 #undef MF_ABI_BINARY

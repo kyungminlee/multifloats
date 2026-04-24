@@ -1,6 +1,6 @@
-// Complex DD C-ABI shims. Every entry point below marshals
-// complex64x2_t ↔ std::complex<multifloats::float64x2> and dispatches to
-// the corresponding C++ implementation:
+// Complex DD C-ABI shims. `complex64x2` is an alias for
+// `std::complex<multifloats::float64x2>` in C++, so each entry point calls
+// the corresponding C++ implementation directly:
 //   • transcendentals + abs/arg/proj → std:: specializations in
 //     complex64x2_std.inc (pulled into multifloats_math.cc
 //     inside `namespace std`)
@@ -19,16 +19,10 @@
 
 // ---- Complex DD arithmetic ------------------------------------------------
 // +, − are componentwise; std::complex's built-in operators already do the
-// right thing, but the wrappers marshal explicitly to avoid accidentally
-// constructing a std::complex from complex64x2_t.
+// right thing on std::complex<float64x2>.
 
-complex64x2_t cadddd(complex64x2_t a, complex64x2_t b) {
-  return cc_to(cc_from(a) + cc_from(b));
-}
-
-complex64x2_t csubdd(complex64x2_t a, complex64x2_t b) {
-  return cc_to(cc_from(a) - cc_from(b));
-}
+complex64x2 cadddd(complex64x2 a, complex64x2 b) { return a + b; }
+complex64x2 csubdd(complex64x2 a, complex64x2 b) { return a - b; }
 
 // 4-mul form with cancellation-gated compensation. Each component is
 // computed the cheap way first (two DD muls + a DD add/sub); if the
@@ -46,9 +40,9 @@ complex64x2_t csubdd(complex64x2_t a, complex64x2_t b) {
 // Karatsuba (3 muls, 5 adds, Im = (a+b)(c+d) − ac − bd) was tried and
 // rejected in Fortran: ~2× slower and less precise — the subtraction
 // loses bits when |ac+bd| ≫ |Im|.
-complex64x2_t cmuldd(complex64x2_t a, complex64x2_t b) {
-  float64x2 ar = from(a.re), ai = from(a.im);
-  float64x2 br = from(b.re), bi = from(b.im);
+complex64x2 cmuldd(complex64x2 a, complex64x2 b) {
+  float64x2 ar = a.real(), ai = a.imag();
+  float64x2 br = b.real(), bi = b.imag();
 
   float64x2 p_re = ar * br;
   float64x2 q_re = ai * bi;
@@ -66,14 +60,14 @@ complex64x2_t cmuldd(complex64x2_t a, complex64x2_t b) {
   // landmark in doc/developer/INTERNALS.md §6.
   constexpr double kCancelThresh = 0x1p-4;
 
-  double abs_re   = std::fabs(re_dd._limbs[0]);
-  double abs_p_re = std::fabs(p_re._limbs[0]);
-  double abs_q_re = std::fabs(q_re._limbs[0]);
+  double abs_re   = std::fabs(re_dd.limbs[0]);
+  double abs_p_re = std::fabs(p_re.limbs[0]);
+  double abs_q_re = std::fabs(q_re.limbs[0]);
   double max_re   = abs_p_re > abs_q_re ? abs_p_re : abs_q_re;
 
-  double abs_im   = std::fabs(im_dd._limbs[0]);
-  double abs_p_im = std::fabs(p_im._limbs[0]);
-  double abs_q_im = std::fabs(q_im._limbs[0]);
+  double abs_im   = std::fabs(im_dd.limbs[0]);
+  double abs_p_im = std::fabs(p_im.limbs[0]);
+  double abs_q_im = std::fabs(q_im.limbs[0]);
   double max_im   = abs_p_im > abs_q_im ? abs_p_im : abs_q_im;
 
   float64x2 re = re_dd, im = im_dd;
@@ -81,11 +75,10 @@ complex64x2_t cmuldd(complex64x2_t a, complex64x2_t b) {
     re = dd_cross_diff(ar, br, ai, bi);
   }
   if (__builtin_expect(max_im != 0.0 && abs_im < kCancelThresh * max_im, 0)) {
-    // ar·bi + ai·br = ar·bi − (−ai)·br. Negating both limbs is exact.
-    float64x2 neg_ai(-ai._limbs[0], -ai._limbs[1]);
-    im = dd_cross_diff(ar, bi, neg_ai, br);
+    // ar·bi + ai·br = ar·bi − (−ai)·br. DD negation is exact (componentwise).
+    im = dd_cross_diff(ar, bi, -ai, br);
   }
-  return { to(re), to(im) };
+  return { re, im };
 }
 
 // Complex DD divide: (a + bi) / (c + di) with compensated numerators.
@@ -100,21 +93,21 @@ complex64x2_t cmuldd(complex64x2_t a, complex64x2_t b) {
 // compute the formula, then unscale the result. Power-of-2 scaling is
 // exact at every limb (no precision lost), and the post-scale denom is
 // bounded by 2 so no overflow can occur.
-complex64x2_t cdivdd(complex64x2_t a, complex64x2_t b) {
-  float64x2 ar = from(a.re), ai = from(a.im);
-  float64x2 br = from(b.re), bi = from(b.im);
+complex64x2 cdivdd(complex64x2 a, complex64x2 b) {
+  float64x2 ar = a.real(), ai = a.imag();
+  float64x2 br = b.real(), bi = b.imag();
 
   // Fast path: b is in the range where br²+bi² won't overflow/underflow.
   // The square of √DBL_MAX (~1.34e154) is the boundary; allow a generous
   // margin and skip the ldexp/frexp pre/post-scaling for typical inputs.
-  double abs_br = std::fabs(br._limbs[0]);
-  double abs_bi = std::fabs(bi._limbs[0]);
+  double abs_br = std::fabs(br.limbs[0]);
+  double abs_bi = std::fabs(bi.limbs[0]);
   double max_b = abs_br > abs_bi ? abs_br : abs_bi;
   if (max_b < 1e150 && max_b > 1e-150) {
     float64x2 denom = br * br + bi * bi;
     float64x2 num_re = ar * br + ai * bi;
     float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
-    return { to(num_re / denom), to(num_im / denom) };
+    return { num_re / denom, num_im / denom };
   }
   // Slow path: scale b by an exact power of 2 so |max element| ∈ [0.5, 1)
   // and br²+bi² is bounded by 2. Power-of-2 scaling preserves all DD limbs
@@ -122,10 +115,10 @@ complex64x2_t cdivdd(complex64x2_t a, complex64x2_t b) {
   int e = 0;
   if (max_b > 0.0 && std::isfinite(max_b)) {
     std::frexp(max_b, &e);
-    br = float64x2(std::ldexp(br._limbs[0], -e),
-                   std::ldexp(br._limbs[1], -e));
-    bi = float64x2(std::ldexp(bi._limbs[0], -e),
-                   std::ldexp(bi._limbs[1], -e));
+    br = float64x2(std::ldexp(br.limbs[0], -e),
+                   std::ldexp(br.limbs[1], -e));
+    bi = float64x2(std::ldexp(bi.limbs[0], -e),
+                   std::ldexp(bi.limbs[1], -e));
   }
   float64x2 denom = br * br + bi * bi;
   float64x2 num_re = ar * br + ai * bi;
@@ -133,60 +126,58 @@ complex64x2_t cdivdd(complex64x2_t a, complex64x2_t b) {
   float64x2 res_re = num_re / denom;
   float64x2 res_im = num_im / denom;
   if (e != 0) {
-    res_re = float64x2(std::ldexp(res_re._limbs[0], -e),
-                       std::ldexp(res_re._limbs[1], -e));
-    res_im = float64x2(std::ldexp(res_im._limbs[0], -e),
-                       std::ldexp(res_im._limbs[1], -e));
+    res_re = float64x2(std::ldexp(res_re.limbs[0], -e),
+                       std::ldexp(res_re.limbs[1], -e));
+    res_im = float64x2(std::ldexp(res_im.limbs[0], -e),
+                       std::ldexp(res_im.limbs[1], -e));
   }
-  return { to(res_re), to(res_im) };
+  return { res_re, res_im };
 }
 
 // ---- Transcendentals → std:: specializations ------------------------------
 
-complex64x2_t cexpdd  (complex64x2_t z) { return cc_to(std::exp  (cc_from(z))); }
-complex64x2_t clogdd  (complex64x2_t z) { return cc_to(std::log  (cc_from(z))); }
-complex64x2_t csqrtdd (complex64x2_t z) { return cc_to(std::sqrt (cc_from(z))); }
-complex64x2_t cpowdd  (complex64x2_t z, complex64x2_t w) {
-  return cc_to(std::pow(cc_from(z), cc_from(w)));
-}
+complex64x2 cexpdd  (complex64x2 z) { return std::exp (z); }
+complex64x2 clogdd  (complex64x2 z) { return std::log (z); }
+complex64x2 csqrtdd (complex64x2 z) { return std::sqrt(z); }
+complex64x2 cpowdd  (complex64x2 z, complex64x2 w) { return std::pow(z, w); }
 
-complex64x2_t csindd  (complex64x2_t z) { return cc_to(std::sin  (cc_from(z))); }
-complex64x2_t ccosdd  (complex64x2_t z) { return cc_to(std::cos  (cc_from(z))); }
-complex64x2_t ctandd  (complex64x2_t z) { return cc_to(std::tan  (cc_from(z))); }
-complex64x2_t casindd (complex64x2_t z) { return cc_to(std::asin (cc_from(z))); }
-complex64x2_t cacosdd (complex64x2_t z) { return cc_to(std::acos (cc_from(z))); }
-complex64x2_t catandd (complex64x2_t z) { return cc_to(std::atan (cc_from(z))); }
+complex64x2 csindd  (complex64x2 z) { return std::sin (z); }
+complex64x2 ccosdd  (complex64x2 z) { return std::cos (z); }
+complex64x2 ctandd  (complex64x2 z) { return std::tan (z); }
+complex64x2 casindd (complex64x2 z) { return std::asin(z); }
+complex64x2 cacosdd (complex64x2 z) { return std::acos(z); }
+complex64x2 catandd (complex64x2 z) { return std::atan(z); }
 
-complex64x2_t csinhdd (complex64x2_t z) { return cc_to(std::sinh (cc_from(z))); }
-complex64x2_t ccoshdd (complex64x2_t z) { return cc_to(std::cosh (cc_from(z))); }
-complex64x2_t ctanhdd (complex64x2_t z) { return cc_to(std::tanh (cc_from(z))); }
-complex64x2_t casinhdd(complex64x2_t z) { return cc_to(std::asinh(cc_from(z))); }
-complex64x2_t cacoshdd(complex64x2_t z) { return cc_to(std::acosh(cc_from(z))); }
-complex64x2_t catanhdd(complex64x2_t z) { return cc_to(std::atanh(cc_from(z))); }
+complex64x2 csinhdd (complex64x2 z) { return std::sinh (z); }
+complex64x2 ccoshdd (complex64x2 z) { return std::cosh (z); }
+complex64x2 ctanhdd (complex64x2 z) { return std::tanh (z); }
+complex64x2 casinhdd(complex64x2 z) { return std::asinh(z); }
+complex64x2 cacoshdd(complex64x2 z) { return std::acosh(z); }
+complex64x2 catanhdd(complex64x2 z) { return std::atanh(z); }
 
 // ---- Kind-D overloads in namespace multifloats ---------------------------
 
-complex64x2_t cexpm1dd (complex64x2_t z) { return cc_to(multifloats::expm1(cc_from(z))); }
-complex64x2_t clog2dd  (complex64x2_t z) { return cc_to(multifloats::log2 (cc_from(z))); }
-complex64x2_t clog10dd (complex64x2_t z) { return cc_to(multifloats::log10(cc_from(z))); }
-complex64x2_t clog1pdd (complex64x2_t z) { return cc_to(multifloats::log1p(cc_from(z))); }
-complex64x2_t csinpidd (complex64x2_t z) { return cc_to(multifloats::sinpi(cc_from(z))); }
-complex64x2_t ccospidd (complex64x2_t z) { return cc_to(multifloats::cospi(cc_from(z))); }
+complex64x2 cexpm1dd (complex64x2 z) { return multifloats::expm1(z); }
+complex64x2 clog2dd  (complex64x2 z) { return multifloats::log2 (z); }
+complex64x2 clog10dd (complex64x2 z) { return multifloats::log10(z); }
+complex64x2 clog1pdd (complex64x2 z) { return multifloats::log1p(z); }
+complex64x2 csinpidd (complex64x2 z) { return multifloats::sinpi(z); }
+complex64x2 ccospidd (complex64x2 z) { return multifloats::cospi(z); }
 
 // ---- Value accessors -----------------------------------------------------
 
-float64x2_t   cabsdd  (complex64x2_t z) { return to(std::abs (cc_from(z))); }
-float64x2_t   cargdd  (complex64x2_t z) { return to(std::arg (cc_from(z))); }
-complex64x2_t cprojdd (complex64x2_t z) { return cc_to(std::proj(cc_from(z))); }
+float64x2   cabsdd  (complex64x2 z) { return std::abs(z); }
+float64x2   cargdd  (complex64x2 z) { return std::arg(z); }
+complex64x2 cprojdd (complex64x2 z) { return std::proj(z); }
 
 // Conjugate: std::conj on the generic template is already componentwise
 // exact DD negation — each limb flips sign, no roundoff.
-complex64x2_t conjdd  (complex64x2_t z) { return cc_to(std::conj(cc_from(z))); }
+complex64x2 conjdd  (complex64x2 z) { return std::conj(z); }
 
 // real/imag: trivial accessors. Returned directly to skip the round-trip
 // through std::complex construction.
-float64x2_t   crealdd (complex64x2_t z) { return z.re; }
-float64x2_t   cimagdd (complex64x2_t z) { return z.im; }
+float64x2   crealdd (complex64x2 z) { return z.real(); }
+float64x2   cimagdd (complex64x2 z) { return z.imag(); }
 
 // ---- Matrix multiply (column-major) --------------------------------------
 //

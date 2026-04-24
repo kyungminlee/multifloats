@@ -1,7 +1,7 @@
 /* multifloats — double-double arithmetic, unified C and C++ header.
  *
  * Structure:
- *   - A C-ABI section defining `float64x2_t` / `complex64x2_t` and every
+ *   - A C-ABI section defining `float64x2` / `complex64x2` and every
  *     `extern "C"` `*dd` entry point. Valid in a plain-C translation unit
  *     (include from C, C++, or Fortran via iso_c_binding).
  *   - A C++-only section (guarded by `#ifdef __cplusplus`) providing the
@@ -22,7 +22,7 @@
 #include <stdint.h>
 #include <stddef.h>  /* size_t */
 
-/* ABI version. Bump on any breaking change to the `float64x2_t` layout,
+/* ABI version. Bump on any breaking change to the `float64x2` layout,
  * the argument/return convention of any exported function, or removal of
  * an exported symbol. Additive changes (new *dd functions) keep the same
  * version. Callers can gate on this at compile time:
@@ -32,10 +32,6 @@
  */
 #define MULTIFLOATS_ABI_VERSION 2
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 /* Visibility attribute for every exported function. */
 #if defined(__GNUC__) || defined(__clang__)
 #  define MULTIFLOATS_API __attribute__((visibility("default")))
@@ -43,324 +39,7 @@ extern "C" {
 #  define MULTIFLOATS_API
 #endif
 
-typedef struct { double hi, lo; } float64x2_t;
-
-/* Complex double-double: two back-to-back float64x2_t (four doubles, no
- * padding). Matches Fortran's `type(complex64x2) sequence` layout and is
- * used by the c*dd transcendentals below. */
-typedef struct { float64x2_t re, im; } complex64x2_t;
-
-/* Guard against surprise padding — the entire C ABI and the Fortran
- * iso_c_binding layer assume float64x2_t is exactly two back-to-back
- * doubles (and complex64x2_t exactly four). C11 / C++11 required. */
 #ifdef __cplusplus
-static_assert(sizeof(float64x2_t) == 2 * sizeof(double),
-              "float64x2_t must be two back-to-back doubles with no padding");
-static_assert(sizeof(complex64x2_t) == 4 * sizeof(double),
-              "complex64x2_t must be four back-to-back doubles with no padding");
-#else
-_Static_assert(sizeof(float64x2_t) == 2 * sizeof(double),
-               "float64x2_t must be two back-to-back doubles with no padding");
-_Static_assert(sizeof(complex64x2_t) == 4 * sizeof(double),
-               "complex64x2_t must be four back-to-back doubles with no padding");
-#endif
-
-/* Arithmetic */
-MULTIFLOATS_API float64x2_t adddd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t subdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t muldd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t divdd(float64x2_t a, float64x2_t b);
-
-/* Unary */
-MULTIFLOATS_API float64x2_t negdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t fabsdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t sqrtdd(float64x2_t a);
-
-/* Rounding. truncdd matches C trunc / Fortran AINT (toward zero).
- * rounddd matches C round / Fortran ANINT (to nearest, halfway away). */
-MULTIFLOATS_API float64x2_t truncdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t rounddd(float64x2_t a);
-
-/* Binary */
-MULTIFLOATS_API float64x2_t fmindd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t fmaxdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t hypotdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t powdd(float64x2_t a, float64x2_t b);
-/* Integer-exponent power via exponentiation-by-squaring: ⌈log2|n|⌉
- * squarings plus popcount(|n|) multiplies, exact up to DD precision
- * per step. One DD division at the end when n < 0. */
-MULTIFLOATS_API float64x2_t powidd(float64x2_t a, int n);
-MULTIFLOATS_API float64x2_t fmoddd(float64x2_t a, float64x2_t b);
-/* Floored modulo (Fortran `modulo` semantics): same sign as y.
- * modulodd(x, y) = fmod(x, y), plus y if the remainder and y have
- * opposite signs. Uses DD signbit (first-nonzero-limb), so
- * non-canonical DDs with hi==0 still get the right sign. */
-MULTIFLOATS_API float64x2_t modulodd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t fdimdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t copysigndd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t fmadd(float64x2_t a, float64x2_t b, float64x2_t c);
-
-/* Exponential / logarithmic. `expm1dd` / `log1pdd` are the
- * cancellation-safe variants for arguments near zero — direct Taylor
- * / atanh-narrow kernels cover |x| below a threshold, larger |x|
- * falls through to the standard `exp` / `log` paths. */
-MULTIFLOATS_API float64x2_t expdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t exp2dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t expm1dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t logdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t log2dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t log10dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t log1pdd(float64x2_t a);
-
-/* Trigonometric */
-MULTIFLOATS_API float64x2_t sindd(float64x2_t a);
-MULTIFLOATS_API float64x2_t cosdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t tandd(float64x2_t a);
-MULTIFLOATS_API float64x2_t asindd(float64x2_t a);
-MULTIFLOATS_API float64x2_t acosdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t atandd(float64x2_t a);
-MULTIFLOATS_API float64x2_t atan2dd(float64x2_t a, float64x2_t b);
-
-/* π-scaled trig: {sin,cos,tan}pidd(x) = fn(π·x),
- *                {asin,acos,atan}pidd(x) = fn(x)/π,
- *                atan2pidd(y,x) = atan2(y,x)/π. */
-MULTIFLOATS_API float64x2_t sinpidd(float64x2_t a);
-MULTIFLOATS_API float64x2_t cospidd(float64x2_t a);
-MULTIFLOATS_API float64x2_t tanpidd(float64x2_t a);
-MULTIFLOATS_API float64x2_t asinpidd(float64x2_t a);
-MULTIFLOATS_API float64x2_t acospidd(float64x2_t a);
-MULTIFLOATS_API float64x2_t atanpidd(float64x2_t a);
-MULTIFLOATS_API float64x2_t atan2pidd(float64x2_t a, float64x2_t b);
-
-/* Hyperbolic */
-MULTIFLOATS_API float64x2_t sinhdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t coshdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t tanhdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t asinhdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t acoshdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t atanhdd(float64x2_t a);
-
-/* Error functions. erfcxdd is the scaled complementary error function
- *   erfcxdd(x) = exp(x^2) * erfcdd(x)
- * (standard name in Faddeeva/Julia/SciPy; Fortran calls it erfc_scaled). */
-MULTIFLOATS_API float64x2_t erfdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t erfcdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t erfcxdd(float64x2_t a);
-
-/* Gamma functions */
-MULTIFLOATS_API float64x2_t tgammadd(float64x2_t a);
-MULTIFLOATS_API float64x2_t lgammadd(float64x2_t a);
-
-/* Bessel functions (POSIX naming). jndd / yndd: integer-order recurrence
- * seeded from j0dd / j1dd (Miller's backward recurrence for Jn when n > x).
- * Range variants fill `out[0..n2−n1]` with the order-n1 through order-n2
- * values; yndd_range uses a single stable forward-recurrence sweep (cheaper
- * than n2−n1+1 independent yndd calls), while jndd_range loops over jndd
- * because Jn's forward recurrence is unstable for n > x. */
-MULTIFLOATS_API float64x2_t j0dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t j1dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t y0dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t y1dd(float64x2_t a);
-MULTIFLOATS_API float64x2_t jndd(int n, float64x2_t a);
-MULTIFLOATS_API float64x2_t yndd(int n, float64x2_t a);
-MULTIFLOATS_API void jndd_range(int n1, int n2, float64x2_t a, float64x2_t *out);
-MULTIFLOATS_API void yndd_range(int n1, int n2, float64x2_t a, float64x2_t *out);
-
-/* Fused sincos / sinhcosh. One range-reduction + Taylor pair produces
- * both outputs, roughly halving the transcendental cost for call sites
- * that need both. Out-pointer style since C has no multi-value return. */
-MULTIFLOATS_API void sincosdd(float64x2_t a, float64x2_t *s, float64x2_t *c);
-MULTIFLOATS_API void sinhcoshdd(float64x2_t a, float64x2_t *s, float64x2_t *c);
-
-/* Complex DD arithmetic. These are the canonical implementations; the
- * Fortran elemental `cdd + cdd`, `cdd * dp`, etc. routines wrap these via
- * bind(c). */
-MULTIFLOATS_API complex64x2_t cadddd(complex64x2_t a, complex64x2_t b);
-MULTIFLOATS_API complex64x2_t csubdd(complex64x2_t a, complex64x2_t b);
-MULTIFLOATS_API complex64x2_t cmuldd(complex64x2_t a, complex64x2_t b);
-MULTIFLOATS_API complex64x2_t cdivdd(complex64x2_t a, complex64x2_t b);
-
-/* Complex DD transcendentals. Branch cuts match C99 Annex G (matching
- * libquadmath cexpq/clogq/csqrtq/...). Where the classic formula needs
- * both sin(y) and cos(y) or both sinh(y) and cosh(y), these use the fused
- * kernels internally so one range-reduction + Taylor pair covers both.
- * Precision and speed have been measured; the std::complex<float64x2>
- * specializations below delegate here where specialization wins (exp, sin,
- * cos, tan, sinh, cosh, tanh, atanh, acos). */
-MULTIFLOATS_API complex64x2_t cexpdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t cexpm1dd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t clogdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t clog2dd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t clog10dd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t clog1pdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t cpowdd(complex64x2_t z, complex64x2_t w);
-MULTIFLOATS_API complex64x2_t csqrtdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t csindd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t csinpidd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t ccosdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t ccospidd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t ctandd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t casindd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t cacosdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t catandd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t csinhdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t ccoshdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t ctanhdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t casinhdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t cacoshdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t catanhdd(complex64x2_t z);
-
-/* Complex magnitude / argument / projection / conjugate / accessors.
- * cabsdd = |z|  (overflow-safe hypot).
- * cargdd = arg(z) in (-pi, pi].
- * cprojdd = projection onto the Riemann sphere (C99 7.3.9.4):
- *   infinities collapse to (+inf, copysign(0, imag)), else identity. */
-MULTIFLOATS_API float64x2_t   cabsdd(complex64x2_t z);
-MULTIFLOATS_API float64x2_t   cargdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t cprojdd(complex64x2_t z);
-MULTIFLOATS_API complex64x2_t conjdd(complex64x2_t z);
-MULTIFLOATS_API float64x2_t   crealdd(complex64x2_t z);
-MULTIFLOATS_API float64x2_t   cimagdd(complex64x2_t z);
-
-/* Matrix multiply (column-major, Fortran layout).
- *   matmuldd_mm: C(m,n) = A(m,k) * B(k,n)
- *   matmuldd_mv: y(m)   = A(m,k) * x(k)
- *   matmuldd_vm: y(n)   = x(k)   * B(k,n)
- * Leading dimensions equal the first extent (no strides).
- *
- * Scope vs BLAS GEMM. These are *not* a direct replacement for DGEMM:
- *
- *   - transa / transb: no. Always treats both operands in storage order;
- *     the caller must transpose the input arrays before the call if
- *     needed. (In Fortran, `matmul(transpose(a), b)` materialises the
- *     transpose, then the kernel walks the transposed buffer.)
- *   - alpha / beta:    no. The output is overwritten, not accumulated
- *     into. To compute `C := alpha*A*B + beta*C`, the caller must scale
- *     `A` or `B`, run matmul, then combine with C explicitly.
- *   - leading dimensions: always the first extent; no LDA/LDB/LDC.
- *
- * These constraints are deliberate: the compensated DD kernels use a
- * register-blocked panel design that assumes contiguous column-major
- * storage with the canonical shape. Adding transposed / strided / in-
- * place-accumulating variants is plausible but would require a new set
- * of panel dispatchers — tracked under "Deferred work" in
- * doc/developer/INTERNALS.md.
- *
- * renorm_interval: if > 0, renormalize accumulators every N reductions
- * (matches DD_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo
- * bounded for large k). Pass 0 to renormalize only at the end. */
-MULTIFLOATS_API void matmuldd_mm(const float64x2_t *a, const float64x2_t *b,
-                         float64x2_t *c,
-                         int64_t m, int64_t k, int64_t n,
-                         int64_t renorm_interval);
-MULTIFLOATS_API void matmuldd_mv(const float64x2_t *a, const float64x2_t *x,
-                         float64x2_t *y,
-                         int64_t m, int64_t k,
-                         int64_t renorm_interval);
-MULTIFLOATS_API void matmuldd_vm(const float64x2_t *x, const float64x2_t *b,
-                         float64x2_t *y,
-                         int64_t k, int64_t n,
-                         int64_t renorm_interval);
-
-/* Formatted output. Scientific-notation decimal representation of `x`,
- * written into `[first, last)` with no NUL terminator — matching C++17
- * `std::to_chars` semantics. On success returns a pointer one past the
- * last byte written (so the written range is `[first, returned)`). On a
- * too-small buffer returns NULL and leaves the buffer unchanged. `precision`
- * is clamped to [1, 34] — DD carries ~32 significant digits, two extra for
- * round-half-to-even. Special values emit "nan", "inf", "-inf", "0e+00",
- * "-0e+00".
- *
- * A buffer of MULTIFLOATS_DD_CHARS_BUFSIZE bytes always fits any valid
- * output, so stack-allocating `char buf[MULTIFLOATS_DD_CHARS_BUFSIZE]` and
- * calling as `to_charsdd(x, prec, buf, buf + sizeof(buf))` is a safe use.
- * The C++ `multifloats::to_chars` / `to_string` / `operator<<` wrappers
- * below all layer on this so that `std::string` construction happens in
- * the consumer's TU — keeping the library free of `std::string` in its
- * ABI surface (libstdc++ `_GLIBCXX_USE_CXX11_ABI` dual-ABI safe). */
-#define MULTIFLOATS_DD_CHARS_BUFSIZE 48
-MULTIFLOATS_API char *to_charsdd(float64x2_t x, int precision,
-                                 char *first, char *last);
-
-/* Comparison (return int: 1 = true, 0 = false) */
-MULTIFLOATS_API int eqdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API int nedd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API int ltdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API int ledd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API int gtdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API int gedd(float64x2_t a, float64x2_t b);
-
-/* libquadmath parity — every NAMEq in <quadmath.h> has a NAMEdd entry
- * here. Implementations are the canonical `multifloats::NAME` C++
- * helpers in the header section below; the C-ABI symbols in
- * src/float64x2_abi.inc are thin marshaling shims. */
-
-/* Cube root, integer rounding (toward ±inf, nearest-current-mode), exponent
- * split / rescale, integer/fractional split, ulp-step, IEEE remainder. */
-MULTIFLOATS_API float64x2_t cbrtdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t ceildd(float64x2_t a);
-MULTIFLOATS_API float64x2_t floordd(float64x2_t a);
-MULTIFLOATS_API float64x2_t nearbyintdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t rintdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t logbdd(float64x2_t a);
-MULTIFLOATS_API float64x2_t frexpdd(float64x2_t a, int *exp);
-MULTIFLOATS_API float64x2_t modfdd(float64x2_t a, float64x2_t *iptr);
-MULTIFLOATS_API float64x2_t ldexpdd(float64x2_t a, int n);
-MULTIFLOATS_API float64x2_t scalbndd(float64x2_t a, int n);
-MULTIFLOATS_API float64x2_t scalblndd(float64x2_t a, long n);
-MULTIFLOATS_API float64x2_t nextafterdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t remainderdd(float64x2_t a, float64x2_t b);
-MULTIFLOATS_API float64x2_t remquodd(float64x2_t a, float64x2_t b, int *quo);
-MULTIFLOATS_API int ilogbdd(float64x2_t a);
-
-/* Integer rounding — leading-limb's libm result with a half-integer
- * fixup that consults the lo limb (so e.g. lround((0.5, -ε)) = 0). */
-MULTIFLOATS_API long lrounddd(float64x2_t a);
-MULTIFLOATS_API long long llrounddd(float64x2_t a);
-MULTIFLOATS_API long lrintdd(float64x2_t a);
-MULTIFLOATS_API long long llrintdd(float64x2_t a);
-
-/* Classification — C99 isnan/isinf/signbit/isfinite contract: non-zero
- * for true. `finitedd` mirrors libquadmath's legacy `finiteq` spelling
- * (alias for isfinitedd). */
-MULTIFLOATS_API int isnandd(float64x2_t a);
-MULTIFLOATS_API int isinfdd(float64x2_t a);
-MULTIFLOATS_API int isfinitedd(float64x2_t a);
-MULTIFLOATS_API int finitedd(float64x2_t a);
-MULTIFLOATS_API int signbitdd(float64x2_t a);
-/* Signaling-NaN test on the leading limb. Uses the compiler builtin
- * where available (gcc >= 13, clang with __has_builtin); otherwise
- * returns 0 — multifloats never constructs sNaNs internally, so the
- * fallback only loses signal when the caller explicitly passed an
- * sNaN through the C ABI. */
-MULTIFLOATS_API int issignalingdd(float64x2_t a);
-
-/* NaN with payload tag (libquadmath nanq parity). Calls std::nan(tagp)
- * for the leading limb; lo is set to 0. */
-MULTIFLOATS_API float64x2_t nandd(const char *tagp);
-
-/* cis(x) = cos(x) + i sin(x). Mirrors libquadmath cexpiq. */
-MULTIFLOATS_API complex64x2_t cexpidd(float64x2_t a);
-
-#ifdef __cplusplus
-}  /* extern "C" */
-#endif
-
-/* ============================================================================
- * C++ header-inline section — skipped when compiled as C.
- * ========================================================================= */
-#ifdef __cplusplus
-
-#include <charconv>
-#include <cmath>
-#include <cstddef>
-#include <cstdint>
-#include <cstring>
-#include <iosfwd>
-#include <limits>
-#include <string>
-#include <system_error>
-#include <type_traits>
 
 // Every error-free transformation here (two_prod, reduce_pi_half, erfc x-split,
 // matmul mac_inl, ...) depends on std::fma being IEEE-compliant: a single
@@ -375,6 +54,18 @@ MULTIFLOATS_API complex64x2_t cexpidd(float64x2_t a);
          "semantics of std::fma that every error-free transformation relies " \
          "on. Drop -ffast-math (and -funsafe-math-optimizations) and rebuild."
 #endif
+
+#include <charconv>
+#include <cmath>
+#include <complex>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
+#include <iosfwd>
+#include <limits>
+#include <string>
+#include <system_error>
+#include <type_traits>
 
 namespace multifloats {
 
@@ -414,20 +105,34 @@ constexpr void two_prod(T a, T b, T &prod, T &err) {
 }
 
 } // namespace detail
+#endif /* __cplusplus */
 
-// =============================================================================
-// float64x2 — double-double (DD) arithmetic
-//
-// Two IEEE-754 binary64 limbs (hi, lo). A canonical value satisfies
-// |lo| <= ulp(hi)/2, giving ~104 bits of significand. Binary ops are inlined
-// here; transcendentals delegate to the extern "C" `*dd` kernels defined in
-// multifloats_math.cc.
-// =============================================================================
+/* =============================================================================
+ * float64x2 — double-double (DD) POD and C ABI interchange type.
+ *
+ * Two IEEE-754 binary64 limbs. A canonical value satisfies
+ * |limbs[1]| <= ulp(limbs[0])/2, giving ~104 bits of significand. Binary ops
+ * are inlined as C++ constexpr members; transcendentals delegate to the
+ * extern "C" `*dd` kernels defined in multifloats_math.cc.
+ *
+ * Layout is identical under C and C++; the Fortran `bind(c)` interop layer
+ * assumes two back-to-back doubles (four for complex64x2).
+ * ============================================================================= */
+struct float64x2 {
+  // The `= {}` member initializer (C++ only) is load-bearing: operator+,
+  // operator-, operator*, and operator/ all have non-finite short-circuit
+  // branches that write only `out.limbs[0]` and rely on `limbs[1]` being
+  // zero-initialized. Dropping `= {}` to make the type trivially-default-
+  // constructible would silently leak indeterminate bits through those
+  // branches. If you ever want that, add explicit `out.limbs[1] = 0.0;`
+  // lines to each short-circuit first.
+  double limbs[2]
+#ifdef __cplusplus
+      = {}
+#endif
+      ;
 
-class float64x2 {
-public:
-  double _limbs[2] = {};
-
+#ifdef __cplusplus
   constexpr float64x2() = default;
   constexpr float64x2(float64x2 const &) = default;
   constexpr float64x2(float64x2 &&) = default;
@@ -438,21 +143,10 @@ public:
   // the scalar form is used implicitly throughout (e.g. `float64x2(1)` in
   // hypot/cbrt), and the two-arg form is the natural DD-literal spelling
   // `float64x2{hi, lo}` used inside class-method bodies.
-  constexpr float64x2(double arg) : _limbs{arg, 0.0} {}
-  constexpr float64x2(double hi, double lo) : _limbs{hi, lo} {}
+  constexpr float64x2(double arg) : limbs{arg, 0.0} {}
+  constexpr float64x2(double hi, double lo) : limbs{hi, lo} {}
 
-  // C-ABI interchange. `float64x2_t` (from the C section above) has the same
-  // bit-layout (two back-to-back doubles), so these conversions compile to
-  // zero moves — they exist to name the boundary, not to reshape data.
-  // Both are `explicit` to keep the C/C++ type boundary visible at call sites.
-  //   C++ → C:  float64x2_t c = static_cast<float64x2_t>(x);  // or float64x2_t(x)
-  //   C → C++:  float64x2   x(c);                              // or float64x2{c}
-  constexpr explicit float64x2(float64x2_t c) noexcept : _limbs{c.hi, c.lo} {}
-  constexpr explicit operator float64x2_t() const noexcept {
-    return {_limbs[0], _limbs[1]};
-  }
-
-  constexpr explicit operator double() const { return _limbs[0]; }
+  constexpr explicit operator double() const { return limbs[0]; }
 
   // Lexicographic comparison. NaN is unordered: IEEE `<` is false on either
   // side, so for NaN limbs both `<` checks fall through to the next limb,
@@ -460,20 +154,20 @@ public:
   // For +0 vs -0 the leading comparisons are both false (IEEE +0 == -0), so
   // we correctly fall through to the next limb.
   constexpr bool operator==(float64x2 const &r) const {
-    return _limbs[0] == r._limbs[0] && _limbs[1] == r._limbs[1];
+    return limbs[0] == r.limbs[0] && limbs[1] == r.limbs[1];
   }
   constexpr bool operator!=(float64x2 const &r) const { return !(*this == r); }
   constexpr bool operator<(float64x2 const &r) const {
-    if (_limbs[0] < r._limbs[0]) return true;
-    if (r._limbs[0] < _limbs[0]) return false;
-    return _limbs[1] < r._limbs[1];
+    if (limbs[0] < r.limbs[0]) return true;
+    if (r.limbs[0] < limbs[0]) return false;
+    return limbs[1] < r.limbs[1];
   }
   constexpr bool operator>(float64x2 const &r) const  { return  (r < *this); }
   constexpr bool operator<=(float64x2 const &r) const { return !(r < *this); }
   constexpr bool operator>=(float64x2 const &r) const { return !(*this < r); }
 
   constexpr float64x2 operator+() const { return *this; }
-  constexpr float64x2 operator-() const { return {-_limbs[0], -_limbs[1]}; }
+  constexpr float64x2 operator-() const { return {-limbs[0], -limbs[1]}; }
 
   // ---------------------------------------------------------------------------
   // Binary arithmetic — kernels inlined directly, translated from
@@ -482,108 +176,108 @@ public:
 
   constexpr float64x2 operator+(float64x2 const &rhs) const {
     float64x2 out;
-    double s = _limbs[0] + rhs._limbs[0];
+    double s = limbs[0] + rhs.limbs[0];
     // Non-finite: the EFT below would propagate NaN into limbs[1];
     // short-circuit and let IEEE produce the correct leading limb.
     if (!std::isfinite(s)) {
-      out._limbs[0] = s;
+      out.limbs[0] = s;
       return out;
     }
     // When both hi limbs are zero, two_sum loses the -0 sign
     // (IEEE 754: -0 + +0 = +0 in round-to-nearest).
-    if (_limbs[0] == 0.0 && rhs._limbs[0] == 0.0) {
-      out._limbs[0] = s;
-      out._limbs[1] = _limbs[1] + rhs._limbs[1];
+    if (limbs[0] == 0.0 && rhs.limbs[0] == 0.0) {
+      out.limbs[0] = s;
+      out.limbs[1] = limbs[1] + rhs.limbs[1];
       return out;
     }
     double a = 0.0, b = 0.0, c = 0.0, d = 0.0;
-    detail::two_sum(_limbs[0], rhs._limbs[0], a, b);
-    detail::two_sum(_limbs[1], rhs._limbs[1], c, d);
+    detail::two_sum(limbs[0], rhs.limbs[0], a, b);
+    detail::two_sum(limbs[1], rhs.limbs[1], c, d);
     detail::fast_two_sum(a, c, a, c);
     b += d;
     b += c;
-    detail::fast_two_sum(a, b, out._limbs[0], out._limbs[1]);
+    detail::fast_two_sum(a, b, out.limbs[0], out.limbs[1]);
     return out;
   }
 
   constexpr float64x2 operator-(float64x2 const &rhs) const {
     float64x2 out;
-    double s = _limbs[0] - rhs._limbs[0];
+    double s = limbs[0] - rhs.limbs[0];
     if (!std::isfinite(s)) {
-      out._limbs[0] = s;
+      out.limbs[0] = s;
       return out;
     }
-    if (_limbs[0] == 0.0 && rhs._limbs[0] == 0.0) {
-      out._limbs[0] = s;
-      out._limbs[1] = _limbs[1] - rhs._limbs[1];
+    if (limbs[0] == 0.0 && rhs.limbs[0] == 0.0) {
+      out.limbs[0] = s;
+      out.limbs[1] = limbs[1] - rhs.limbs[1];
       return out;
     }
     double a = 0.0, b = 0.0, c = 0.0, d = 0.0;
-    detail::two_sum(_limbs[0], -rhs._limbs[0], a, b);
-    detail::two_sum(_limbs[1], -rhs._limbs[1], c, d);
+    detail::two_sum(limbs[0], -rhs.limbs[0], a, b);
+    detail::two_sum(limbs[1], -rhs.limbs[1], c, d);
     detail::fast_two_sum(a, c, a, c);
     b += d;
     b += c;
-    detail::fast_two_sum(a, b, out._limbs[0], out._limbs[1]);
+    detail::fast_two_sum(a, b, out.limbs[0], out.limbs[1]);
     return out;
   }
 
   constexpr float64x2 operator*(float64x2 const &rhs) const {
     float64x2 out;
     double p00 = 0.0, e00 = 0.0;
-    detail::two_prod(_limbs[0], rhs._limbs[0], p00, e00);
+    detail::two_prod(limbs[0], rhs.limbs[0], p00, e00);
     // Non-finite: two_prod's fma residual is NaN whenever p00 overflows
     // or either input is ±Inf/NaN (e.g. inf*2 → p00=inf, e00=fma(inf,
     // 2,-inf)=NaN). Short-circuit so the EFT residual doesn't contaminate
-    // out._limbs[1]; IEEE supplies the correct leading limb in p00.
+    // out.limbs[1]; IEEE supplies the correct leading limb in p00.
     if (!std::isfinite(p00)) {
-      out._limbs[0] = p00;
+      out.limbs[0] = p00;
       return out;
     }
-    double p01 = detail::one_prod(_limbs[0], rhs._limbs[1]);
-    double p10 = detail::one_prod(_limbs[1], rhs._limbs[0]);
+    double p01 = detail::one_prod(limbs[0], rhs.limbs[1]);
+    double p10 = detail::one_prod(limbs[1], rhs.limbs[0]);
     p01 += p10;
     e00 += p01;
-    detail::fast_two_sum(p00, e00, out._limbs[0], out._limbs[1]);
+    detail::fast_two_sum(p00, e00, out.limbs[0], out.limbs[1]);
     return out;
   }
 
   constexpr float64x2 operator/(float64x2 const &rhs) const {
     // Dekker-style: q1 = hi/rhs.hi, refine once.
-    double q1 = _limbs[0] / rhs._limbs[0];
+    double q1 = limbs[0] / rhs.limbs[0];
     if (!std::isfinite(q1)) {
       // Mirror q1 into the lo limb so a non-finite result propagates
       // through both limbs. Otherwise isnan/isinf checks against the lo
       // limb would spuriously report "finite" on a NaN/Inf DD.
       float64x2 out;
-      out._limbs[0] = q1;
-      out._limbs[1] = q1;
+      out.limbs[0] = q1;
+      out.limbs[1] = q1;
       return out;
     }
-    if (!std::isfinite(rhs._limbs[0])) {
+    if (!std::isfinite(rhs.limbs[0])) {
       // Finite / ±Inf — q1 is ±0; the correct DD is {±0, 0}, which
       // default-initialization already gives us.
       float64x2 out;
-      out._limbs[0] = q1;
+      out.limbs[0] = q1;
       return out;
     }
     // r = this - q1 * rhs, computed as a full DD (q1 is a single-limb
     // scalar so q1*rhs is one two_prod + one one_prod = one DD).
     double p00 = 0.0, e00 = 0.0;
-    detail::two_prod(q1, rhs._limbs[0], p00, e00);
-    double p01 = detail::one_prod(q1, rhs._limbs[1]);
+    detail::two_prod(q1, rhs.limbs[0], p00, e00);
+    double p01 = detail::one_prod(q1, rhs.limbs[1]);
     double qhi = p00;
     double qlo = e00 + p01;
     // r = this - (qhi, qlo) via two_diff
     double r0 = 0.0, r0e = 0.0;
-    detail::two_sum(_limbs[0], -qhi, r0, r0e);
-    double r1 = (_limbs[1] - qlo) + r0e;
+    detail::two_sum(limbs[0], -qhi, r0, r0e);
+    double r1 = (limbs[1] - qlo) + r0e;
     double rh = 0.0, rl = 0.0;
     detail::fast_two_sum(r0, r1, rh, rl);
     // q2 = r.hi / rhs.hi
-    double q2 = rh / rhs._limbs[0];
+    double q2 = rh / rhs.limbs[0];
     float64x2 out;
-    detail::fast_two_sum(q1, q2, out._limbs[0], out._limbs[1]);
+    detail::fast_two_sum(q1, q2, out.limbs[0], out.limbs[1]);
     return out;
   }
 
@@ -599,7 +293,343 @@ public:
   constexpr float64x2 &operator/=(float64x2 const &rhs) {
     return *this = *this / rhs;
   }
+#endif /* __cplusplus */
 };
+
+/* complex64x2 — double-double complex.
+ *   • C:   a plain POD (two back-to-back float64x2s, four doubles).
+ *   • C++: a type alias for std::complex<float64x2>. C++11 §26.4/4 only
+ *          guarantees the `T[2]` layout for T ∈ {float, double, long double};
+ *          for user-defined T the ABI match rests on implementation detail.
+ *          libstdc++ and libc++ both store two `_M_value[2]` / `_M_real` +
+ *          `_M_imag` members laid out as `T[2]`, and the static_asserts
+ *          below pin sizeof to 4*sizeof(double). If a future standard
+ *          library changes that, the asserts fire at compile time. */
+#ifdef __cplusplus
+using complex64x2 = std::complex<float64x2>;
+#else
+struct complex64x2 { struct float64x2 re, im; };
+typedef struct float64x2 float64x2;
+typedef struct complex64x2 complex64x2;
+#endif
+
+/* Guard against surprise padding — the entire C ABI and the Fortran
+ * iso_c_binding layer assume float64x2 is exactly two back-to-back
+ * doubles (and complex64x2 exactly four). C11 / C++11 required. */
+#ifdef __cplusplus
+static_assert(sizeof(float64x2) == 2 * sizeof(double),
+              "float64x2 must be two back-to-back doubles with no padding");
+static_assert(sizeof(complex64x2) == 4 * sizeof(double),
+              "std::complex<float64x2> must be four back-to-back doubles with no padding");
+#else
+_Static_assert(sizeof(struct float64x2) == 2 * sizeof(double),
+               "float64x2 must be two back-to-back doubles with no padding");
+_Static_assert(sizeof(struct complex64x2) == 4 * sizeof(double),
+               "complex64x2 must be four back-to-back doubles with no padding");
+#endif
+
+#ifdef __cplusplus
+/* float64x2 is standard-layout + trivially-copyable, so its System V AMD64 /
+ * ARM AAPCS calling convention matches a plain `struct { double, double }`.
+ * Clang's -Wreturn-type-c-linkage conservatively warns because the struct has
+ * user-provided constructors (non-POD in the C++98 sense) — the ABI is still
+ * fine, silence the warning over the extern "C" block. */
+#if defined(__clang__)
+#  pragma clang diagnostic push
+#  pragma clang diagnostic ignored "-Wreturn-type-c-linkage"
+#endif
+extern "C" {
+#endif
+
+/* Arithmetic */
+MULTIFLOATS_API float64x2 adddd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 subdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 muldd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 divdd(float64x2 a, float64x2 b);
+
+/* Unary */
+MULTIFLOATS_API float64x2 negdd(float64x2 a);
+MULTIFLOATS_API float64x2 fabsdd(float64x2 a);
+MULTIFLOATS_API float64x2 sqrtdd(float64x2 a);
+
+/* Rounding. truncdd matches C trunc / Fortran AINT (toward zero).
+ * rounddd matches C round / Fortran ANINT (to nearest, halfway away). */
+MULTIFLOATS_API float64x2 truncdd(float64x2 a);
+MULTIFLOATS_API float64x2 rounddd(float64x2 a);
+
+/* Binary */
+MULTIFLOATS_API float64x2 fmindd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 fmaxdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 hypotdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 powdd(float64x2 a, float64x2 b);
+/* Integer-exponent power via exponentiation-by-squaring: ⌈log2|n|⌉
+ * squarings plus popcount(|n|) multiplies, exact up to DD precision
+ * per step. One DD division at the end when n < 0. */
+MULTIFLOATS_API float64x2 powidd(float64x2 a, int n);
+MULTIFLOATS_API float64x2 fmoddd(float64x2 a, float64x2 b);
+/* Floored modulo (Fortran `modulo` semantics): same sign as y.
+ * modulodd(x, y) = fmod(x, y), plus y if the remainder and y have
+ * opposite signs. Uses DD signbit (first-nonzero-limb), so
+ * non-canonical DDs with hi==0 still get the right sign. */
+MULTIFLOATS_API float64x2 modulodd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 fdimdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 copysigndd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 fmadd(float64x2 a, float64x2 b, float64x2 c);
+
+/* Exponential / logarithmic. `expm1dd` / `log1pdd` are the
+ * cancellation-safe variants for arguments near zero — direct Taylor
+ * / atanh-narrow kernels cover |x| below a threshold, larger |x|
+ * falls through to the standard `exp` / `log` paths. */
+MULTIFLOATS_API float64x2 expdd(float64x2 a);
+MULTIFLOATS_API float64x2 exp2dd(float64x2 a);
+MULTIFLOATS_API float64x2 expm1dd(float64x2 a);
+MULTIFLOATS_API float64x2 logdd(float64x2 a);
+MULTIFLOATS_API float64x2 log2dd(float64x2 a);
+MULTIFLOATS_API float64x2 log10dd(float64x2 a);
+MULTIFLOATS_API float64x2 log1pdd(float64x2 a);
+
+/* Trigonometric */
+MULTIFLOATS_API float64x2 sindd(float64x2 a);
+MULTIFLOATS_API float64x2 cosdd(float64x2 a);
+MULTIFLOATS_API float64x2 tandd(float64x2 a);
+MULTIFLOATS_API float64x2 asindd(float64x2 a);
+MULTIFLOATS_API float64x2 acosdd(float64x2 a);
+MULTIFLOATS_API float64x2 atandd(float64x2 a);
+MULTIFLOATS_API float64x2 atan2dd(float64x2 a, float64x2 b);
+
+/* π-scaled trig: {sin,cos,tan}pidd(x) = fn(π·x),
+ *                {asin,acos,atan}pidd(x) = fn(x)/π,
+ *                atan2pidd(y,x) = atan2(y,x)/π. */
+MULTIFLOATS_API float64x2 sinpidd(float64x2 a);
+MULTIFLOATS_API float64x2 cospidd(float64x2 a);
+MULTIFLOATS_API float64x2 tanpidd(float64x2 a);
+MULTIFLOATS_API float64x2 asinpidd(float64x2 a);
+MULTIFLOATS_API float64x2 acospidd(float64x2 a);
+MULTIFLOATS_API float64x2 atanpidd(float64x2 a);
+MULTIFLOATS_API float64x2 atan2pidd(float64x2 a, float64x2 b);
+
+/* Hyperbolic */
+MULTIFLOATS_API float64x2 sinhdd(float64x2 a);
+MULTIFLOATS_API float64x2 coshdd(float64x2 a);
+MULTIFLOATS_API float64x2 tanhdd(float64x2 a);
+MULTIFLOATS_API float64x2 asinhdd(float64x2 a);
+MULTIFLOATS_API float64x2 acoshdd(float64x2 a);
+MULTIFLOATS_API float64x2 atanhdd(float64x2 a);
+
+/* Error functions. erfcxdd is the scaled complementary error function
+ *   erfcxdd(x) = exp(x^2) * erfcdd(x)
+ * (standard name in Faddeeva/Julia/SciPy; Fortran calls it erfc_scaled). */
+MULTIFLOATS_API float64x2 erfdd(float64x2 a);
+MULTIFLOATS_API float64x2 erfcdd(float64x2 a);
+MULTIFLOATS_API float64x2 erfcxdd(float64x2 a);
+
+/* Gamma functions */
+MULTIFLOATS_API float64x2 tgammadd(float64x2 a);
+MULTIFLOATS_API float64x2 lgammadd(float64x2 a);
+
+/* Bessel functions (POSIX naming). jndd / yndd: integer-order recurrence
+ * seeded from j0dd / j1dd (Miller's backward recurrence for Jn when n > x).
+ * Range variants fill `out[0..n2−n1]` with the order-n1 through order-n2
+ * values; yndd_range uses a single stable forward-recurrence sweep (cheaper
+ * than n2−n1+1 independent yndd calls), while jndd_range loops over jndd
+ * because Jn's forward recurrence is unstable for n > x. */
+MULTIFLOATS_API float64x2 j0dd(float64x2 a);
+MULTIFLOATS_API float64x2 j1dd(float64x2 a);
+MULTIFLOATS_API float64x2 y0dd(float64x2 a);
+MULTIFLOATS_API float64x2 y1dd(float64x2 a);
+MULTIFLOATS_API float64x2 jndd(int n, float64x2 a);
+MULTIFLOATS_API float64x2 yndd(int n, float64x2 a);
+MULTIFLOATS_API void jndd_range(int n1, int n2, float64x2 a, float64x2 *out);
+MULTIFLOATS_API void yndd_range(int n1, int n2, float64x2 a, float64x2 *out);
+
+/* Fused sincos / sinhcosh. One range-reduction + Taylor pair produces
+ * both outputs, roughly halving the transcendental cost for call sites
+ * that need both. Out-pointer style since C has no multi-value return. */
+MULTIFLOATS_API void sincosdd(float64x2 a, float64x2 *s, float64x2 *c);
+MULTIFLOATS_API void sinhcoshdd(float64x2 a, float64x2 *s, float64x2 *c);
+
+/* Complex DD arithmetic. These are the canonical implementations; the
+ * Fortran elemental `cdd + cdd`, `cdd * dp`, etc. routines wrap these via
+ * bind(c). */
+MULTIFLOATS_API complex64x2 cadddd(complex64x2 a, complex64x2 b);
+MULTIFLOATS_API complex64x2 csubdd(complex64x2 a, complex64x2 b);
+MULTIFLOATS_API complex64x2 cmuldd(complex64x2 a, complex64x2 b);
+MULTIFLOATS_API complex64x2 cdivdd(complex64x2 a, complex64x2 b);
+
+/* Complex DD transcendentals. Branch cuts match C99 Annex G (matching
+ * libquadmath cexpq/clogq/csqrtq/...). Where the classic formula needs
+ * both sin(y) and cos(y) or both sinh(y) and cosh(y), these use the fused
+ * kernels internally so one range-reduction + Taylor pair covers both.
+ * Precision and speed have been measured; the std::complex<float64x2>
+ * specializations below delegate here where specialization wins (exp, sin,
+ * cos, tan, sinh, cosh, tanh, atanh, acos). */
+MULTIFLOATS_API complex64x2 cexpdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 cexpm1dd(complex64x2 z);
+MULTIFLOATS_API complex64x2 clogdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 clog2dd(complex64x2 z);
+MULTIFLOATS_API complex64x2 clog10dd(complex64x2 z);
+MULTIFLOATS_API complex64x2 clog1pdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 cpowdd(complex64x2 z, complex64x2 w);
+MULTIFLOATS_API complex64x2 csqrtdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 csindd(complex64x2 z);
+MULTIFLOATS_API complex64x2 csinpidd(complex64x2 z);
+MULTIFLOATS_API complex64x2 ccosdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 ccospidd(complex64x2 z);
+MULTIFLOATS_API complex64x2 ctandd(complex64x2 z);
+MULTIFLOATS_API complex64x2 casindd(complex64x2 z);
+MULTIFLOATS_API complex64x2 cacosdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 catandd(complex64x2 z);
+MULTIFLOATS_API complex64x2 csinhdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 ccoshdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 ctanhdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 casinhdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 cacoshdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 catanhdd(complex64x2 z);
+
+/* Complex magnitude / argument / projection / conjugate / accessors.
+ * cabsdd = |z|  (overflow-safe hypot).
+ * cargdd = arg(z) in (-pi, pi].
+ * cprojdd = projection onto the Riemann sphere (C99 7.3.9.4):
+ *   infinities collapse to (+inf, copysign(0, imag)), else identity. */
+MULTIFLOATS_API float64x2   cabsdd(complex64x2 z);
+MULTIFLOATS_API float64x2   cargdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 cprojdd(complex64x2 z);
+MULTIFLOATS_API complex64x2 conjdd(complex64x2 z);
+MULTIFLOATS_API float64x2   crealdd(complex64x2 z);
+MULTIFLOATS_API float64x2   cimagdd(complex64x2 z);
+
+/* Matrix multiply (column-major, Fortran layout).
+ *   matmuldd_mm: C(m,n) = A(m,k) * B(k,n)
+ *   matmuldd_mv: y(m)   = A(m,k) * x(k)
+ *   matmuldd_vm: y(n)   = x(k)   * B(k,n)
+ * Leading dimensions equal the first extent (no strides).
+ *
+ * Scope vs BLAS GEMM. These are *not* a direct replacement for DGEMM:
+ *
+ *   - transa / transb: no. Always treats both operands in storage order;
+ *     the caller must transpose the input arrays before the call if
+ *     needed. (In Fortran, `matmul(transpose(a), b)` materialises the
+ *     transpose, then the kernel walks the transposed buffer.)
+ *   - alpha / beta:    no. The output is overwritten, not accumulated
+ *     into. To compute `C := alpha*A*B + beta*C`, the caller must scale
+ *     `A` or `B`, run matmul, then combine with C explicitly.
+ *   - leading dimensions: always the first extent; no LDA/LDB/LDC.
+ *
+ * These constraints are deliberate: the compensated DD kernels use a
+ * register-blocked panel design that assumes contiguous column-major
+ * storage with the canonical shape. Adding transposed / strided / in-
+ * place-accumulating variants is plausible but would require a new set
+ * of panel dispatchers — tracked under "Deferred work" in
+ * doc/developer/INTERNALS.md.
+ *
+ * renorm_interval: if > 0, renormalize accumulators every N reductions
+ * (matches DD_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo
+ * bounded for large k). Pass 0 to renormalize only at the end. */
+MULTIFLOATS_API void matmuldd_mm(const float64x2 *a, const float64x2 *b,
+                         float64x2 *c,
+                         int64_t m, int64_t k, int64_t n,
+                         int64_t renorm_interval);
+MULTIFLOATS_API void matmuldd_mv(const float64x2 *a, const float64x2 *x,
+                         float64x2 *y,
+                         int64_t m, int64_t k,
+                         int64_t renorm_interval);
+MULTIFLOATS_API void matmuldd_vm(const float64x2 *x, const float64x2 *b,
+                         float64x2 *y,
+                         int64_t k, int64_t n,
+                         int64_t renorm_interval);
+
+/* Formatted output. Scientific-notation decimal representation of `x`,
+ * written into `[first, last)` with no NUL terminator — matching C++17
+ * `std::to_chars` semantics. On success returns a pointer one past the
+ * last byte written (so the written range is `[first, returned)`). On a
+ * too-small buffer returns NULL and leaves the buffer unchanged. `precision`
+ * is clamped to [1, 34] — DD carries ~32 significant digits, two extra for
+ * round-half-to-even. Special values emit "nan", "inf", "-inf", "0e+00",
+ * "-0e+00".
+ *
+ * A buffer of MULTIFLOATS_DD_CHARS_BUFSIZE bytes always fits any valid
+ * output, so stack-allocating `char buf[MULTIFLOATS_DD_CHARS_BUFSIZE]` and
+ * calling as `to_charsdd(x, prec, buf, buf + sizeof(buf))` is a safe use.
+ * The C++ `multifloats::to_chars` / `to_string` / `operator<<` wrappers
+ * below all layer on this so that `std::string` construction happens in
+ * the consumer's TU — keeping the library free of `std::string` in its
+ * ABI surface (libstdc++ `_GLIBCXX_USE_CXX11_ABI` dual-ABI safe). */
+#define MULTIFLOATS_DD_CHARS_BUFSIZE 48
+MULTIFLOATS_API char *to_charsdd(float64x2 x, int precision,
+                                 char *first, char *last);
+
+/* Comparison (return int: 1 = true, 0 = false) */
+MULTIFLOATS_API int eqdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int nedd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int ltdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int ledd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int gtdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int gedd(float64x2 a, float64x2 b);
+
+/* libquadmath parity — every NAMEq in <quadmath.h> has a NAMEdd entry
+ * here. Implementations are the canonical `multifloats::NAME` C++
+ * helpers in the header section below; the C-ABI symbols in
+ * src/float64x2_abi.inc are thin marshaling shims. */
+
+/* Cube root, integer rounding (toward ±inf, nearest-current-mode), exponent
+ * split / rescale, integer/fractional split, ulp-step, IEEE remainder. */
+MULTIFLOATS_API float64x2 cbrtdd(float64x2 a);
+MULTIFLOATS_API float64x2 ceildd(float64x2 a);
+MULTIFLOATS_API float64x2 floordd(float64x2 a);
+MULTIFLOATS_API float64x2 nearbyintdd(float64x2 a);
+MULTIFLOATS_API float64x2 rintdd(float64x2 a);
+MULTIFLOATS_API float64x2 logbdd(float64x2 a);
+MULTIFLOATS_API float64x2 frexpdd(float64x2 a, int *exp);
+MULTIFLOATS_API float64x2 modfdd(float64x2 a, float64x2 *iptr);
+MULTIFLOATS_API float64x2 ldexpdd(float64x2 a, int n);
+MULTIFLOATS_API float64x2 scalbndd(float64x2 a, int n);
+MULTIFLOATS_API float64x2 scalblndd(float64x2 a, long n);
+MULTIFLOATS_API float64x2 nextafterdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 remainderdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 remquodd(float64x2 a, float64x2 b, int *quo);
+MULTIFLOATS_API int ilogbdd(float64x2 a);
+
+/* Integer rounding — leading-limb's libm result with a half-integer
+ * fixup that consults the lo limb (so e.g. lround((0.5, -ε)) = 0). */
+MULTIFLOATS_API long lrounddd(float64x2 a);
+MULTIFLOATS_API long long llrounddd(float64x2 a);
+MULTIFLOATS_API long lrintdd(float64x2 a);
+MULTIFLOATS_API long long llrintdd(float64x2 a);
+
+/* Classification — C99 isnan/isinf/signbit/isfinite contract: non-zero
+ * for true. `finitedd` mirrors libquadmath's legacy `finiteq` spelling
+ * (alias for isfinitedd). */
+MULTIFLOATS_API int isnandd(float64x2 a);
+MULTIFLOATS_API int isinfdd(float64x2 a);
+MULTIFLOATS_API int isfinitedd(float64x2 a);
+MULTIFLOATS_API int finitedd(float64x2 a);
+MULTIFLOATS_API int signbitdd(float64x2 a);
+/* Signaling-NaN test on the leading limb. Uses the compiler builtin
+ * where available (gcc >= 13, clang with __has_builtin); otherwise
+ * returns 0 — multifloats never constructs sNaNs internally, so the
+ * fallback only loses signal when the caller explicitly passed an
+ * sNaN through the C ABI. */
+MULTIFLOATS_API int issignalingdd(float64x2 a);
+
+/* NaN with payload tag (libquadmath nanq parity). Calls std::nan(tagp)
+ * for the leading limb; lo is set to 0. */
+MULTIFLOATS_API float64x2 nandd(const char *tagp);
+
+/* cis(x) = cos(x) + i sin(x). Mirrors libquadmath cexpiq. */
+MULTIFLOATS_API complex64x2 cexpidd(float64x2 a);
+
+#ifdef __cplusplus
+}  /* extern "C" */
+#if defined(__clang__)
+#  pragma clang diagnostic pop
+#endif
+#endif
+
+/* ============================================================================
+ * C++-only section — free functions, transcendental decls, matmul, to_chars.
+ * Still inside `namespace multifloats { }` opened at the top of the header.
+ * ========================================================================= */
+#ifdef __cplusplus
 
 // =============================================================================
 // <cmath>-style free functions (ADL on float64x2)
@@ -621,8 +651,8 @@ namespace detail {
 // zero. Used by abs / signbit to resolve the sign of non-canonical DDs like
 // (+0, -eps), where signbit(hi) alone would misclassify.
 constexpr std::size_t first_nonzero_limb_index(float64x2 const &x) {
-  if (x._limbs[0] != 0.0) return 0;
-  if (x._limbs[1] != 0.0) return 1;
+  if (x.limbs[0] != 0.0) return 0;
+  if (x.limbs[1] != 0.0) return 1;
   return 2;
 }
 
@@ -638,7 +668,7 @@ inline constexpr float64x2 fabs(float64x2 const &x) {
   // All limbs are a (possibly signed) zero: return canonical +0 so
   // fabs((-0, 0)) yields (+0, +0), matching IEEE fabs(-0.0) = +0.0.
   if (i == 2) return float64x2();
-  return std::signbit(x._limbs[i]) ? -x : x;
+  return std::signbit(x.limbs[i]) ? -x : x;
 }
 
 inline constexpr float64x2 fmin(float64x2 const &a, float64x2 const &b) {
@@ -659,31 +689,37 @@ inline constexpr bool signbit(float64x2 const &x) {
   // the first nonzero limb. Fall through to signbit(hi) when every limb
   // is a (possibly signed) zero, preserving IEEE -0 semantics.
   std::size_t i = detail::first_nonzero_limb_index(x);
-  return std::signbit(x._limbs[i == 2 ? 0 : i]);
+  return std::signbit(x.limbs[i == 2 ? 0 : i]);
 }
 
 inline constexpr bool isfinite(float64x2 const &x) {
   // A DD with finite hi and non-finite lo is classified non-finite — this
   // matters for the operator+ short-circuit.
   for (std::size_t i = 0; i < 2; ++i) {
-    if (!std::isfinite(x._limbs[i])) return false;
+    if (!std::isfinite(x.limbs[i])) return false;
   }
   return true;
 }
 
 inline constexpr bool isinf(float64x2 const &x) {
-  return std::isinf(x._limbs[0]);
+  // Scan both limbs for symmetry with isnan / isfinite: a DD with a finite
+  // hi and an inf lo (non-canonical but constructible via the C ABI) should
+  // classify as inf, not "neither finite nor inf".
+  for (std::size_t i = 0; i < 2; ++i) {
+    if (std::isinf(x.limbs[i])) return true;
+  }
+  return false;
 }
 
 inline constexpr bool isnan(float64x2 const &x) {
   for (std::size_t i = 0; i < 2; ++i) {
-    if (std::isnan(x._limbs[i])) return true;
+    if (std::isnan(x.limbs[i])) return true;
   }
   return false;
 }
 
 inline constexpr int fpclassify(float64x2 const &x) {
-  return std::fpclassify(x._limbs[0]);
+  return std::fpclassify(x.limbs[0]);
 }
 
 inline constexpr float64x2 ldexp(float64x2 const &x, int n) {
@@ -691,7 +727,7 @@ inline constexpr float64x2 ldexp(float64x2 const &x, int n) {
   // two is exact for every limb (no rounding, no renorm), avoiding the
   // two library calls of std::ldexp.
   double scale = std::ldexp(1.0, n);
-  return {x._limbs[0] * scale, x._limbs[1] * scale};
+  return {x.limbs[0] * scale, x.limbs[1] * scale};
 }
 
 inline constexpr float64x2 scalbn(float64x2 const &x, int n) {
@@ -700,7 +736,7 @@ inline constexpr float64x2 scalbn(float64x2 const &x, int n) {
 }
 
 inline constexpr int ilogb(float64x2 const &x) {
-  return std::ilogb(x._limbs[0]);
+  return std::ilogb(x.limbs[0]);
 }
 
 inline constexpr float64x2 copysign(float64x2 const &x, float64x2 const &y) {
@@ -727,35 +763,35 @@ constexpr void renorm_fast(double &hi, double &lo) {
 
 inline constexpr float64x2 floor(float64x2 const &x) {
   float64x2 r;
-  double fl_hi = std::floor(x._limbs[0]);
-  if (fl_hi == x._limbs[0]) {
+  double fl_hi = std::floor(x.limbs[0]);
+  if (fl_hi == x.limbs[0]) {
     // hi is already an integer; floor depends on the lo limb.
-    r._limbs[0] = fl_hi;
-    r._limbs[1] = std::floor(x._limbs[1]);
-    detail::renorm_fast(r._limbs[0], r._limbs[1]);
+    r.limbs[0] = fl_hi;
+    r.limbs[1] = std::floor(x.limbs[1]);
+    detail::renorm_fast(r.limbs[0], r.limbs[1]);
   } else {
-    r._limbs[0] = fl_hi;
-    r._limbs[1] = 0.0;
+    r.limbs[0] = fl_hi;
+    r.limbs[1] = 0.0;
   }
   return r;
 }
 
 inline constexpr float64x2 ceil(float64x2 const &x) {
   float64x2 r;
-  double cl_hi = std::ceil(x._limbs[0]);
-  if (cl_hi == x._limbs[0]) {
-    r._limbs[0] = cl_hi;
-    r._limbs[1] = std::ceil(x._limbs[1]);
-    detail::renorm_fast(r._limbs[0], r._limbs[1]);
+  double cl_hi = std::ceil(x.limbs[0]);
+  if (cl_hi == x.limbs[0]) {
+    r.limbs[0] = cl_hi;
+    r.limbs[1] = std::ceil(x.limbs[1]);
+    detail::renorm_fast(r.limbs[0], r.limbs[1]);
   } else {
-    r._limbs[0] = cl_hi;
-    r._limbs[1] = 0.0;
+    r.limbs[0] = cl_hi;
+    r.limbs[1] = 0.0;
   }
   return r;
 }
 
 inline constexpr float64x2 trunc(float64x2 const &x) {
-  return std::signbit(x._limbs[0]) ? -floor(-x) : floor(x);
+  return std::signbit(x.limbs[0]) ? -floor(-x) : floor(x);
 }
 
 inline constexpr float64x2 round(float64x2 const &x) {
@@ -768,42 +804,42 @@ inline constexpr float64x2 round(float64x2 const &x) {
   //     closer to zero, so the correct rounded value is hi itself rather
   //     than hi ± 1 that std::round(lo) would add.
   float64x2 r;
-  double hi = std::round(x._limbs[0]);
-  if (hi == x._limbs[0]) {
-    double lo = x._limbs[1];
+  double hi = std::round(x.limbs[0]);
+  if (hi == x.limbs[0]) {
+    double lo = x.limbs[1];
     double rlo = 0.0;
     if      (lo ==  0.5 && hi <  0.0) rlo = 0.0;
     else if (lo == -0.5 && hi >  0.0) rlo = 0.0;
     else                              rlo = std::round(lo);
-    r._limbs[0] = hi;
-    r._limbs[1] = rlo;
-    detail::renorm_fast(r._limbs[0], r._limbs[1]);
+    r.limbs[0] = hi;
+    r.limbs[1] = rlo;
+    detail::renorm_fast(r.limbs[0], r.limbs[1]);
   } else {
-    double diff = x._limbs[0] - hi;
-    if      (diff == -0.5 && x._limbs[1] < 0.0) hi -= 1.0;
-    else if (diff ==  0.5 && x._limbs[1] > 0.0) hi += 1.0;
-    r._limbs[0] = hi;
-    r._limbs[1] = 0.0;
+    double diff = x.limbs[0] - hi;
+    if      (diff == -0.5 && x.limbs[1] < 0.0) hi -= 1.0;
+    else if (diff ==  0.5 && x.limbs[1] > 0.0) hi += 1.0;
+    r.limbs[0] = hi;
+    r.limbs[1] = 0.0;
   }
   return r;
 }
 
 inline constexpr float64x2 nearbyint(float64x2 const &x) {
   float64x2 r;
-  double hi = std::nearbyint(x._limbs[0]);
-  if (hi == x._limbs[0]) {
-    r._limbs[0] = hi;
-    r._limbs[1] = std::nearbyint(x._limbs[1]);
-    detail::renorm_fast(r._limbs[0], r._limbs[1]);
+  double hi = std::nearbyint(x.limbs[0]);
+  if (hi == x.limbs[0]) {
+    r.limbs[0] = hi;
+    r.limbs[1] = std::nearbyint(x.limbs[1]);
+    detail::renorm_fast(r.limbs[0], r.limbs[1]);
   } else {
     // Half-integer hi: std::nearbyint rounds to even and ignores lo, but
     // the true value = hi + lo can lie on the opposite side of the half
     // boundary. Mirror the adjustment in round() above.
-    double diff = x._limbs[0] - hi;
-    if      (diff ==  0.5 && x._limbs[1] > 0.0) hi += 1.0;
-    else if (diff == -0.5 && x._limbs[1] < 0.0) hi -= 1.0;
-    r._limbs[0] = hi;
-    r._limbs[1] = 0.0;
+    double diff = x.limbs[0] - hi;
+    if      (diff ==  0.5 && x.limbs[1] > 0.0) hi += 1.0;
+    else if (diff == -0.5 && x.limbs[1] < 0.0) hi -= 1.0;
+    r.limbs[0] = hi;
+    r.limbs[1] = 0.0;
   }
   return r;
 }
@@ -815,8 +851,8 @@ namespace detail {
 // adjust ±1 based on how lo crosses the half-integer boundary of the true value.
 template <typename Int>
 constexpr Int lround_adjust(float64x2 const &x, Int i) {
-  double hi = x._limbs[0];
-  double lo = x._limbs[1];
+  double hi = x.limbs[0];
+  double lo = x.limbs[1];
   double diff = hi - double(i);
   if (diff == 0.0) {
     // hi exact integer; lo (bounded by ulp(hi)/2) decides.
@@ -831,19 +867,19 @@ constexpr Int lround_adjust(float64x2 const &x, Int i) {
 } // namespace detail
 
 inline constexpr long lround(float64x2 const &x) {
-  return detail::lround_adjust<long>(x, std::lround(x._limbs[0]));
+  return detail::lround_adjust<long>(x, std::lround(x.limbs[0]));
 }
 
 inline constexpr long long llround(float64x2 const &x) {
-  return detail::lround_adjust<long long>(x, std::llround(x._limbs[0]));
+  return detail::lround_adjust<long long>(x, std::llround(x.limbs[0]));
 }
 
 inline constexpr long lrint(float64x2 const &x) {
-  return std::lrint(rint(x)._limbs[0]);
+  return std::lrint(rint(x).limbs[0]);
 }
 
 inline constexpr long long llrint(float64x2 const &x) {
-  return std::llrint(rint(x)._limbs[0]);
+  return std::llrint(rint(x).limbs[0]);
 }
 
 // =============================================================================
@@ -853,8 +889,8 @@ inline constexpr long long llrint(float64x2 const &x) {
 inline constexpr float64x2 frexp(float64x2 const &x, int *exp) {
   float64x2 r;
   int e = 0;
-  r._limbs[0] = std::frexp(x._limbs[0], &e);
-  r._limbs[1] = std::ldexp(x._limbs[1], -e);
+  r.limbs[0] = std::frexp(x.limbs[0], &e);
+  r.limbs[1] = std::ldexp(x.limbs[1], -e);
   *exp = e;
   return r;
 }
@@ -865,12 +901,12 @@ inline constexpr float64x2 modf(float64x2 const &x, float64x2 *iptr) {
 }
 
 inline constexpr float64x2 scalbln(float64x2 const &x, long n) {
-  return {std::scalbln(x._limbs[0], n), std::scalbln(x._limbs[1], n)};
+  return {std::scalbln(x.limbs[0], n), std::scalbln(x.limbs[1], n)};
 }
 
 inline constexpr float64x2 logb(float64x2 const &x) {
   float64x2 r;
-  r._limbs[0] = std::logb(x._limbs[0]);
+  r.limbs[0] = std::logb(x.limbs[0]);
   return r;
 }
 
@@ -880,7 +916,7 @@ inline constexpr float64x2 nextafter(float64x2 const &x, float64x2 const &y) {
   // the downward ulp halves at a power-of-2 boundary, so picking it there
   // would make the step 2× too small and break the round-trip identity
   // nextafter(nextafter(x, +inf), -inf) == x.
-  double ax = std::abs(x._limbs[0]);
+  double ax = std::abs(x.limbs[0]);
   double inf = std::numeric_limits<double>::infinity();
   // x.hi == 0 special: ulp_up(0) is min_subnormal ≈ 5e-324, and `ulp/2^53`
   // underflows to 0 — leaving us returning `x ± 0 == x`, which would loop
@@ -923,29 +959,29 @@ inline constexpr float64x2 fmod(float64x2 const &x, float64x2 const &y) {
   // ≥ 53 and iteration converges in O(gap/53) steps even past 2^106. DD
   // rounding of r − q·ay can leave a tiny negative residue; add-back
   // uses the same gap dispatch so recovery stays O(1).
-  bool x_neg = x._limbs[0] < 0.0;
+  bool x_neg = x.limbs[0] < 0.0;
   float64x2 ax = x_neg ? -x : x;
-  float64x2 ay = (y._limbs[0] < 0.0) ? -y : y;
+  float64x2 ay = (y.limbs[0] < 0.0) ? -y : y;
 
   if (ax < ay) return x;
 
   float64x2 r = ax;
   while (true) {
-    if (r._limbs[0] < 0.0) {
-      double r_abs = -r._limbs[0];
-      int gap = std::ilogb(r_abs) - std::ilogb(ay._limbs[0]);
+    if (r.limbs[0] < 0.0) {
+      double r_abs = -r.limbs[0];
+      int gap = std::ilogb(r_abs) - std::ilogb(ay.limbs[0]);
       if (gap <= 0) {
         r = r + ay;
       } else if (gap <= 53) {
-        double q = std::trunc(r_abs / ay._limbs[0]) + 1.0;
+        double q = std::trunc(r_abs / ay.limbs[0]) + 1.0;
         r = r + ay * float64x2(q);
       } else {
         r = r + (trunc(-r / ay) + float64x2(1.0)) * ay;
       }
     } else if (r >= ay) {
-      int gap = std::ilogb(r._limbs[0]) - std::ilogb(ay._limbs[0]);
+      int gap = std::ilogb(r.limbs[0]) - std::ilogb(ay.limbs[0]);
       if (gap <= 53) {
-        double q = std::trunc(r._limbs[0] / ay._limbs[0]);
+        double q = std::trunc(r.limbs[0] / ay.limbs[0]);
         r = (q <= 1.0) ? (r - ay) : (r - ay * float64x2(q));
       } else {
         r = r - trunc(r / ay) * ay;
@@ -953,7 +989,7 @@ inline constexpr float64x2 fmod(float64x2 const &x, float64x2 const &y) {
     } else {
       break;
     }
-    if (r._limbs[0] == 0.0 && r._limbs[1] == 0.0) break;
+    if (r.limbs[0] == 0.0 && r.limbs[1] == 0.0) break;
   }
 
   return x_neg ? -r : r;
@@ -967,7 +1003,7 @@ inline constexpr float64x2 fmod(float64x2 const &x, float64x2 const &y) {
 // sign adjustment — a subtlety the naive hi-only check misses.
 inline constexpr float64x2 modulo(float64x2 const &x, float64x2 const &y) {
   float64x2 r = fmod(x, y);
-  if (r._limbs[0] == 0.0 && r._limbs[1] == 0.0) return r;
+  if (r.limbs[0] == 0.0 && r.limbs[1] == 0.0) return r;
   return (signbit(r) != signbit(y)) ? r + y : r;
 }
 
@@ -998,7 +1034,7 @@ inline constexpr float64x2 remainder(float64x2 const &x, float64x2 const &y) {
 
 inline constexpr float64x2 remquo(float64x2 const &x, float64x2 const &y, int *quo) {
   float64x2 q = round(x / y);
-  *quo = static_cast<int>(q._limbs[0]);
+  *quo = static_cast<int>(q.limbs[0]);
   return x - q * y;
 }
 
@@ -1010,8 +1046,8 @@ inline constexpr float64x2 fdim(float64x2 const &x, float64x2 const &y) {
 // overshoot when a and b have the same sign and t is in [0, 1].
 inline constexpr float64x2 lerp(float64x2 const &a, float64x2 const &b,
                       float64x2 const &t) {
-  if ((a._limbs[0] <= 0.0 && b._limbs[0] >= 0.0) ||
-      (a._limbs[0] >= 0.0 && b._limbs[0] <= 0.0)) {
+  if ((a.limbs[0] <= 0.0 && b.limbs[0] >= 0.0) ||
+      (a.limbs[0] >= 0.0 && b.limbs[0] <= 0.0)) {
     // Opposite signs (or one is zero): no cancellation risk.
     return t * b + (float64x2(1.0) - t) * a;
   }
@@ -1021,7 +1057,7 @@ inline constexpr float64x2 lerp(float64x2 const &a, float64x2 const &b,
   float64x2 x = a + t * (b - a);
   // Enforce monotonicity at the b end when t is past 1 or when rounding
   // nudges x beyond b — matches libstdc++/libc++ behavior.
-  if ((t._limbs[0] > 1.0) == (b > a)) {
+  if ((t.limbs[0] > 1.0) == (b > a)) {
     return (b > x) ? b : x;
   }
   return (x > b) ? b : x;
@@ -1057,18 +1093,18 @@ namespace detail {
 // =============================================================================
 
 inline constexpr float64x2 sqrt(float64x2 const &x) {
-  double s = std::sqrt(x._limbs[0]);
+  double s = std::sqrt(x.limbs[0]);
   // Bail on 0, -0, negative, NaN, +Inf — the Karp-Markstein refinement
   // would compute `inf - inf = NaN` in the residual step for +Inf, and
   // `0 / 0` for 0. Leading-limb sqrt handles every IEEE special case.
-  if (!(x._limbs[0] > 0.0) || !std::isfinite(s)) {
+  if (!(x.limbs[0] > 0.0) || !std::isfinite(s)) {
     float64x2 r;
-    r._limbs[0] = s;
+    r.limbs[0] = s;
     return r;
   }
   // Karp/Markstein: r = s + (x - s*s) / (2s), evaluated in DD. The
   // correction reduces the DD residual to a scalar via
-  // `residual._limbs[0] * (0.5/s)`, so the residual's lo limb is
+  // `residual.limbs[0] * (0.5/s)`, so the residual's lo limb is
   // dropped on the floor. Two higher-fidelity variants were measured
   // (see doc/developer/INTERNALS.md anchor P1):
   //   (a) full DD divide `residual / (2*s_dd)` — sqrt worst case near
@@ -1081,58 +1117,58 @@ inline constexpr float64x2 sqrt(float64x2 const &x) {
   // regression for this library's usage pattern; keep baseline.
   const float64x2 s_dd(s);
   const float64x2 residual = x - s_dd * s_dd;
-  const float64x2 correction(residual._limbs[0] * (0.5 / s));
+  const float64x2 correction(residual.limbs[0] * (0.5 / s));
   return s_dd + correction;
 }
 
 inline constexpr float64x2 cbrt(float64x2 const &x) {
-  const double s = std::cbrt(x._limbs[0]);
+  const double s = std::cbrt(x.limbs[0]);
   // Bail on 0/-0/±Inf/NaN — the residual would compute `inf - inf` for ±Inf
   // and `0/0` for ±0, poisoning both limbs. std::cbrt already returns the
   // correctly-signed special-value result for the leading limb.
-  if (x._limbs[0] == 0.0 || !std::isfinite(s)) {
+  if (x.limbs[0] == 0.0 || !std::isfinite(s)) {
     float64x2 r;
-    r._limbs[0] = s;
+    r.limbs[0] = s;
     return r;
   }
   const float64x2 s_dd(s);
   const float64x2 residual = x - s_dd * s_dd * s_dd;
-  const float64x2 correction(residual._limbs[0] / (3.0 * s * s));
+  const float64x2 correction(residual.limbs[0] / (3.0 * s * s));
   return s_dd + correction;
 }
 
 inline constexpr float64x2 hypot(float64x2 const &x, float64x2 const &y) {
   // Defer to libm's hypot for non-finite so inf/NaN propagate correctly.
-  if (!std::isfinite(x._limbs[0]) || !std::isfinite(y._limbs[0])) {
+  if (!std::isfinite(x.limbs[0]) || !std::isfinite(y.limbs[0])) {
     float64x2 r;
-    r._limbs[0] = std::hypot(x._limbs[0], y._limbs[0]);
-    r._limbs[1] = 0.0;
+    r.limbs[0] = std::hypot(x.limbs[0], y.limbs[0]);
+    r.limbs[1] = 0.0;
     return r;
   }
   float64x2 ax = signbit(x) ? -x : x;
   float64x2 ay = signbit(y) ? -y : y;
   float64x2 big = (ax > ay) ? ax : ay;
   float64x2 small = (ax > ay) ? ay : ax;
-  if (big._limbs[0] == 0.0) return float64x2();
+  if (big.limbs[0] == 0.0) return float64x2();
   // Power-of-2 scale (exact) so big has exponent 0 before the square.
   // Replace per-limb ldexp calls with multiplies by 2^(±e): for a power-
   // of-2 multiplier and a non-subnormal result, `x * 2^k` and
   // `ldexp(x, k)` are bit-identical, but the multiply is one FP op while
   // ldexp is a libm call. `e` comes from `ilogb(big.hi)` on a finite
   // non-zero input, so `|e| ≤ 1023`; `2^(-e)` and `2^e` are both finite.
-  int e = std::ilogb(big._limbs[0]);
+  int e = std::ilogb(big.limbs[0]);
   double down = std::ldexp(1.0, -e);
-  big._limbs[0]   *= down; big._limbs[1]   *= down;
-  small._limbs[0] *= down; small._limbs[1] *= down;
+  big.limbs[0]   *= down; big.limbs[1]   *= down;
+  small.limbs[0] *= down; small.limbs[1] *= down;
   float64x2 ratio = small / big;
   float64x2 root = big * sqrt(float64x2(1.0) + ratio * ratio);
   float64x2 r;
   double up = std::ldexp(1.0, e);
-  r._limbs[0] = root._limbs[0] * up;
-  r._limbs[1] = root._limbs[1] * up;
+  r.limbs[0] = root.limbs[0] * up;
+  r.limbs[1] = root.limbs[1] * up;
   // Overflow: true result exceeds double's range. Zero the trailing limb so
   // callers see a clean inf rather than (inf, NaN).
-  if (!std::isfinite(r._limbs[0])) r._limbs[1] = 0.0;
+  if (!std::isfinite(r.limbs[0])) r.limbs[1] = 0.0;
   return r;
 }
 
@@ -1216,7 +1252,7 @@ void      yn (int n1, int n2, float64x2 const &x, float64x2 *out);
 // =============================================================================
 
 inline constexpr bool isnormal(float64x2 const &x) {
-  return std::isnormal(x._limbs[0]);
+  return std::isnormal(x.limbs[0]);
 }
 
 inline constexpr bool isgreater(float64x2 const &x, float64x2 const &y) {
@@ -1243,23 +1279,26 @@ inline constexpr bool isunordered(float64x2 const &x, float64x2 const &y) {
   return isnan(x) || isnan(y);
 }
 
-// Layout compatibility with the C ABI struct. The `matmul_*` wrappers below
-// reinterpret `float64x2 const*` ⇄ `float64x2_t const*` at the boundary
-// rather than reshape element-by-element, which is only safe if the two
-// types occupy the same storage.
-static_assert(sizeof(float64x2) == sizeof(float64x2_t),
-              "multifloats::float64x2 and float64x2_t must have the same "
-              "size for the matmul C-ABI wrappers to use reinterpret_cast");
+// Layout sanity: float64x2 must remain standard-layout and trivially-copyable.
+// The Fortran bind(c) interop, the C-ABI pass-by-value convention, and the
+// matmul panel dispatchers all assume a two-double storage image with no
+// hidden members, virtuals, or base classes. The user-provided constructors
+// make it non-POD in the C++98 sense but preserve both properties.
+static_assert(std::is_standard_layout<float64x2>::value,
+              "float64x2 must be standard-layout");
+static_assert(std::is_trivially_copyable<float64x2>::value,
+              "float64x2 must be trivially copyable");
 
 // ---- Compensated DD matrix multiply ----------------------------------------
 //
 // Column-major (Fortran-layout) GEMM/GEMV/VM panels with a compensated DD
 // accumulator. Definitions live in src/multifloats_math.cc; the extern "C"
-// `matmuldd_*` shims in the C section of this header are thin
-// reinterpret_cast wrappers over these. See the block comment on matmuldd_mm
-// in the C section for
-// the deliberate scope-down vs BLAS GEMM (no transpose flags, no alpha/beta,
-// no leading-dimension arguments — always contiguous column-major).
+// `matmuldd_*` shims in the C section of this header forward directly to
+// these (since `float64x2` is a single unified type across C and C++, no
+// reinterpret_cast at the boundary). See the block comment on matmuldd_mm
+// in the C section for the deliberate scope-down vs BLAS GEMM (no transpose
+// flags, no alpha/beta, no leading-dimension arguments — always contiguous
+// column-major).
 //
 // `renorm_interval` controls mid-accumulation renormalization of the (hi,
 // lo) DD accumulator pair:
@@ -1341,7 +1380,7 @@ std::ostream &operator<<(std::ostream &os, float64x2 const &x);
 // on `std::complex<multifloats::float64x2>`. Definitions live in
 // multifloats_math.cc (complex64x2_std.inc); the C-ABI
 // `c*dd` symbols in the C section above are now thin wrappers that marshal
-// complex64x2_t ↔ std::complex<multifloats::float64x2> and call these.
+// complex64x2 ↔ std::complex<multifloats::float64x2> and call these.
 //
 // Covers:
 //   • transcendentals: exp, log, sqrt, pow, sin, cos, tan, asin, acos,
@@ -1352,7 +1391,6 @@ std::ostream &operator<<(std::ostream &os, float64x2 const &x);
 // unchanged — they compile to componentwise limb ops already. The
 // Kind-D overloads that don't have std:: free functions (log1p, log2,
 // expm1, sinpi, cospi) live in `namespace multifloats` below.
-#include <complex>
 
 namespace std {
 

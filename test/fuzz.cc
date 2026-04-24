@@ -42,6 +42,8 @@
 #include <random>
 
 namespace mf = multifloats;
+using multifloats::float64x2;
+using multifloats::complex64x2;
 using multifloats_test::q_t;
 using multifloats_test::to_q;
 using multifloats_test::from_q;
@@ -446,14 +448,14 @@ static void report_fail(char const *op, char const *detail) {
 // "cSTEM" (e.g. "csin", "csqrt") — matches libquadmath's cNAMEq naming
 // with the q stripped.
 #define CHK_C1(STEM) \
-    CHK("c" #STEM, ::c##STEM##dd(zd1), c##STEM##q(zq1), \
+    CHK("c" #STEM, c##STEM##dd(zd1), c##STEM##q(zq1), \
         mag, (q_t)0, c##STEM##mp(zm1))
 
-// Complex binary: ::cSTEMdd(zd1, zd2) / cSTEMq(zq1, zq2) / cSTEMmp(zm1, zm2).
+// Complex binary: cSTEMdd(zd1, zd2) / cSTEMq(zq1, zq2) / cSTEMmp(zm1, zm2).
 // The qp leg reads as a function call thanks to the caddq/csubq/cmulq/cdivq
 // inline wrappers above — this parallelizes cleanly with CHK_C1.
 #define CHK_C2(STEM) \
-    CHK("c" #STEM, ::c##STEM##dd(zd1, zd2), c##STEM##q(zq1, zq2), \
+    CHK("c" #STEM, c##STEM##dd(zd1, zd2), c##STEM##q(zq1, zq2), \
         mag, (q_t)0, c##STEM##mp(zm1, zm2))
 
 // Gated-call variants: `CHK1_IF(sin, cond)` expands to the equivalent of
@@ -476,10 +478,10 @@ static void check(char const *op, mf::float64x2 const &got, q_t expected,
   // legitimately leave garbage or a second NaN in the low slot, and
   // downstream consumers all bail out on NaN hi.
   if (q_isnan(expected)) {
-    if (!std::isnan(got._limbs[0])) {
+    if (!std::isnan(got.limbs[0])) {
       char buf[128];
       std::snprintf(buf, sizeof(buf), "expected NaN, got (%a, %a)",
-                    got._limbs[0], got._limbs[1]);
+                    got.limbs[0], got.limbs[1]);
       report_fail(op, buf);
     }
     return;
@@ -488,12 +490,12 @@ static void check(char const *op, mf::float64x2 const &got, q_t expected,
   // is unconstrained — an overflowing kernel can propagate either inf or
   // NaN into lo depending on which two_sum path fired.
   if (!q_isfinite(expected)) {
-    bool ok = std::isinf(got._limbs[0]) &&
-              (std::signbit(got._limbs[0]) == (expected < 0));
+    bool ok = std::isinf(got.limbs[0]) &&
+              (std::signbit(got.limbs[0]) == (expected < 0));
     if (!ok) {
       char buf[128];
       std::snprintf(buf, sizeof(buf), "expected inf, got (%a, %a)",
-                    got._limbs[0], got._limbs[1]);
+                    got.limbs[0], got.limbs[1]);
       report_fail(op, buf);
     }
     return;
@@ -570,7 +572,7 @@ static void check(char const *op, mf::float64x2 const &got, q_t expected,
       std::fprintf(stderr, "  i2       = %s\n", qstr(i2));
       std::fprintf(stderr, "  expected = %s\n", qstr(expected));
       std::fprintf(stderr, "  got      = %s  (limbs %a, %a)\n", qstr(got_q),
-                   got._limbs[0], got._limbs[1]);
+                   got.limbs[0], got.limbs[1]);
       ++g_prints;
     }
   }
@@ -715,11 +717,11 @@ static void print_all_stats() {
 // complex-input magnitude; i2 is unused in practice and set to (q_t)0 at
 // call sites, but kept in the signature for uniformity with the scalar
 // overload so a single CHK macro drives both.
-static void check(char const *op, complex64x2_t const &got,
+static void check(char const *op, complex64x2 const &got,
                   __complex128 expected, q_t i1, q_t i2
                   MP_PARAM(CMp const &expected_mp)) {
-  mf::float64x2 got_re = mf::float64x2(got.re);
-  mf::float64x2 got_im = mf::float64x2(got.im);
+  mf::float64x2 got_re = got.real();
+  mf::float64x2 got_im = got.imag();
   q_t exp_re = crealq(expected);
   q_t exp_im = cimagq(expected);
 
@@ -730,13 +732,10 @@ static void check(char const *op, complex64x2_t const &got,
   CHK(key, got_im, exp_im, i1, i2, expected_mp.im);
 }
 
-// Convert an mf::float64x2 pair to a C-ABI complex64x2_t for dispatching
+// Convert an mf::float64x2 pair to a C-ABI complex64x2 for dispatching
 // through the *dd kernels.
-static inline complex64x2_t to_cdd(mf::float64x2 const &re, mf::float64x2 const &im) {
-  complex64x2_t z;
-  z.re = static_cast<float64x2_t>(re);
-  z.im = static_cast<float64x2_t>(im);
-  return z;
+static inline complex64x2 to_cdd(mf::float64x2 const &re, mf::float64x2 const &im) {
+  return complex64x2{re, im};
 }
 
 // Build a __complex128 from two q_t components.
@@ -894,9 +893,9 @@ static void fuzz_arrays(Rng &rng) {
       if (am > max_m) max_m = am;
     }
     mf::float64x2 y_dd[kArrayN];
-    matmuldd_mv(reinterpret_cast<float64x2_t const *>(m_arr),
-                reinterpret_cast<float64x2_t const *>(a),
-                reinterpret_cast<float64x2_t *>(y_dd),
+    matmuldd_mv(reinterpret_cast<float64x2 const *>(m_arr),
+                reinterpret_cast<float64x2 const *>(a),
+                reinterpret_cast<float64x2 *>(y_dd),
                 kArrayN, kArrayN, kArrayRenorm);
     for (int row = 0; row < kArrayN; ++row) {
       q_t y_q = (q_t)0;
@@ -947,9 +946,9 @@ static void fuzz_matmul_mm_vm_only(Rng &rng) {
       if (an > max_n) max_n = an;
     }
     mf::float64x2 c_dd[kArrayN * kArrayN];
-    matmuldd_mm(reinterpret_cast<float64x2_t const *>(m_arr),
-                reinterpret_cast<float64x2_t const *>(n_arr),
-                reinterpret_cast<float64x2_t *>(c_dd),
+    matmuldd_mm(reinterpret_cast<float64x2 const *>(m_arr),
+                reinterpret_cast<float64x2 const *>(n_arr),
+                reinterpret_cast<float64x2 *>(c_dd),
                 kArrayN, kArrayN, kArrayN, kArrayRenorm);
     for (int row = 0; row < kArrayN; ++row) {
       for (int col = 0; col < kArrayN; ++col) {
@@ -979,9 +978,9 @@ static void fuzz_matmul_mm_vm_only(Rng &rng) {
       if (am > max_m) max_m = am;
     }
     mf::float64x2 y_dd[kArrayN];
-    matmuldd_vm(reinterpret_cast<float64x2_t const *>(a),
-                reinterpret_cast<float64x2_t const *>(m_arr),
-                reinterpret_cast<float64x2_t *>(y_dd),
+    matmuldd_vm(reinterpret_cast<float64x2 const *>(a),
+                reinterpret_cast<float64x2 const *>(m_arr),
+                reinterpret_cast<float64x2 *>(y_dd),
                 kArrayN, kArrayN, kArrayRenorm);
     for (int col = 0; col < kArrayN; ++col) {
       q_t y_q = (q_t)0;
@@ -1081,8 +1080,8 @@ int main(int argc, char **argv) {
     if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
       auto dd_of_llong = [](long long v) {
         mf::float64x2 r;
-        r._limbs[0] = (double)v;
-        r._limbs[1] = 0.0;
+        r.limbs[0] = (double)v;
+        r.limbs[1] = 0.0;
         return r;
       };
       CHK("lround",  dd_of_llong(mf::lround(f1)),
@@ -1105,8 +1104,8 @@ int main(int argc, char **argv) {
            mf::logb(f1), logbq(q1), q1, (q_t)0, to_mp(logbq(q1)));
     if (q_isfinite(q1) && q1 != (q_t)0) {
       mf::float64x2 ilogb_dd;
-      ilogb_dd._limbs[0] = (double)mf::ilogb(f1);
-      ilogb_dd._limbs[1] = 0.0;
+      ilogb_dd.limbs[0] = (double)mf::ilogb(f1);
+      ilogb_dd.limbs[1] = 0.0;
       CHK("ilogb", ilogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
           mp_t((long long)ilogbq(q1)));
     }
@@ -1133,10 +1132,10 @@ int main(int argc, char **argv) {
       // fmadd(a, b, c) = a·b + c. Use d1 as the third input (DD-
       // representable) so the qp reference is exactly fmaq(q1, q2, d1).
       CHK("fmadd",
-          mf::float64x2(::fmadd(
-              static_cast<float64x2_t>(f1),
-              static_cast<float64x2_t>(f2),
-              static_cast<float64x2_t>(mf::float64x2(d1)))),
+          mf::float64x2(fmadd(
+              static_cast<float64x2>(f1),
+              static_cast<float64x2>(f2),
+              static_cast<float64x2>(mf::float64x2(d1)))),
           fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
     }
 
@@ -1157,8 +1156,8 @@ int main(int argc, char **argv) {
         CHK1_IF(tan, fabsq(cosq(q1)) > (q_t)1e-12q);
 
         // Fused sincos: one range-reduction feeds both outputs.
-        float64x2_t sc_s, sc_c;
-        ::sincosdd(static_cast<float64x2_t>(f1), &sc_s, &sc_c);
+        float64x2 sc_s, sc_c;
+        sincosdd(static_cast<float64x2>(f1), &sc_s, &sc_c);
         CHK("sincos_s", mf::float64x2(sc_s), sinq(q1),
             q1, (q_t)0, mpfr::sin(m1));
         CHK("sincos_c", mf::float64x2(sc_c), cosq(q1),
@@ -1200,8 +1199,8 @@ int main(int argc, char **argv) {
         CHK1(tanh);
 
         // Fused sinhcosh.
-        float64x2_t hc_s, hc_c;
-        ::sinhcoshdd(static_cast<float64x2_t>(f1), &hc_s, &hc_c);
+        float64x2 hc_s, hc_c;
+        sinhcoshdd(static_cast<float64x2>(f1), &hc_s, &hc_c);
         CHK("sinhcosh_s", mf::float64x2(hc_s), sinhq(q1),
             q1, (q_t)0, mpfr::sinh(m1));
         CHK("sinhcosh_c", mf::float64x2(hc_c), coshq(q1),
@@ -1232,8 +1231,8 @@ int main(int argc, char **argv) {
       // amplification, so full-DD tolerance holds here (unlike forward
       // sin/cos/tanpi — see is_pi_trig).
       CHK("atan2pi",
-          mf::float64x2(::atan2pidd(
-              static_cast<float64x2_t>(f1), static_cast<float64x2_t>(f2))),
+          mf::float64x2(atan2pidd(
+              static_cast<float64x2>(f1), static_cast<float64x2>(f2))),
           atan2q(q1, q2) / (q_t)M_PIq,
           q1, q2,
           mpfr::atan2(m1, m2) / mpfr::const_pi(multifloats_test::kMpfrPrec));
@@ -1274,8 +1273,8 @@ int main(int argc, char **argv) {
             P_lo = (P_exact - mp_t(P_hi)).toDouble();
           }
           mf::float64x2 P_dd;
-          P_dd._limbs[0] = P_hi;
-          P_dd._limbs[1] = P_lo;
+          P_dd.limbs[0] = P_hi;
+          P_dd.limbs[1] = P_lo;
           q_t P_q = to_q(P_dd);
           CHK("pow_diag_exp2", mf::exp2(P_dd), exp2q(P_q),
               P_q, (q_t)0, mpfr::exp2(to_mp(P_q)));
@@ -1328,8 +1327,8 @@ int main(int argc, char **argv) {
         q_t fr_q = frexpq(q1, &e_q);
         CHK("frexp.frac", fr_mf, fr_q, q1, (q_t)0, to_mp(fr_q));
         mf::float64x2 eint_mf;
-        eint_mf._limbs[0] = (double)e_mf;
-        eint_mf._limbs[1] = 0.0;
+        eint_mf.limbs[0] = (double)e_mf;
+        eint_mf.limbs[1] = 0.0;
         CHK("frexp.exp", eint_mf, (q_t)e_q, q1, (q_t)0,
             mp_t((long long)e_q));
       }
@@ -1373,33 +1372,33 @@ int main(int argc, char **argv) {
       // where the two implementations can disagree by more than the kernel
       // error alone.
       if (q_isfinite(q1) && aq1 < (q_t)200) {
-        CHK("bj0", mf::float64x2(::j0dd(static_cast<float64x2_t>(f1))),
+        CHK("bj0", mf::float64x2(j0dd(static_cast<float64x2>(f1))),
             j0q(q1), q1, (q_t)0, mpfr::besselj0(m1));
-        CHK("bj1", mf::float64x2(::j1dd(static_cast<float64x2_t>(f1))),
+        CHK("bj1", mf::float64x2(j1dd(static_cast<float64x2>(f1))),
             j1q(q1), q1, (q_t)0, mpfr::besselj1(m1));
 
         static constexpr int kBesselOrders[] = {2, 3, 5, 8};
         for (int n : kBesselOrders) {
           CHK("bjn",
-              mf::float64x2(::jndd(n, static_cast<float64x2_t>(f1))),
+              mf::float64x2(jndd(n, static_cast<float64x2>(f1))),
               jnq(n, q1), q1, (q_t)n, mpfr::besseljn((long)n, m1));
           CHK_IF(q1 > (q_t)0, "byn",
-                 mf::float64x2(::yndd(n, static_cast<float64x2_t>(f1))),
+                 mf::float64x2(yndd(n, static_cast<float64x2>(f1))),
                  ynq(n, q1), q1, (q_t)n, mpfr::besselyn((long)n, m1));
         }
 
         if (q1 > (q_t)0) {
-          CHK("by0", mf::float64x2(::y0dd(static_cast<float64x2_t>(f1))),
+          CHK("by0", mf::float64x2(y0dd(static_cast<float64x2>(f1))),
               y0q(q1), q1, (q_t)0, mpfr::bessely0(m1));
-          CHK("by1", mf::float64x2(::y1dd(static_cast<float64x2_t>(f1))),
+          CHK("by1", mf::float64x2(y1dd(static_cast<float64x2>(f1))),
               y1q(q1), q1, (q_t)0, mpfr::bessely1(m1));
 
           // yndd_range: single forward-recurrence sweep filling out[0..5].
           // Each output is compared individually against ynq(n, x). One
           // label "yn_range" covers all six so the stat row aggregates
           // error across the entire range sweep.
-          float64x2_t yn_out[6];
-          ::yndd_range(0, 5, static_cast<float64x2_t>(f1), yn_out);
+          float64x2 yn_out[6];
+          yndd_range(0, 5, static_cast<float64x2>(f1), yn_out);
           for (int n = 0; n <= 5; ++n)
             CHK("yn_range",
                 mf::float64x2(yn_out[n]), ynq(n, q1),
@@ -1408,8 +1407,8 @@ int main(int argc, char **argv) {
           // jndd_range: same idea but for J. The kernel internally loops
           // over jndd, so this exercises the n=0..5 sweep path that was
           // previously only hit one n at a time via CHK("bjn", ...).
-          float64x2_t jn_out[6];
-          ::jndd_range(0, 5, static_cast<float64x2_t>(f1), jn_out);
+          float64x2 jn_out[6];
+          jndd_range(0, 5, static_cast<float64x2>(f1), jn_out);
           for (int n = 0; n <= 5; ++n)
             CHK("jn_range",
                 mf::float64x2(jn_out[n]), jnq(n, q1),
@@ -1429,30 +1428,30 @@ int main(int argc, char **argv) {
         // sinpi fails near integer x (sin(π·n)=0); cospi fails near
         // half-integer (cos(π·(n+1/2))=0). Gate each on its own magnitude.
         CHK_IF(fabsq(sp) > (q_t)1e-10q, "sinpi",
-               mf::float64x2(::sinpidd(static_cast<float64x2_t>(f1))),
+               mf::float64x2(sinpidd(static_cast<float64x2>(f1))),
                sp, q1, (q_t)0,
                mpfr::sin(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
         CHK_IF(fabsq(cp) > (q_t)1e-10q, "cospi",
-               mf::float64x2(::cospidd(static_cast<float64x2_t>(f1))),
+               mf::float64x2(cospidd(static_cast<float64x2>(f1))),
                cp, q1, (q_t)0,
                mpfr::cos(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
         CHK_IF(fabsq(cp) > (q_t)1e-10q && fabsq(sp) > (q_t)1e-10q, "tanpi",
-               mf::float64x2(::tanpidd(static_cast<float64x2_t>(f1))),
+               mf::float64x2(tanpidd(static_cast<float64x2>(f1))),
                sp / cp, q1, (q_t)0,
                mpfr::tan(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
       }
       if (q_isfinite(q1) && aq1 <= (q_t)1) {
         CHK("asinpi",
-            mf::float64x2(::asinpidd(static_cast<float64x2_t>(f1))),
+            mf::float64x2(asinpidd(static_cast<float64x2>(f1))),
             asinq(q1) / (q_t)M_PIq, q1, (q_t)0,
             mpfr::asin(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
         CHK("acospi",
-            mf::float64x2(::acospidd(static_cast<float64x2_t>(f1))),
+            mf::float64x2(acospidd(static_cast<float64x2>(f1))),
             acosq(q1) / (q_t)M_PIq, q1, (q_t)0,
             mpfr::acos(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
       }
       CHK_IF(q_isfinite(q1), "atanpi",
-             mf::float64x2(::atanpidd(static_cast<float64x2_t>(f1))),
+             mf::float64x2(atanpidd(static_cast<float64x2>(f1))),
              atanq(q1) / (q_t)M_PIq, q1, (q_t)0,
              mpfr::atan(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
 
@@ -1471,8 +1470,8 @@ int main(int argc, char **argv) {
           mf::float64x2 fr2 = from_q(zr2), fi2 = from_q(zi2);
           q_t qr1 = to_q(fr1), qi1 = to_q(fi1);
           q_t qr2 = to_q(fr2), qi2 = to_q(fi2);
-          complex64x2_t zd1 = to_cdd(fr1, fi1);
-          complex64x2_t zd2 = to_cdd(fr2, fi2);
+          complex64x2 zd1 = to_cdd(fr1, fi1);
+          complex64x2 zd2 = to_cdd(fr2, fi2);
           __complex128 zq1 = to_cq(qr1, qi1);
           __complex128 zq2 = to_cq(qr2, qi2);
           MP_STMT(CMp zm1 = {to_mp(fr1), to_mp(fi1)});
@@ -1488,9 +1487,9 @@ int main(int argc, char **argv) {
           CHK_C2(mul);
           CHK_C2_IF(div, mag2 > (q_t)0);
           CHK("cabs",
-              mf::float64x2(::cabsdd(zd1)), cabsq(zq1),
+              mf::float64x2(cabsdd(zd1)), cabsq(zq1),
               mag, (q_t)0, cabsmp(zm1));
-          CHK("cconjg", ::conjdd(zd1), conjq(zq1), mag, (q_t)0,
+          CHK("cconjg", conjdd(zd1), conjq(zq1), mag, (q_t)0,
               cconjgmp(zm1));
 
           CHK_C1(sqrt);
@@ -1503,7 +1502,7 @@ int main(int argc, char **argv) {
           // CHK's variadic tail.
           if (mag1 > (q_t)1e-5q) {
             __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
-            CHK("cexpm1", ::cexpm1dd(zd1), cexpq(zq1) - one_c, mag, (q_t)0,
+            CHK("cexpm1", cexpm1dd(zd1), cexpq(zq1) - one_c, mag, (q_t)0,
                 CMp{cexpmp(zm1).re - 1, cexpmp(zm1).im});
           }
 
@@ -1526,8 +1525,8 @@ int main(int argc, char **argv) {
                                          clogmp(zm1).im / mpfr::log(mp_t(2))});
             MP_STMT(CMp clog10_oracle = {clogmp(zm1).re / mpfr::log(mp_t(10)),
                                          clogmp(zm1).im / mpfr::log(mp_t(10))});
-            CHK("clog2",  ::clog2dd(zd1),  lg2,  mag, (q_t)0, clog2_oracle);
-            CHK("clog10", ::clog10dd(zd1), lg10, mag, (q_t)0, clog10_oracle);
+            CHK("clog2",  clog2dd(zd1),  lg2,  mag, (q_t)0, clog2_oracle);
+            CHK("clog10", clog10dd(zd1), lg10, mag, (q_t)0, clog10_oracle);
           }
 
           // clog1p: oracle = clogq(1 + z). Gate |1+z| to avoid oracle
@@ -1536,14 +1535,14 @@ int main(int argc, char **argv) {
             __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
             __complex128 one_plus_z = one_c + zq1;
             CHK_IF(cabsq(one_plus_z) > (q_t)1e-5q,
-                   "clog1p", ::clog1pdd(zd1), clogq(one_plus_z), mag, (q_t)0,
+                   "clog1p", clog1pdd(zd1), clogq(one_plus_z), mag, (q_t)0,
                    clogmp({zm1.re + 1, zm1.im}));
           }
 
           // cpow: keep base and exponent modest — pow amplifies input
           // precision, so a wide exponent would swamp the tolerance.
           CHK_IF(mag1 > (q_t)1e-2q && mag1 < (q_t)1e2q && mag2 < (q_t)10,
-                 "cpow", ::cpowdd(zd1, zd2), cpowq(zq1, zq2), mag, (q_t)0,
+                 "cpow", cpowdd(zd1, zd2), cpowq(zq1, zq2), mag, (q_t)0,
                  cexpmp(cmulmp(zm2, clogmp(zm1))));
 
           // csinpi / ccospi: forward π-scaled complex trig. Same π
@@ -1553,9 +1552,9 @@ int main(int argc, char **argv) {
             __complex128 pi_c; __real__ pi_c = (q_t)M_PIq; __imag__ pi_c = (q_t)0;
             __complex128 pi_z = pi_c * zq1;
             MP_STMT(mp_t mpi = mpfr::const_pi(multifloats_test::kMpfrPrec));
-            CHK("csinpi", ::csinpidd(zd1), csinq(pi_z), mag, (q_t)0,
+            CHK("csinpi", csinpidd(zd1), csinq(pi_z), mag, (q_t)0,
                 csinmp({mpi * zm1.re, mpi * zm1.im}));
-            CHK("ccospi", ::ccospidd(zd1), ccosq(pi_z), mag, (q_t)0,
+            CHK("ccospi", ccospidd(zd1), ccosq(pi_z), mag, (q_t)0,
                 ccosmp({mpi * zm1.re, mpi * zm1.im}));
           }
 
@@ -1563,13 +1562,13 @@ int main(int argc, char **argv) {
           // from a plain copy happens on infinite inputs (which the
           // narrow generator doesn't produce). Still worth testing to
           // pin the finite path.
-          CHK("cproj", ::cprojdd(zd1), cprojq(zq1), mag, (q_t)0, zm1);
+          CHK("cproj", cprojdd(zd1), cprojq(zq1), mag, (q_t)0, zm1);
 
           // carg: complex → real scalar phase. Near ±π on the branch cut
           // (negative real axis) DD and qp agree as long as imag-limbs
           // sign matches, which they do for DD-representable inputs.
           CHK("carg",
-              mf::float64x2(::cargdd(zd1)), cargq(zq1), mag, (q_t)0,
+              mf::float64x2(cargdd(zd1)), cargq(zq1), mag, (q_t)0,
               cargmp(zm1));
 
           CHK_C1(sin);

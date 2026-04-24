@@ -25,8 +25,8 @@ complex<multifloats::float64x2>
 exp(complex<multifloats::float64x2> const &z) {
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
-  double a_hi = a._limbs[0], b_hi = b._limbs[0];
-  bool b_zero = (b_hi == 0.0 && b._limbs[1] == 0.0);
+  double a_hi = a.limbs[0], b_hi = b.limbs[0];
+  bool b_zero = (b_hi == 0.0 && b.limbs[1] == 0.0);
   if (!std::isfinite(a_hi) || !std::isfinite(b_hi)) {
     double inf = std::numeric_limits<double>::infinity();
     double nan = std::numeric_limits<double>::quiet_NaN();
@@ -52,15 +52,15 @@ exp(complex<multifloats::float64x2> const &z) {
       // +∞ · cis(b): each component is ±∞ with sign from cos(b)/sin(b).
       float64x2 s, c;
       multifloats::sincos(b, s, c);
-      return complex<float64x2>(float64x2(std::copysign(inf, c._limbs[0]), 0.0),
-                                float64x2(std::copysign(inf, s._limbs[0]), 0.0));
+      return complex<float64x2>(float64x2(std::copysign(inf, c.limbs[0]), 0.0),
+                                float64x2(std::copysign(inf, s.limbs[0]), 0.0));
     }
     // -∞ + i·y, y finite: +0 · cis(y).
     if (b_zero) return complex<float64x2>(float64x2(0.0, 0.0), b);
     float64x2 s, c;
     multifloats::sincos(b, s, c);
-    return complex<float64x2>(float64x2(std::copysign(0.0, c._limbs[0]), 0.0),
-                              float64x2(std::copysign(0.0, s._limbs[0]), 0.0));
+    return complex<float64x2>(float64x2(std::copysign(0.0, c.limbs[0]), 0.0),
+                              float64x2(std::copysign(0.0, s.limbs[0]), 0.0));
   }
   multifloats::float64x2 ea = multifloats::exp(a);
   multifloats::float64x2 s, c;
@@ -85,10 +85,10 @@ log(complex<multifloats::float64x2> const &z) {
   float64x2 big   = (ax > ay) ? ax : ay;
   float64x2 small = (ax > ay) ? ay : ax;
   float64x2 r;
-  if (big._limbs[0] == 0.0) {
-    r._limbs[0] = -std::numeric_limits<double>::infinity();
-    r._limbs[1] = 0.0;
-  } else if (big._limbs[0] >= 0.5 && big._limbs[0] <= 2.0) {
+  if (big.limbs[0] == 0.0) {
+    r.limbs[0] = -std::numeric_limits<double>::infinity();
+    r.limbs[1] = 0.0;
+  } else if (big.limbs[0] >= 0.5 && big.limbs[0] <= 2.0) {
     float64x2 u = dd_x2y2m1(big, small);
     r = float64x2(0.5, 0.0) * multifloats::log1p(u);
   } else {
@@ -108,11 +108,11 @@ complex<multifloats::float64x2>
 sqrt(complex<multifloats::float64x2> const &z) {
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
-  if (a._limbs[0] == 0.0 && b._limbs[0] == 0.0)
+  if (a.limbs[0] == 0.0 && b.limbs[0] == 0.0)
     return complex<multifloats::float64x2>(float64x2(0.0), b);  // preserves signed zero of imag
   float64x2 mod = multifloats::hypot(a, b);
   float64x2 half = float64x2(0.5, 0.0);
-  if (a._limbs[0] >= 0.0) {
+  if (a.limbs[0] >= 0.0) {
     float64x2 r = multifloats::sqrt((mod + a) * half);
     float64x2 i = b / (r + r);
     return complex<multifloats::float64x2>(r, i);
@@ -121,7 +121,7 @@ sqrt(complex<multifloats::float64x2> const &z) {
     float64x2 r = multifloats::abs(b) / (s + s);
     // Use signbit so b = -0 picks the −s branch (IEEE: -0 < 0 is false,
     // so `< 0.0` mishandles the negative-real-axis branch cut per C99 G.6.4.2).
-    float64x2 i = std::signbit(b._limbs[0]) ? -s : s;
+    float64x2 i = std::signbit(b.limbs[0]) ? -s : s;
     return complex<multifloats::float64x2>(r, i);
   }
 }
@@ -136,15 +136,15 @@ pow(complex<multifloats::float64x2> const &z,
   // True zero requires *both* limbs of *both* components to be zero. A
   // hi-only test misclassifies subnormal DDs of the form (hi=+0, lo=ε)
   // as zero and returns 0 instead of exp(w · log(ε)).
-  if (a._limbs[0] == 0.0 && a._limbs[1] == 0.0 &&
-      b._limbs[0] == 0.0 && b._limbs[1] == 0.0) {
+  if (a.limbs[0] == 0.0 && a.limbs[1] == 0.0 &&
+      b.limbs[0] == 0.0 && b.limbs[1] == 0.0) {
     return complex<multifloats::float64x2>(float64x2(0.0), float64x2(0.0));
   }
   // Renormalize each component if its hi limb is zero but lo is not —
   // otherwise std::log's log2 short-circuit would see hi == 0 and return
   // (−∞, …), propagating NaNs back through exp(w · log(z)).
-  if (a._limbs[0] == 0.0 && a._limbs[1] != 0.0) { a = float64x2(a._limbs[1], 0.0); }
-  if (b._limbs[0] == 0.0 && b._limbs[1] != 0.0) { b = float64x2(b._limbs[1], 0.0); }
+  if (a.limbs[0] == 0.0 && a.limbs[1] != 0.0) { a = float64x2(a.limbs[1], 0.0); }
+  if (b.limbs[0] == 0.0 && b.limbs[1] != 0.0) { b = float64x2(b.limbs[1], 0.0); }
   complex<multifloats::float64x2> zn(a, b);
   complex<multifloats::float64x2> l = std::log(zn);
   float64x2 lr = l.real(), li = l.imag();
@@ -196,7 +196,7 @@ tan(complex<multifloats::float64x2> const &z) {
   float64x2 den = ca * ca + sb * sb;
   // Pole at a = π/2+kπ with b = 0 ⇒ den = 0. C99 Annex G.6.3.1
   // says ctan at a real-axis pole is (NaN, NaN).
-  if (den._limbs[0] == 0.0) {
+  if (den.limbs[0] == 0.0) {
     double nan = std::numeric_limits<double>::quiet_NaN();
     return complex<multifloats::float64x2>(float64x2(nan, 0.0),
                                             float64x2(nan, 0.0));
@@ -204,8 +204,8 @@ tan(complex<multifloats::float64x2> const &z) {
   // Overflow in sinh(b) for |b| ≳ 710 pushes den to +∞. The mathematical
   // limit is tan(a + i·b) → i·sign(b); bypass the division so the imag
   // part doesn't come out as ∞/∞ = NaN.
-  if (!std::isfinite(den._limbs[0])) {
-    float64x2 im_sign(std::copysign(1.0, b._limbs[0]), 0.0);
+  if (!std::isfinite(den.limbs[0])) {
+    float64x2 im_sign(std::copysign(1.0, b.limbs[0]), 0.0);
     return complex<multifloats::float64x2>(float64x2(0.0, 0.0), im_sign);
   }
   return complex<multifloats::float64x2>((sa * ca) / den, (sb * cb) / den);
@@ -250,15 +250,15 @@ tanh(complex<multifloats::float64x2> const &z) {
   float64x2 den = sa * sa + cb * cb;
   // Pole at a = 0 with b = π/2+kπ ⇒ den = 0. Annex G.6.2.6 says ctanh at
   // an imaginary-axis pole is (NaN, NaN).
-  if (den._limbs[0] == 0.0) {
+  if (den.limbs[0] == 0.0) {
     double nan = std::numeric_limits<double>::quiet_NaN();
     return complex<multifloats::float64x2>(float64x2(nan, 0.0),
                                             float64x2(nan, 0.0));
   }
   // Overflow in sinh(a) for |a| ≳ 710 pushes den to +∞. Mathematical limit
   // is tanh(a + i·b) → sign(a); bypass division so it doesn't return NaN.
-  if (!std::isfinite(den._limbs[0])) {
-    float64x2 re_sign(std::copysign(1.0, a._limbs[0]), 0.0);
+  if (!std::isfinite(den.limbs[0])) {
+    float64x2 re_sign(std::copysign(1.0, a.limbs[0]), 0.0);
     return complex<multifloats::float64x2>(re_sign, float64x2(0.0, 0.0));
   }
   return complex<multifloats::float64x2>((sa * ca) / den, (sb * cb) / den);
@@ -288,22 +288,22 @@ asinh(complex<multifloats::float64x2> const &z) {
   float64x2 one(1.0, 0.0), half(0.5, 0.0), two(2.0, 0.0);
   float64x2 re, im;
 
-  if (rx._limbs[0] >= dd_inv_eps || ix._limbs[0] >= dd_inv_eps) {
+  if (rx.limbs[0] >= dd_inv_eps || ix.limbs[0] >= dd_inv_eps) {
     // |z| huge: z + sqrt(1+z²) ≈ 2z; avoid overflow from squaring.
     complex<multifloats::float64x2> l = std::log(complex<multifloats::float64x2>(rx, ix));
     re = l.real() + float64x2(ln_2_hi, ln_2_lo);
     im = l.imag();
-  } else if (rx._limbs[0] >= 0.5 && ix._limbs[0] < dd_eps_over_8) {
+  } else if (rx.limbs[0] >= 0.5 && ix.limbs[0] < dd_eps_over_8) {
     float64x2 s = multifloats::hypot(one, rx);
     re = multifloats::log(rx + s);
     im = multifloats::atan2(ix, s);
-  } else if (rx._limbs[0] < dd_eps_over_8 && ix._limbs[0] >= 1.5) {
+  } else if (rx.limbs[0] < dd_eps_over_8 && ix.limbs[0] >= 1.5) {
     float64x2 s = multifloats::sqrt((ix + one) * (ix - one));
     re = multifloats::log(ix + s);
     im = multifloats::atan2(s, rx);
-  } else if (ix._limbs[0] > 1.0 && ix._limbs[0] < 1.5 && rx._limbs[0] < 0.5) {
+  } else if (ix.limbs[0] > 1.0 && ix.limbs[0] < 1.5 && rx.limbs[0] < 0.5) {
     float64x2 ix2m1 = (ix + one) * (ix - one);
-    if (rx._limbs[0] < dd_eps_sq) {
+    if (rx.limbs[0] < dd_eps_sq) {
       float64x2 s = multifloats::sqrt(ix2m1);
       re = half * multifloats::log1p(two * (ix2m1 + ix * s));
       im = multifloats::atan2(s, rx);
@@ -318,8 +318,8 @@ asinh(complex<multifloats::float64x2> const &z) {
       re = half * multifloats::log1p(rx2 + dp + two * (rx * r1 + ix * r2));
       im = multifloats::atan2(ix + r2, rx + r1);
     }
-  } else if (ix._limbs[0] == 1.0 && ix._limbs[1] == 0.0 && rx._limbs[0] < 0.5) {
-    if (rx._limbs[0] < dd_eps_over_8) {
+  } else if (ix.limbs[0] == 1.0 && ix.limbs[1] == 0.0 && rx.limbs[0] < 0.5) {
+    if (rx.limbs[0] < dd_eps_over_8) {
       float64x2 sr = multifloats::sqrt(rx);
       re = half * multifloats::log1p(two * (rx + sr));
       im = multifloats::atan2(one, sr);
@@ -331,9 +331,9 @@ asinh(complex<multifloats::float64x2> const &z) {
       re = half * multifloats::log1p(rx2 + d + two * (rx * s1 + s2));
       im = multifloats::atan2(one + s2, rx + s1);
     }
-  } else if (ix._limbs[0] < 1.0 && rx._limbs[0] < 0.5) {
-    if (ix._limbs[0] >= 0x1.0p-105) {
-      if (rx._limbs[0] < dd_eps_sq) {
+  } else if (ix.limbs[0] < 1.0 && rx.limbs[0] < 0.5) {
+    if (ix.limbs[0] >= 0x1.0p-105) {
+      if (rx.limbs[0] < dd_eps_sq) {
         float64x2 onemix2 = (one + ix) * (one - ix);
         float64x2 s = multifloats::sqrt(onemix2);
         re = half * multifloats::log1p(two * rx / s);
@@ -372,13 +372,13 @@ asinh(complex<multifloats::float64x2> const &z) {
   auto dd_signbit = [](double hi, double lo) {
     return (hi == 0.0 && lo != 0.0) ? std::signbit(lo) : std::signbit(hi);
   };
-  if (dd_signbit(a._limbs[0], a._limbs[1])) {
-    re._limbs[0] = -re._limbs[0];
-    re._limbs[1] = -re._limbs[1];
+  if (dd_signbit(a.limbs[0], a.limbs[1])) {
+    re.limbs[0] = -re.limbs[0];
+    re.limbs[1] = -re.limbs[1];
   }
-  if (dd_signbit(b._limbs[0], b._limbs[1])) {
-    im._limbs[0] = -im._limbs[0];
-    im._limbs[1] = -im._limbs[1];
+  if (dd_signbit(b.limbs[0], b.limbs[1])) {
+    im.limbs[0] = -im.limbs[0];
+    im.limbs[1] = -im.limbs[1];
   }
   return complex<multifloats::float64x2>(re, im);
 }
@@ -405,16 +405,16 @@ complex<multifloats::float64x2>
 acosh(complex<multifloats::float64x2> const &z) {
   using multifloats::float64x2;
   float64x2 zr = z.real(), zi = z.imag();
-  double az2 = zr._limbs[0] * zr._limbs[0] + zi._limbs[0] * zi._limbs[0];
+  double az2 = zr.limbs[0] * zr.limbs[0] + zi.limbs[0] * zi.limbs[0];
   if (az2 < 1.0) {
-    bool use_conj = std::signbit(zi._limbs[0]);
+    bool use_conj = std::signbit(zi.limbs[0]);
     complex<multifloats::float64x2> zc = use_conj
-        ? complex<multifloats::float64x2>(zr, float64x2(-zi._limbs[0], -zi._limbs[1]))
+        ? complex<multifloats::float64x2>(zr, -zi)
         : z;
     complex<multifloats::float64x2> v = std::acos(zc);
     float64x2 vre = v.real(), vim = v.imag();
-    float64x2 re(-vim._limbs[0], -vim._limbs[1]);
-    float64x2 im = use_conj ? float64x2(-vre._limbs[0], -vre._limbs[1]) : vre;
+    float64x2 re = -vim;
+    float64x2 im = use_conj ? -vre : vre;
     return complex<multifloats::float64x2>(re, im);
   }
   float64x2 a = zr, b = zi;
@@ -449,11 +449,11 @@ atanh(complex<multifloats::float64x2> const &z) {
   // Without the short-circuit, num/den = 4/0 = inf in DD; the subsequent
   // 0.25 * inf DD multiply emits fma(0.25, inf, -inf) = NaN, producing
   // a wrong NaN-result at this exact branch point.
-  if (b._limbs[0] == 0.0 && b._limbs[1] == 0.0 &&
-      std::abs(a._limbs[0]) == 1.0 && a._limbs[1] == 0.0) {
+  if (b.limbs[0] == 0.0 && b.limbs[1] == 0.0 &&
+      std::abs(a.limbs[0]) == 1.0 && a.limbs[1] == 0.0) {
     double inf = std::numeric_limits<double>::infinity();
     return complex<multifloats::float64x2>(
-        float64x2(std::copysign(inf, a._limbs[0]), 0.0),
+        float64x2(std::copysign(inf, a.limbs[0]), 0.0),
         float64x2(0.0, 0.0));
   }
 
@@ -464,23 +464,23 @@ atanh(complex<multifloats::float64x2> const &z) {
   float64x2 absb = multifloats::abs(b);
   float64x2 re_res;
 
-  if (absa._limbs[0] == 1.0 && absa._limbs[1] == 0.0 &&
-      absb._limbs[0] < dd_eps_sq) {
+  if (absa.limbs[0] == 1.0 && absa.limbs[1] == 0.0 &&
+      absb.limbs[0] < dd_eps_sq) {
     // Near-branch-point: catanh(±1 + ε·i) ≈ sign(a) · 0.5 · (ln2 − log|ε|).
     float64x2 ln2(ln_2_hi, ln_2_lo);
     float64x2 t = half * (ln2 - multifloats::log(absb));
-    re_res = (a._limbs[0] < 0.0) ? -t : t;
+    re_res = (a.limbs[0] < 0.0) ? -t : t;
   } else {
     // i2: drop b² when |b| below eps² so the DD round-off of b² doesn't
     // contaminate num/den. Matches the libquadmath guard.
-    float64x2 i2 = (absb._limbs[0] >= dd_eps_sq) ? (b * b)
+    float64x2 i2 = (absb.limbs[0] >= dd_eps_sq) ? (b * b)
                                                  : float64x2(0.0, 0.0);
     float64x2 ap1 = one + a;
     float64x2 am1 = one - a;
     float64x2 num = i2 + ap1 * ap1;
     float64x2 den = i2 + am1 * am1;
     float64x2 f = num / den;
-    if (f._limbs[0] < 0.5) {
+    if (f.limbs[0] < 0.5) {
       re_res = quarter * multifloats::log(f);
     } else {
       // 4a exact in DD (power-of-two scale); computing as (num−den)/den
@@ -491,18 +491,18 @@ atanh(complex<multifloats::float64x2> const &z) {
   }
 
   // Imag-part denominator picks the non-cancelling form per region.
-  float64x2 big   = (absa._limbs[0] > absb._limbs[0]) ? absa : absb;
-  float64x2 small_= (absa._limbs[0] > absb._limbs[0]) ? absb : absa;
+  float64x2 big   = (absa.limbs[0] > absb.limbs[0]) ? absa : absb;
+  float64x2 small_= (absa.limbs[0] > absb.limbs[0]) ? absb : absa;
   float64x2 den_im;
-  if (small_._limbs[0] < dd_eps_hlf) {
+  if (small_.limbs[0] < dd_eps_hlf) {
     den_im = (one - big) * (one + big);
-  } else if (big._limbs[0] >= 1.0) {
+  } else if (big.limbs[0] >= 1.0) {
     den_im = (one - big) * (one + big) - small_ * small_;
-  } else if (big._limbs[0] >= 0.75 || small_._limbs[0] >= 0.5) {
+  } else if (big.limbs[0] >= 0.75 || small_.limbs[0] >= 0.5) {
     // Near unit circle: 1 − big² − small² = −dd_x2y2m1(big, small).
     float64x2 t = dd_x2y2m1(big, small_);
-    den_im._limbs[0] = -t._limbs[0];
-    den_im._limbs[1] = -t._limbs[1];
+    den_im.limbs[0] = -t.limbs[0];
+    den_im.limbs[1] = -t.limbs[1];
   } else {
     den_im = (one - big) * (one + big) - small_ * small_;
   }
@@ -525,13 +525,9 @@ template <>
 complex<multifloats::float64x2>
 asin(complex<multifloats::float64x2> const &z) {
   using multifloats::float64x2;
-  float64x2 zi = z.imag();
-  complex<multifloats::float64x2> iz(
-      float64x2(-zi._limbs[0], -zi._limbs[1]), z.real());
+  complex<multifloats::float64x2> iz(-z.imag(), z.real());
   complex<multifloats::float64x2> w = std::asinh(iz);
-  float64x2 wre = w.real();
-  return complex<multifloats::float64x2>(
-      w.imag(), float64x2(-wre._limbs[0], -wre._limbs[1]));
+  return complex<multifloats::float64x2>(w.imag(), -w.real());
 }
 
 // acos(z): domain-split between two full-DD formulations.
@@ -548,24 +544,22 @@ complex<multifloats::float64x2>
 acos(complex<multifloats::float64x2> const &z) {
   using multifloats::float64x2;
   float64x2 zr = z.real(), zi = z.imag();
-  double az2 = zr._limbs[0] * zr._limbs[0] + zi._limbs[0] * zi._limbs[0];
+  double az2 = zr.limbs[0] * zr.limbs[0] + zi.limbs[0] * zi.limbs[0];
   if (az2 > 1.0) {
-    bool use_conj = std::signbit(zi._limbs[0]);
+    bool use_conj = std::signbit(zi.limbs[0]);
     complex<multifloats::float64x2> zc = use_conj
-        ? complex<multifloats::float64x2>(zr, float64x2(-zi._limbs[0], -zi._limbs[1]))
+        ? complex<multifloats::float64x2>(zr, -zi)
         : z;
     complex<multifloats::float64x2> w = std::acosh(zc);
     float64x2 wre = w.real(), wim = w.imag();
     float64x2 re = wim;
-    float64x2 im = use_conj ? wre : float64x2(-wre._limbs[0], -wre._limbs[1]);
+    float64x2 im = use_conj ? wre : -wre;
     return complex<multifloats::float64x2>(re, im);
   }
   static const float64x2 half_pi = float64x2(0x1.921fb54442d18p+0,
                                               0x1.1a62633145c07p-54);
   complex<multifloats::float64x2> s = std::asin(z);
-  float64x2 sim = s.imag();
-  return complex<multifloats::float64x2>(
-      half_pi - s.real(), float64x2(-sim._limbs[0], -sim._limbs[1]));
+  return complex<multifloats::float64x2>(half_pi - s.real(), -s.imag());
 }
 
 // atan(z) = −i · atanh(i·z). Delegating to std::atanh reuses its Kahan-
@@ -578,13 +572,9 @@ template <>
 complex<multifloats::float64x2>
 atan(complex<multifloats::float64x2> const &z) {
   using multifloats::float64x2;
-  float64x2 zi = z.imag();
-  complex<multifloats::float64x2> iz(
-      float64x2(-zi._limbs[0], -zi._limbs[1]), z.real());
+  complex<multifloats::float64x2> iz(-z.imag(), z.real());
   complex<multifloats::float64x2> w = std::atanh(iz);
-  float64x2 wre = w.real();
-  return complex<multifloats::float64x2>(
-      w.imag(), float64x2(-wre._limbs[0], -wre._limbs[1]));
+  return complex<multifloats::float64x2>(w.imag(), -w.real());
 }
 
 // ---- Value accessors -------------------------------------------------------
@@ -612,10 +602,10 @@ template <>
 complex<multifloats::float64x2>
 proj(complex<multifloats::float64x2> const &z) {
   using multifloats::float64x2;
-  if (std::isinf(z.real()._limbs[0]) || std::isinf(z.imag()._limbs[0])) {
+  if (std::isinf(z.real().limbs[0]) || std::isinf(z.imag().limbs[0])) {
     return complex<multifloats::float64x2>(
         float64x2(std::numeric_limits<double>::infinity(), 0.0),
-        float64x2(std::copysign(0.0, z.imag()._limbs[0]), 0.0));
+        float64x2(std::copysign(0.0, z.imag().limbs[0]), 0.0));
   }
   return z;
 }

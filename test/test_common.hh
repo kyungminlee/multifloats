@@ -20,7 +20,7 @@ using q_t = __float128;
 // DD → qp: exact when both limbs are finite (the DD library keeps
 // |lo| <= 0.5 ULP of hi). For non-finite limbs qp inherits hi's class.
 inline q_t to_q(multifloats::float64x2 const &x) {
-  return (q_t)x._limbs[0] + (q_t)x._limbs[1];
+  return (q_t)x.limbs[0] + (q_t)x.limbs[1];
 }
 
 // qp → DD: normalized via fast_two_sum (|hi| >= |lo| holds by
@@ -31,15 +31,15 @@ inline multifloats::float64x2 from_q(q_t v) {
   double hi = (double)v;
   multifloats::float64x2 r;
   if (!std::isfinite(hi)) {
-    r._limbs[0] = hi;
-    r._limbs[1] = hi;
+    r.limbs[0] = hi;
+    r.limbs[1] = hi;
     return r;
   }
   double lo = (double)(v - (q_t)hi);
   double s = hi + lo;
   double err = lo - (s - hi);
-  r._limbs[0] = s;
-  r._limbs[1] = err;
+  r.limbs[0] = s;
+  r.limbs[1] = err;
   return r;
 }
 

@@ -36,8 +36,8 @@ using mp_t = mpfr::mpreal;
 // sum of two doubles). Non-finite inputs inherit hi's class.
 inline mp_t to_mp(multifloats::float64x2 const &x) {
   init_mpfr_default_prec();
-  if (!std::isfinite(x._limbs[0])) return mp_t(x._limbs[0]);
-  return mp_t(x._limbs[0]) + mp_t(x._limbs[1]);
+  if (!std::isfinite(x.limbs[0])) return mp_t(x.limbs[0]);
+  return mp_t(x.limbs[0]) + mp_t(x.limbs[1]);
 }
 
 inline mp_t to_mp(q_t v) {

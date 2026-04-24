@@ -24,7 +24,7 @@ program bench_abi
   integer, parameter :: TRIALS = 5       ! trials per leg (report best, show spread)
 
   type, bind(c) :: dd_c
-    real(c_double) :: hi, lo
+    real(c_double) :: limbs(2)
   end type dd_c
 
   interface
@@ -168,8 +168,8 @@ contains
       call random_number(r); call random_number(rlo)
       f2(i)%limbs(1) = (r - 0.5_dp) * 8.0_dp + sign(0.25_dp, r - 0.5_dp)
       f2(i)%limbs(2) = f2(i)%limbs(1) * (rlo - 0.5_dp) * 2.0_dp**(-52)
-      d1(i)%hi = f1(i)%limbs(1); d1(i)%lo = f1(i)%limbs(2)
-      d2(i)%hi = f2(i)%limbs(1); d2(i)%lo = f2(i)%limbs(2)
+      d1(i)%limbs(1) = f1(i)%limbs(1); d1(i)%limbs(2) = f1(i)%limbs(2)
+      d2(i)%limbs(1) = f2(i)%limbs(1); d2(i)%limbs(2) = f2(i)%limbs(2)
     end do
   end subroutine
 
@@ -202,8 +202,8 @@ contains
     real(dp) :: s
     integer :: j
     s = 0.0_dp
-    do j = 1, size(dres); s = s + dres(j)%hi + dres(j)%lo; end do
-    arr(1)%hi = arr(1)%hi + s * 1e-300_dp
+    do j = 1, size(dres); s = s + dres(j)%limbs(1) + dres(j)%limbs(2); end do
+    arr(1)%limbs(1) = arr(1)%limbs(1) + s * 1e-300_dp
     cw_sink = cw_sink + s
   end subroutine
 

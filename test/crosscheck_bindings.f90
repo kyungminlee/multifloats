@@ -21,11 +21,11 @@ module crosscheck_bindings
   implicit none
   private
 
-  ! Layout matches float64x2_t in include/multifloats.h and dd_c in
+  ! Layout matches float64x2 in include/multifloats.h and dd_c in
   ! dd_bindc.f90. Declared locally so this module does not depend on
   ! dd_bindc (separate concern).
   type, bind(c), public :: dd_c
-    real(c_double) :: hi, lo
+    real(c_double) :: limbs(2)
   end type dd_c
 
   public :: fnat_add, fnat_sub, fnat_mul, fnat_div
@@ -62,15 +62,13 @@ contains
   pure function c_to_f(c) result(r)
     type(dd_c), intent(in) :: c
     type(float64x2) :: r
-    r%limbs(1) = c%hi
-    r%limbs(2) = c%lo
+    r%limbs = c%limbs
   end function
 
   pure function f_to_c(r) result(c)
     type(float64x2), intent(in) :: r
     type(dd_c) :: c
-    c%hi = r%limbs(1)
-    c%lo = r%limbs(2)
+    c%limbs = r%limbs
   end function
 
   pure function fnat_add(a, b) result(res) bind(c, name='fnat_add')

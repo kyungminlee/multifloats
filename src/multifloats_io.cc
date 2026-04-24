@@ -56,8 +56,8 @@ inline void io_dd_mul_d(double &hi, double &lo, double d) {
 char *format_scientific_chars(multifloats::float64x2 const &value,
                               int precision,
                               char *first, char *last) noexcept {
-  double hi = value._limbs[0];
-  double lo = value._limbs[1];
+  double hi = value.limbs[0];
+  double lo = value.limbs[1];
 
   char tmp[48];
   std::size_t w = 0;
@@ -173,11 +173,14 @@ std::ostream &operator<<(std::ostream &os, float64x2 const &x) {
   return os;
 }
 
-} // namespace multifloats
-
+// The C-ABI `to_charsdd` shim lives inside `namespace multifloats` so that
+// its C++ qualified name matches the declaration in the public header.
+// `extern "C"` keeps the linker symbol unmangled — C and Fortran callers
+// see plain `to_charsdd` just the same.
 extern "C" {
-char *to_charsdd(float64x2_t x, int precision, char *first, char *last) {
-  return format_scientific_chars(multifloats::float64x2(x),
-                                 precision, first, last);
+char *to_charsdd(float64x2 x, int precision, char *first, char *last) {
+  return format_scientific_chars(x, precision, first, last);
 }
 } // extern "C"
+
+} // namespace multifloats

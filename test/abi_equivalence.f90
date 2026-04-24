@@ -25,7 +25,7 @@ program abi_equivalence
   integer :: total    = 0
 
   type, bind(c) :: dd_c
-    real(c_double) :: hi, lo
+    real(c_double) :: limbs(2)
   end type dd_c
 
   interface
@@ -155,9 +155,9 @@ contains
     e = int((rexp - 0.5_dp) * 40.0_dp)    ! exponents in [-20, 20]
     mag = (2.0_dp * r - 1.0_dp)
     if (abs(mag) < 1.0e-3_dp) mag = sign(1.0e-3_dp, mag)
-    x%hi = mag * (2.0_dp ** e)
-    x%lo = x%hi * (2.0_dp * rlo - 1.0_dp) * 2.0_dp**(-52)
-    f%limbs(1) = x%hi; f%limbs(2) = x%lo
+    x%limbs(1) = mag * (2.0_dp ** e)
+    x%limbs(2) = x%limbs(1) * (2.0_dp * rlo - 1.0_dp) * 2.0_dp**(-52)
+    f%limbs(1) = x%limbs(1); f%limbs(2) = x%limbs(2)
   end subroutine
 
   logical function raw_eq(a, b)
@@ -268,9 +268,9 @@ contains
       call apply_unary(op, fa, da, frn, drn)
       if (k <= 3) then
         write(tag, '(a,a,i0,a)') trim(op), '(', k, ')'
-        call record_dd(trim(tag), frn%limbs(1), frn%limbs(2), drn%hi, drn%lo, mode)
+        call record_dd(trim(tag), frn%limbs(1), frn%limbs(2), drn%limbs(1), drn%limbs(2), mode)
       else
-        call record_dd(op, frn%limbs(1), frn%limbs(2), drn%hi, drn%lo, mode)
+        call record_dd(op, frn%limbs(1), frn%limbs(2), drn%limbs(1), drn%limbs(2), mode)
       end if
     end do
   end subroutine
@@ -283,9 +283,9 @@ contains
     type(dd_c) :: da, db, drn
     do k = 1, N_FUZZ
       call gen_dd(da, fa); call gen_dd(db, fb)
-      if (op == "div" .and. db%hi == 0.0_dp) cycle
+      if (op == "div" .and. db%limbs(1) == 0.0_dp) cycle
       call apply_binary(op, fa, fb, da, db, frn, drn)
-      call record_dd(op, frn%limbs(1), frn%limbs(2), drn%hi, drn%lo, mode)
+      call record_dd(op, frn%limbs(1), frn%limbs(2), drn%limbs(1), drn%limbs(2), mode)
     end do
   end subroutine
 
@@ -300,7 +300,7 @@ contains
       if (mod(k, 17) == 0) then; db = da; fb = fa; end if
       if (mod(k, 19) == 0) then
         db = da; fb = fa
-        db%lo = -db%lo; fb%limbs(2) = -fb%limbs(2)
+        db%limbs(2) = -db%limbs(2); fb%limbs(2) = -fb%limbs(2)
       end if
       call apply_cmp(op, fa, fb, da, db, in_, ic)
       call record_int(op, in_, ic)
@@ -326,7 +326,7 @@ contains
         write(tag, '(a,i0,a)') 'powi(n=', n, ')'
         ! EBS multiplies can differ from a linear loop in the last-ulp
         ! residual on large |n|; tolerate 4 dp ULPs on lo.
-        call record_dd(trim(tag), fr%limbs(1), fr%limbs(2), dr%hi, dr%lo, 1)
+        call record_dd(trim(tag), fr%limbs(1), fr%limbs(2), dr%limbs(1), dr%limbs(2), 1)
       end do
     end do
   end subroutine
@@ -337,7 +337,7 @@ contains
     type(dd_c) :: da, db, dr
     do k = 1, N_FUZZ
       call gen_dd(da, fa); call gen_dd(db, fb)
-      if (db%hi == 0.0_dp) cycle
+      if (db%limbs(1) == 0.0_dp) cycle
       fr = modulo(fa, fb)
       dr = c_dd_modulo(da, db)
       ! Sign-adjust can cross by exactly one dp ULP on the hi limb in
@@ -345,7 +345,7 @@ contains
       ! C path uses signbit() of the whole DD while the Fortran path
       ! (pre-Stage-3) only looks at hi. Bit-exact on lo, 4 dp ULPs on
       ! hi is within the DD precision envelope either way.
-      call record_dd("modulo", fr%limbs(1), fr%limbs(2), dr%hi, dr%lo, 1)
+      call record_dd("modulo", fr%limbs(1), fr%limbs(2), dr%limbs(1), dr%limbs(2), 1)
     end do
   end subroutine
 
@@ -366,10 +366,10 @@ contains
     do j = 1, size(ops)
       do i = 1, size(hi)
         fa%limbs(1) = hi(i); fa%limbs(2) = lo(i)
-        da%hi = hi(i);       da%lo = lo(i)
+        da%limbs(1) = hi(i);       da%limbs(2) = lo(i)
         call apply_unary(trim(ops(j)), fa, da, frn, drn)
         write(tag,'(a,"/edge",i0)') trim(ops(j)), i
-        call record_dd(trim(tag), frn%limbs(1), frn%limbs(2), drn%hi, drn%lo, modes(j))
+        call record_dd(trim(tag), frn%limbs(1), frn%limbs(2), drn%limbs(1), drn%limbs(2), modes(j))
       end do
     end do
   end subroutine
@@ -388,12 +388,12 @@ contains
       do i = 1, size(A)
         fa%limbs(1) = A(i); fa%limbs(2) = 0.0_dp
         fb%limbs(1) = B(i); fb%limbs(2) = 0.0_dp
-        da%hi = A(i); da%lo = 0.0_dp
-        db%hi = B(i); db%lo = 0.0_dp
+        da%limbs(1) = A(i); da%limbs(2) = 0.0_dp
+        db%limbs(1) = B(i); db%limbs(2) = 0.0_dp
         if (trim(ops(j)) == "div" .and. B(i) == 0.0_dp) cycle
         call apply_binary(trim(ops(j)), fa, fb, da, db, frn, drn)
         write(tag,'(a,"/edge",i0)') trim(ops(j)), i
-        call record_dd(trim(tag), frn%limbs(1), frn%limbs(2), drn%hi, drn%lo, modes(j))
+        call record_dd(trim(tag), frn%limbs(1), frn%limbs(2), drn%limbs(1), drn%limbs(2), modes(j))
       end do
     end do
   end subroutine
