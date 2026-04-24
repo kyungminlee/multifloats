@@ -247,22 +247,24 @@ jobs:
             fc: gfortran-15
             run_tests: true
 
-          # Apple Clang — C++ library only (skip Fortran target + all
-          # tests). Use whatever Apple Clang ships on macos-15; the
-          # OUTPUT_NAME tag (`appleclang-<major>`) records the version.
-          # Homebrew gfortran-15 is still installed so CMake's Fortran
-          # language probe at configure time succeeds — we just don't
-          # build the multifloatsf target. Homebrew's gcc formula
-          # installs versioned binaries only (`gfortran-15`, no
-          # unversioned `gfortran`), so we name the version-suffixed
-          # binary explicitly.
-          - compiler: appleclang
-            version: system
-            brew_pkg: gcc@15
-            cc: clang
-            cxx: clang++
-            fc: gfortran-15
-            run_tests: false
+          # NOTE: Apple Clang entry temporarily disabled. libc++'s
+          # <complex> uses a `__promote` extension trait that
+          # static_asserts is_arithmetic on the template arguments,
+          # which trips when `std::pow(complex<float64x2>, …)` etc.
+          # are instantiated. libstdc++'s `__promote` doesn't have
+          # this constraint, so the GCC matrix entries pass. Fixing
+          # cleanly requires either (a) declaring our std:: complex
+          # specializations earlier in the include chain, (b) adding
+          # libc++-specific overloads, or (c) avoiding std::complex
+          # math template paths inside our TUs. Re-enable once one
+          # of those lands.
+          # - compiler: appleclang
+          #   version: system
+          #   brew_pkg: gcc@15
+          #   cc: clang
+          #   cxx: clang++
+          #   fc: gfortran-15
+          #   run_tests: false
 
     steps:
       - uses: actions/checkout@v4
