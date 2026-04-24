@@ -83,7 +83,15 @@ endif()
 # (e.g. a GCC-built libmultifloats.a consumed by a Clang-driven link).
 # CMake doesn't model fat-LTO directly, so we probe + add the flag manually,
 # scoped to the optimized configs that actually enable IPO.
-if(MULTIFLOATS_LTO_ON)
+#
+# Apple Clang is excluded explicitly: its `-ffat-lto-objects` probe
+# returns success (the driver accepts the flag silently in trivial
+# try_compile contexts) but the real compile errors with
+# "unsupported option '-ffat-lto-objects' for target 'arm64-apple-darwin*'".
+# The probe-vs-actual mismatch isn't worth working around — Apple Clang
+# users get a non-fat LTO archive (consumable by Apple Clang at the same
+# major version).
+if(MULTIFLOATS_LTO_ON AND NOT CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
     include(CheckCXXCompilerFlag)
     check_cxx_compiler_flag(-ffat-lto-objects MULTIFLOATS_CXX_HAS_FAT_LTO)
     if(MULTIFLOATS_CXX_HAS_FAT_LTO)
@@ -109,10 +117,14 @@ set(_MF_CXX_DETECT_CODE [[
 if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     string(REGEX MATCH "^([0-9]+)" _mf_cxx_ver "${CMAKE_CXX_COMPILER_VERSION}")
     set(_mf_cxx_tag "gcc-${_mf_cxx_ver}")
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang"
-       OR CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     string(REGEX MATCH "^([0-9]+)" _mf_cxx_ver "${CMAKE_CXX_COMPILER_VERSION}")
     set(_mf_cxx_tag "clang-${_mf_cxx_ver}")
+elseif(CMAKE_CXX_COMPILER_ID STREQUAL "AppleClang")
+    # Apple Clang's version numbers are independent of upstream LLVM
+    # Clang's, so tag them distinctly. (Apple Clang 16 ≠ LLVM Clang 16.)
+    string(REGEX MATCH "^([0-9]+)" _mf_cxx_ver "${CMAKE_CXX_COMPILER_VERSION}")
+    set(_mf_cxx_tag "appleclang-${_mf_cxx_ver}")
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
     string(REGEX MATCH "^([0-9]+\\.[0-9]+)" _mf_cxx_ver "${CMAKE_CXX_COMPILER_VERSION}")
     set(_mf_cxx_tag "intel-${_mf_cxx_ver}")

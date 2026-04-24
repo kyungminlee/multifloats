@@ -8,13 +8,11 @@ on:
 permissions:
   contents: write
 
-# Release artifacts target the Haswell baseline (AVX2 + FMA + BMI2).
-# Exported as CFLAGS/CXXFLAGS/FFLAGS so CMake seeds CMAKE_<LANG>_FLAGS
-# from them — applied at compile AND link, which -flto needs.
-env:
-  CFLAGS: -march=haswell
-  CXXFLAGS: -march=haswell
-  FFLAGS: -march=haswell
+# Per-job CPU baseline:
+#   Linux x86_64 → -march=haswell  (AVX2 + FMA + BMI2)
+#   macOS arm64  → -mcpu=apple-m1  (Apple Silicon baseline; M2/M3/M4 are supersets)
+# Set at the job level instead of workflow level so the macOS arm64 jobs
+# don't inherit a now-illegal -march=haswell flag.
 
 jobs:
   # ===========================================================================
@@ -29,6 +27,10 @@ jobs:
   # ===========================================================================
   build-lto:
     runs-on: ubuntu-latest
+    env:
+      CFLAGS: -march=haswell
+      CXXFLAGS: -march=haswell
+      FFLAGS: -march=haswell
     strategy:
       fail-fast: false
       matrix:
@@ -146,12 +148,17 @@ jobs:
           if [ "${{ matrix.compiler }}" = "intel" ]; then
             source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
           fi
+          # MULTIFLOATS_BUILD_BENCH=OFF: CI doesn't run microbenchmarks
+          # and the Fortran bench source uses gfortran-13+-only
+          # `!GCC$ ATTRIBUTES NOINLINE` (would break gcc-12). Saves
+          # build time on all matrix entries.
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
             -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
             -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
             -DMULTIFLOATS_USE_LTO=ON \
+            -DMULTIFLOATS_BUILD_BENCH=OFF \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
 
       # GCC matrix entries build everything (libraries + test executables);
@@ -192,6 +199,195 @@ jobs:
           path: ${{ env.ARCHIVE }}
 
   # ===========================================================================
+  # macOS arm64 LTO matrix.
+  #
+  # Homebrew GCC for full builds (library + tests + Fortran). Apple Clang
+  # for a C++-library-only build — Apple Clang lacks __float128 / libquadmath
+  # (the test scaffolding's high-precision oracle), so its tests can't
+  # compile, but the library itself is fine. Apple Clang is the default
+  # macOS C++ compiler, so the tagged `libmultifloats-appleclang-N.a`
+  # archive is the natural artifact for Mac consumers using the system
+  # toolchain.
+  #
+  # No LLVM Flang / Homebrew LLVM here: Apple Silicon has no usable
+  # quadmath path for tests either, and Homebrew LLVM on macOS is a
+  # niche choice. Add later if a real user asks.
+  # ===========================================================================
+  build-lto-mac:
+    runs-on: macos-15
+    env:
+      CFLAGS: -mcpu=apple-m1
+      CXXFLAGS: -mcpu=apple-m1
+      FFLAGS: -mcpu=apple-m1
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Homebrew GCC — full build (library + Fortran + tests on the
+          # newest only, to keep the matrix fast).
+          - compiler: gcc
+            version: "13"
+            brew_pkg: gcc@13
+            cc: gcc-13
+            cxx: g++-13
+            fc: gfortran-13
+            run_tests: false
+          - compiler: gcc
+            version: "14"
+            brew_pkg: gcc@14
+            cc: gcc-14
+            cxx: g++-14
+            fc: gfortran-14
+            run_tests: false
+          - compiler: gcc
+            version: "15"
+            brew_pkg: gcc@15
+            cc: gcc-15
+            cxx: g++-15
+            fc: gfortran-15
+            run_tests: true
+
+          # Apple Clang — C++ library only (skip Fortran target + all
+          # tests). Use whatever Apple Clang ships on macos-15; the
+          # OUTPUT_NAME tag (`appleclang-<major>`) records the version.
+          # Homebrew gfortran is still installed so CMake's Fortran
+          # language probe at configure time succeeds — we just don't
+          # build the multifloatsf target.
+          - compiler: appleclang
+            version: system
+            brew_pkg: gcc  # for gfortran (CMake Fortran-enable probe)
+            cc: clang
+            cxx: clang++
+            fc: gfortran
+            run_tests: false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fypp + toolchain
+        run: |
+          pip install fypp mpmath
+          brew install ${{ matrix.brew_pkg }}
+
+      - name: Configure
+        run: |
+          # MULTIFLOATS_STRIP_SYMBOLS=OFF for Apple Clang: the LTO
+          # bitcode .o files inside the archive are opaque to the
+          # standard nm/nmedit toolchain that localize_symbols.sh
+          # uses to build its keep-list. The script then asks nmedit
+          # to re-export symbols that don't visibly exist in the
+          # archive, which errors out. Disable the strip step for
+          # this entry; consumers using Apple Clang will see all
+          # the demangled namespace symbols, which is fine for a
+          # niche-toolchain artifact.
+          STRIP_FLAG="-DMULTIFLOATS_STRIP_SYMBOLS=ON"
+          if [ "${{ matrix.compiler }}" = "appleclang" ]; then
+            STRIP_FLAG="-DMULTIFLOATS_STRIP_SYMBOLS=OFF"
+          fi
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
+            -DMULTIFLOATS_USE_LTO=ON \
+            -DMULTIFLOATS_BUILD_BENCH=OFF \
+            $STRIP_FLAG \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+
+      # Apple Clang: build only the C++ library (Apple Clang has no
+      # libquadmath, so test scaffolding doesn't compile and the
+      # Fortran library would be redundant with the gcc-N matrix entries).
+      - name: Build (Apple Clang — C++ library only)
+        if: matrix.compiler == 'appleclang'
+        run: cmake --build build --target multifloats -j$(sysctl -n hw.ncpu)
+
+      # GCC: build everything.
+      - name: Build (GCC — C++ + Fortran + tests)
+        if: matrix.compiler == 'gcc'
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test
+        if: matrix.run_tests
+        run: cd build && ctest --output-on-failure -j$(sysctl -n hw.ncpu)
+
+      # Apple Clang installs only the C++ subproject (multifloats); GCC
+      # installs everything. cmake --install with a per-subdirectory
+      # scope mirrors the build target choice.
+      - name: Install (Apple Clang — C++ only)
+        if: matrix.compiler == 'appleclang'
+        run: cmake --install build/src
+
+      - name: Install (GCC — C++ + Fortran)
+        if: matrix.compiler == 'gcc'
+        run: cmake --install build
+
+      - name: Package
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ARCHIVE="multifloats-${TAG}-darwin-arm64-lto-${{ matrix.compiler }}-${{ matrix.version }}.tar.gz"
+          tar czf "${ARCHIVE}" -C install .
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: multifloats-mac-lto-${{ matrix.compiler }}-${{ matrix.version }}
+          path: ${{ env.ARCHIVE }}
+
+  # ===========================================================================
+  # macOS arm64 non-LTO single C++-only build.
+  # ===========================================================================
+  build-non-lto-mac:
+    runs-on: macos-15
+    env:
+      CFLAGS: -mcpu=apple-m1
+      CXXFLAGS: -mcpu=apple-m1
+      FFLAGS: -mcpu=apple-m1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install fypp + Homebrew GCC 14
+        run: |
+          pip install fypp mpmath
+          brew install gcc@14
+
+      - name: Configure & build
+        run: |
+          # Same MULTIFLOATS_STRIP_SYMBOLS=OFF rationale as the Linux
+          # build-non-lto job — without LTO inlining, hidden namespace
+          # symbols still need to be link-resolvable for downstream
+          # consumers of `multifloats::hypot` etc.
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_Fortran_COMPILER=gfortran-14 \
+            -DMULTIFLOATS_USE_LTO=OFF \
+            -DMULTIFLOATS_STRIP_SYMBOLS=OFF \
+            -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test
+        run: cd build && ctest --output-on-failure -j$(sysctl -n hw.ncpu)
+
+      - name: Install C++ only
+        run: cmake --install build/src
+
+      - name: Package
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          ARCHIVE="multifloats-${TAG}-darwin-arm64-no-lto.tar.gz"
+          tar czf "${ARCHIVE}" -C install .
+          echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: multifloats-mac-no-lto
+          path: ${{ env.ARCHIVE }}
+
+  # ===========================================================================
   # Non-LTO build — single C++-only build.
   #
   # No bytecode in the archive, so libmultifloats.a links against any
@@ -203,6 +399,10 @@ jobs:
   # ===========================================================================
   build-non-lto:
     runs-on: ubuntu-latest
+    env:
+      CFLAGS: -march=haswell
+      CXXFLAGS: -march=haswell
+      FFLAGS: -march=haswell
     steps:
       - uses: actions/checkout@v4
 
@@ -226,6 +426,7 @@ jobs:
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
             -DMULTIFLOATS_STRIP_SYMBOLS=OFF \
+            -DMULTIFLOATS_BUILD_BENCH=OFF \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(nproc)
 
@@ -252,7 +453,7 @@ jobs:
   # Create GitHub Release with all artifacts
   # ===========================================================================
   release:
-    needs: [build-lto, build-non-lto]
+    needs: [build-lto, build-non-lto, build-lto-mac, build-non-lto-mac]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -260,26 +461,38 @@ jobs:
         with:
           path: artifacts
 
-      # Merge all installs into a single combined tarball. The per-compiler
-      # tagged C++ and Fortran archives coexist by name; the non-LTO
-      # libmultifloats.a sits alongside them as the portable fallback.
-      # multifloatsConfig.cmake is the smart selector — same content from
-      # every per-compiler install, so last-write-wins is safe.
-      - name: Create combined archive
+      # Per-platform combined tarballs. Each merges every per-compiler
+      # tagged archive + the portable non-LTO archive into one install
+      # prefix; the smart multifloatsConfig.cmake (same content from
+      # every job's install, last-write-wins) routes consumers to the
+      # best-fit. Linux and macOS get separate combined tarballs because
+      # mixing archs in a single prefix would just be confusing.
+      - name: Create combined archives
         run: |
           TAG="${GITHUB_REF_NAME}"
-          mkdir -p combined
+          mkdir -p combined-linux combined-mac
+          # actions/download-artifact@v4 layout is artifacts/<name>/<file>.tar.gz.
+          # Sort each tarball into the right per-platform combined dir by
+          # the platform tag in its filename.
           for tarball in artifacts/**/*.tar.gz; do
-            tar xzf "$tarball" -C combined
+            case "$(basename "$tarball")" in
+              *-darwin-*) tar xzf "$tarball" -C combined-mac ;;
+              *-linux-*)  tar xzf "$tarball" -C combined-linux ;;
+            esac
           done
-          COMBINED="libmultifloats-${TAG}-linux-x86_64.tar.gz"
-          tar czf "${COMBINED}" -C combined .
-          echo "COMBINED=${COMBINED}" >> $GITHUB_ENV
+
+          COMBINED_LINUX="libmultifloats-${TAG}-linux-x86_64.tar.gz"
+          COMBINED_MAC="libmultifloats-${TAG}-darwin-arm64.tar.gz"
+          tar czf "${COMBINED_LINUX}" -C combined-linux .
+          tar czf "${COMBINED_MAC}" -C combined-mac .
+          echo "COMBINED_LINUX=${COMBINED_LINUX}" >> $GITHUB_ENV
+          echo "COMBINED_MAC=${COMBINED_MAC}" >> $GITHUB_ENV
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ${{ env.COMBINED }}
+            ${{ env.COMBINED_LINUX }}
+            ${{ env.COMBINED_MAC }}
             artifacts/**/*.tar.gz
           generate_release_notes: true
