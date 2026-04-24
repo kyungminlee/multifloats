@@ -46,12 +46,16 @@ if(MULTIFLOATS_STRIP_SYMBOLS)
         COMMAND bash ${CMAKE_CURRENT_BINARY_DIR}/localize_symbols.sh $<TARGET_FILE:multifloats>
         COMMENT "Localizing non-API symbols in libmultifloats")
 endif()
+# -O3 only — no -flto. LTO embeds compiler-specific bytecode (GIMPLE
+# for GCC, opaque-format BC for Clang) into the static archive, which
+# forces every downstream consumer onto a bytecode-compatible toolchain
+# and breaks cross-compiler / cross-version linking against the
+# extern "C" `*dd` ABI surface. The Fortran library keeps -flto
+# (fsrc/CMakeLists.txt) because gfortran consumers already need a
+# matching .mod / hidden-pointer ABI from the same gfortran build, so
+# LTO adds no new constraint there. See doc/BENCHMARK.md "build" notes.
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        target_compile_options(multifloats PRIVATE -O3 -flto -ffat-lto-objects)
-    else()
-        target_compile_options(multifloats PRIVATE -O3 -flto)
-    endif()
+    target_compile_options(multifloats PRIVATE -O3)
 else()
     target_compile_options(multifloats PRIVATE -O2)
 endif()
