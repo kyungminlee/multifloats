@@ -25,6 +25,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 enable_testing()
 
+# Default build type. CMake leaves CMAKE_BUILD_TYPE empty for single-config
+# generators (Ninja, Make), which then skips CMAKE_<LANG>_FLAGS_RELEASE
+# entirely — the library would be built unoptimized. Multi-config generators
+# (Xcode, Visual Studio) use CMAKE_CONFIGURATION_TYPES and pick the build
+# config at build time; never override there.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING
+        "Build type (Debug, Release, RelWithDebInfo, MinSizeRel)" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS
+        Debug Release RelWithDebInfo MinSizeRel)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 find_program(FYPP_EXECUTABLE fypp REQUIRED)
 
@@ -84,9 +96,13 @@ add_subdirectory(fsrc)  # project(multifloatsf) → libmultifloatsf-<compiler>.a
 # Helpers to cut boilerplate for the ~10 test/bench executables below.
 # The compile flags and library set are identical per-language, so a
 # helper is strictly easier to maintain than a dozen copies.
+# -O level comes from CMAKE_<LANG>_FLAGS_<CONFIG> (Release default is
+# -O3 -DNDEBUG on GNU/Clang). -fext-numeric-literals is a *correctness*
+# flag for GCC: it enables `1.0q` __float128 literals used by the
+# quadmath oracle in test/fuzz.cc and bench.cc. Not optional.
 function(mf_add_cpp_executable name source)
     add_executable(${name} ${source})
-    target_compile_options(${name} PRIVATE -O3 -fext-numeric-literals)
+    target_compile_options(${name} PRIVATE -fext-numeric-literals)
     # Tests are privileged consumers — they exercise src/ implementation
     # helpers (multifloats_td.hh) that aren't part of the installed API.
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -96,7 +112,6 @@ endfunction()
 function(mf_add_fortran_executable name source)
     cmake_parse_arguments(PARSE_ARGV 2 ARG "" "" "LINK")
     add_executable(${name} ${source})
-    target_compile_options(${name} PRIVATE -O3)
     target_link_libraries(${name} PRIVATE multifloatsf ${ARG_LINK})
 endfunction()
 
@@ -185,13 +200,12 @@ mf_add_fortran_executable(fortran_bench_abi ./test/bench_abi.f90)
 # delegate to C++ on the Fortran side (see C_DELEGATE_UNARY_MAP in
 # fsrc/multifloats.fypp) and are covered by test/abi_equivalence.f90.
 add_library(crosscheck-bindings OBJECT ./test/crosscheck_bindings.f90)
-target_compile_options(crosscheck-bindings PRIVATE -O3)
 target_link_libraries(crosscheck-bindings PRIVATE multifloatsf)
 set_target_properties(crosscheck-bindings PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fmod/test)
 
 add_executable(cpp_crosscheck ./test/crosscheck.cc)
-target_compile_options(cpp_crosscheck PRIVATE -O3 -fext-numeric-literals)
+target_compile_options(cpp_crosscheck PRIVATE -fext-numeric-literals)
 target_include_directories(cpp_crosscheck PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(cpp_crosscheck PRIVATE
     multifloats crosscheck-bindings multifloatsf quadmath)
@@ -228,7 +242,7 @@ if(BUILD_MPFR_TESTS)
     # source file carries an MPFR oracle in one compile mode and the
     # quadmath-only fast regression gate in the other.
     add_executable(cpp_fuzz_mpfr ./test/fuzz.cc)
-    target_compile_options(cpp_fuzz_mpfr PRIVATE -O3 -fext-numeric-literals)
+    target_compile_options(cpp_fuzz_mpfr PRIVATE -fext-numeric-literals)
     target_compile_definitions(cpp_fuzz_mpfr PRIVATE USE_MPFR)
     target_include_directories(cpp_fuzz_mpfr PRIVATE ${MPREAL_INCLUDE_DIR})
     target_link_libraries(cpp_fuzz_mpfr PRIVATE multifloats quadmath MPFR::MPFR)

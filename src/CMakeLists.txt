@@ -46,29 +46,40 @@ if(MULTIFLOATS_STRIP_SYMBOLS)
         COMMAND bash ${CMAKE_CURRENT_BINARY_DIR}/localize_symbols.sh $<TARGET_FILE:multifloats>
         COMMENT "Localizing non-API symbols in libmultifloats")
 endif()
+# Correctness — IntelLLVM. icpx defaults to -fp-model=fast at -O2+, which
+# reassociates the DD error-free transformations (2Sum / Fast2Sum / Dekker)
+# and contracts add-of-mul into FMAs — either corrupts the `lo`
+# compensation and breaks every DD operation. Unconditional (not gated on
+# build type): the optimizer rearranges expressions at -O1 too.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
+    target_compile_options(multifloats PRIVATE -fp-model=precise)
+endif()
+
+# LTO via CMake's standard abstraction. Per-config so a Debug build leaves
+# IPO off (LTO destroys debuggability and noticeably slows the link).
+# check_ipo_supported errors out by default on toolchains that don't do
+# IPO; LANGUAGES CXX scopes the probe to the language we care about.
+include(CheckIPOSupported)
+check_ipo_supported(RESULT MULTIFLOATS_IPO_SUPPORTED LANGUAGES CXX)
+if(MULTIFLOATS_IPO_SUPPORTED)
+    set_target_properties(multifloats PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION_RELEASE        TRUE
+        INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+        INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     TRUE)
+endif()
+
 # Fat LTO: emit both LTO bitcode and ordinary object code so the archive
 # remains linkable by a non-LTO linker or a different-vendor toolchain
 # (e.g. a GCC-built libmultifloats.a consumed by a Clang-driven link).
-# -ffat-lto-objects is native on GCC; Clang 18+ accepts it too. Probe
-# instead of gating on compiler ID so newer LLVM-family compilers get
-# fat objects automatically and older ones fall back to plain LTO.
-include(CheckCXXCompilerFlag)
-check_cxx_compiler_flag(-ffat-lto-objects MULTIFLOATS_CXX_HAS_FAT_LTO)
-if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-        # icpx defaults to -fp-model=fast at -O2+, which reassociates the
-        # DD error-free transformations (2Sum / Fast2Sum / Dekker) and
-        # contracts add-of-mul into FMAs — either corrupts the `lo`
-        # compensation and breaks every DD operation.
-        target_compile_options(multifloats PRIVATE -O3 -flto -fp-model=precise)
-    else()
-        target_compile_options(multifloats PRIVATE -O3 -flto)
-    endif()
+# CMake doesn't model fat-LTO directly, so we probe + add the flag manually,
+# scoped to the optimized configs that actually enable IPO.
+if(MULTIFLOATS_IPO_SUPPORTED)
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-ffat-lto-objects MULTIFLOATS_CXX_HAS_FAT_LTO)
     if(MULTIFLOATS_CXX_HAS_FAT_LTO)
-        target_compile_options(multifloats PRIVATE -ffat-lto-objects)
+        target_compile_options(multifloats PRIVATE
+            $<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-ffat-lto-objects>)
     endif()
-else()
-    target_compile_options(multifloats PRIVATE -O2)
 endif()
 
 # Install: library + header + export targets + Config.cmake

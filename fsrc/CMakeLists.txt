@@ -40,30 +40,47 @@ fortran_module_layout(multifloatsf)
 target_include_directories(multifloatsf PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
+# Correctness — IntelLLVM. ifx defaults to -fp-model=fast at -O2+. DD
+# error-free transformations require strict IEEE associativity and no
+# FMA contraction — see src/CMakeLists.txt for the full rationale.
+# Unconditional (not gated on build type): the optimizer rearranges at
+# -O1 too.
+if(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
+    target_compile_options(multifloatsf PRIVATE -fp-model=precise)
+endif()
+
+# LTO via CMake's IPO abstraction. Gated on GNU / LLVMFlang because other
+# Fortran compilers (Intel ifx, NVIDIA, NAG, Cray) either don't have a
+# usable LTO mode or produce LTO bytecode no other compiler can consume,
+# defeating the cross-toolchain ABI surface this library exposes. The
+# CheckIPOSupported probe alone wouldn't catch the interop concern.
+include(CheckIPOSupported)
+check_ipo_supported(RESULT MULTIFLOATSF_IPO_SUPPORTED LANGUAGES Fortran)
+if(MULTIFLOATSF_IPO_SUPPORTED
+   AND (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU"
+        OR CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang"))
+    set_target_properties(multifloatsf PROPERTIES
+        INTERPROCEDURAL_OPTIMIZATION_RELEASE        TRUE
+        INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+        INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     TRUE)
+    set(MULTIFLOATSF_LTO_ON TRUE)
+else()
+    set(MULTIFLOATSF_LTO_ON FALSE)
+endif()
+
 # Fat LTO: keep regular object code alongside the LTO bitcode so the
 # installed archive can be linked by a different compiler/toolchain than
 # the one that built it (non-LTO or LTO-incompatible linker driver
-# falls back to the embedded native objects). GCC supports
-# -ffat-lto-objects natively; Flang/Clang >=18 accepts it too. Probe so
-# older LLVM-family compilers silently fall back to plain LTO.
-include(CheckFortranCompilerFlag)
-check_fortran_compiler_flag(-ffat-lto-objects MULTIFLOATSF_HAS_FAT_LTO)
-if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "")
-    if(CMAKE_Fortran_COMPILER_ID STREQUAL "GNU"
-       OR CMAKE_Fortran_COMPILER_ID STREQUAL "LLVMFlang")
-        target_compile_options(multifloatsf PRIVATE -O3 -flto)
-        target_link_options(multifloatsf PUBLIC -flto)
-        if(MULTIFLOATSF_HAS_FAT_LTO)
-            target_compile_options(multifloatsf PRIVATE -ffat-lto-objects)
-        endif()
-    elseif(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
-        # ifx defaults to -fp-model=fast at -O2+. DD error-free
-        # transformations require strict IEEE associativity and no FMA
-        # contraction — see src/CMakeLists.txt for the full rationale.
-        target_compile_options(multifloatsf PRIVATE -O3 -fp-model=precise)
+# falls back to the embedded native objects). CMake doesn't model
+# fat-LTO directly, so probe + add manually, scoped to the optimized
+# configs that actually enable IPO.
+if(MULTIFLOATSF_LTO_ON)
+    include(CheckFortranCompilerFlag)
+    check_fortran_compiler_flag(-ffat-lto-objects MULTIFLOATSF_HAS_FAT_LTO)
+    if(MULTIFLOATSF_HAS_FAT_LTO)
+        target_compile_options(multifloatsf PRIVATE
+            $<$<CONFIG:Release,RelWithDebInfo,MinSizeRel>:-ffat-lto-objects>)
     endif()
-else()
-    target_compile_options(multifloatsf PRIVATE -O2)
 endif()
 
 # Install: compiler-tagged library + .mod files + Config.cmake
