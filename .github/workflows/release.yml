@@ -8,14 +8,6 @@ on:
 permissions:
   contents: write
 
-# Node 20 is being phased out on GitHub-hosted runners (forced default to
-# Node 24 from 2026-06-02, Node 20 removal from 2026-09-16). Opt in now
-# so actions/checkout, actions/upload-artifact and actions/download-artifact
-# run on Node 24 and the deprecation warning stops firing on every job.
-# Safe to remove once Node 24 is the runner default.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 # Per-job CPU baseline:
 #   Linux x86_64 → -march=haswell  (AVX2 + FMA + BMI2)
 #   macOS arm64  → -mcpu=apple-m1  (Apple Silicon baseline; M2/M3/M4 are supersets)
@@ -109,7 +101,7 @@ jobs:
             oneapi_pkg: intel-oneapi-compiler-fortran-2025.0 intel-oneapi-compiler-dpcpp-cpp-2025.0
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install fypp and mpmath
         run: pip install fypp mpmath
@@ -202,7 +194,7 @@ jobs:
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: multifloats-lto-${{ matrix.compiler }}-${{ matrix.version }}
           path: ${{ env.ARCHIVE }}
@@ -276,7 +268,7 @@ jobs:
           #   run_tests: false
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install fypp + toolchain
         run: |
@@ -350,7 +342,7 @@ jobs:
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: multifloats-mac-lto-${{ matrix.compiler }}-${{ matrix.version }}
           path: ${{ env.ARCHIVE }}
@@ -365,7 +357,7 @@ jobs:
       CXXFLAGS: -mcpu=apple-m1
       FFLAGS: -mcpu=apple-m1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install fypp + Homebrew GCC 14
         run: |
@@ -404,7 +396,7 @@ jobs:
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: multifloats-mac-no-lto
           path: ${{ env.ARCHIVE }}
@@ -426,7 +418,7 @@ jobs:
       CXXFLAGS: -march=haswell
       FFLAGS: -march=haswell
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install fypp and mpmath
         run: pip install fypp mpmath
@@ -466,7 +458,7 @@ jobs:
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: multifloats-no-lto
           path: ${{ env.ARCHIVE }}
@@ -479,7 +471,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -493,7 +485,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           mkdir -p combined-linux combined-mac
-          # actions/download-artifact@v4 layout is artifacts/<name>/<file>.tar.gz.
+          # actions/download-artifact@v8 layout is artifacts/<name>/<file>.tar.gz.
           # Sort each tarball into the right per-platform combined dir by
           # the platform tag in its filename.
           for tarball in artifacts/**/*.tar.gz; do

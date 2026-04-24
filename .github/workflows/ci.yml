@@ -12,18 +12,11 @@ on:
 permissions:
   contents: read
 
-# Silence the Node.js 20 deprecation warning from actions/checkout@v4 by
-# opting into the Node 24 runtime now (GitHub forces it as default on
-# 2026-06-02 and removes Node 20 on 2026-09-16). Safe to drop once Node
-# 24 is the runner default. Mirror of release.yml.
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install fypp and mpmath
         run: pip install fypp mpmath

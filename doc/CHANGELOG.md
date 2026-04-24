@@ -8,6 +8,18 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-04-24
+
+### Changed
+
+- Bump CI action versions to the Node-24-native majors:
+  `actions/checkout@v4` → `@v6`,
+  `actions/upload-artifact@v4` → `@v7`,
+  `actions/download-artifact@v4` → `@v8`.
+  Supersedes the v0.3.3 `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24` env opt-in,
+  which is now redundant and removed. No workflow logic changes; the
+  basic `name`/`path` inputs we use are stable across these majors.
+
 ## [0.3.3] — 2026-04-24
 
 ### Fixed
