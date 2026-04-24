@@ -76,5 +76,15 @@ include(CMakePackageConfigHelpers)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfig.cmake"
 "include(\"\${CMAKE_CURRENT_LIST_DIR}/multifloatsTargets.cmake\")
 ")
-install(FILES "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfig.cmake"
+# Version file so `find_package(multifloats <N> REQUIRED)` actually
+# enforces the requested major. SameMajorVersion: any installed N.x.x
+# satisfies a request for N (matching what MULTIFLOATS_ABI_VERSION ==
+# SOVERSION encodes — bump on any C-ABI break).
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfigVersion.cmake"
+    VERSION ${MULTIFLOATS_ABI_VERSION}.0.0
+    COMPATIBILITY SameMajorVersion)
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfigVersion.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/multifloats)
