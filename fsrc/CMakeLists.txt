@@ -3,9 +3,11 @@ project(multifloatsf LANGUAGES Fortran)
 include(GNUInstallDirs)
 include(FortranCompiler)
 
-# Detect usable REAL(16) support. The test exercises real(v, 16),
-# ieee_is_finite, and arithmetic — flang may accept the type declaration
-# but reject intrinsics operating on it.
+# Detect usable REAL(16) support on the *build* host. Governs which
+# pre-expanded .f90 variant we use for the in-tree multifloatsf target
+# (tests, bench). Consumers making a source-build via find_package()
+# re-run the same probe themselves in multifloatsfConfig.cmake and pick
+# whichever of the two shipped variants matches their compiler.
 include(CheckFortranSourceCompiles)
 check_fortran_source_compiles("
     program t
@@ -18,22 +20,56 @@ check_fortran_source_compiles("
       if (ieee_is_finite(x)) y = y * x
     end program
 " FORTRAN_HAS_REAL16 SRC_EXT f90)
-set(_FYPP_DEFS "")
-if(NOT FORTRAN_HAS_REAL16)
-    list(APPEND _FYPP_DEFS "-DMULTIFLOATS_NO_QUAD")
-endif()
 
 set(_GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
-set(_GENERATED_SRC ${_GENERATED_DIR}/multifloats.f90)
+
+# Generate both variants unconditionally. Both go into the install image
+# so cross-compilation and consumer-side compiler switches are safe; the
+# build host's REAL(16) status only decides which variant the in-tree
+# multifloatsf target compiles.
+set(_SRC_QUAD   ${_GENERATED_DIR}/multifloats-quad.f90)
+set(_SRC_NOQUAD ${_GENERATED_DIR}/multifloats-noquad.f90)
 
 add_custom_command(
-    OUTPUT ${_GENERATED_SRC}
+    OUTPUT ${_SRC_QUAD}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${_GENERATED_DIR}
-    COMMAND ${FYPP_EXECUTABLE} ${_FYPP_DEFS}
+    COMMAND ${FYPP_EXECUTABLE}
         ${CMAKE_CURRENT_SOURCE_DIR}/multifloats.fypp
-        ${_GENERATED_SRC}
+        ${_SRC_QUAD}
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/multifloats.fypp
     VERBATIM)
+add_custom_command(
+    OUTPUT ${_SRC_NOQUAD}
+    COMMAND ${CMAKE_COMMAND} -E make_directory ${_GENERATED_DIR}
+    COMMAND ${FYPP_EXECUTABLE} -DMULTIFLOATS_NO_QUAD
+        ${CMAKE_CURRENT_SOURCE_DIR}/multifloats.fypp
+        ${_SRC_NOQUAD}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/multifloats.fypp
+    VERBATIM)
+
+# Aggregate target so both variants are built whenever anything in this
+# tree depends on "the fypp output" (needed before install).
+add_custom_target(multifloatsf_sources ALL
+    DEPENDS ${_SRC_QUAD} ${_SRC_NOQUAD})
+
+# In-tree multifloatsf library: picks the variant that matches the build
+# host's REAL(16) support. scripts/check_fortran_abi_sync.sh and the
+# cross-check tests point at this concrete file — keep a stable
+# `generated/multifloats.f90` symlink-style dispatch for them.
+if(FORTRAN_HAS_REAL16)
+    set(_GENERATED_SRC ${_SRC_QUAD})
+else()
+    set(_GENERATED_SRC ${_SRC_NOQUAD})
+endif()
+# Compatibility alias expected by scripts/check_fortran_abi_sync.sh which
+# greps generated/multifloats.f90 for the bind(c) surface.
+set(_COMPAT_SRC ${_GENERATED_DIR}/multifloats.f90)
+add_custom_command(
+    OUTPUT ${_COMPAT_SRC}
+    COMMAND ${CMAKE_COMMAND} -E copy ${_GENERATED_SRC} ${_COMPAT_SRC}
+    DEPENDS ${_GENERATED_SRC}
+    VERBATIM)
+add_custom_target(multifloatsf_compat_alias ALL DEPENDS ${_COMPAT_SRC})
 
 add_library(multifloatsf STATIC ${_GENERATED_SRC})
 fortran_module_layout(multifloatsf)
@@ -92,13 +128,49 @@ if(MULTIFLOATSF_LTO_ON)
     endif()
 endif()
 
-# Install: compiler-tagged library + .mod files + Config.cmake
-fortran_install_library(multifloatsf)
-fortran_install_modules(multifloatsf)
+# =============================================================================
+# Install
+# =============================================================================
+# Default distribution model is source: the two fypp-expanded .f90 variants
+# plus a Config.cmake that picks and compiles at consumer find_package()
+# time. Precompiled-mod install is opt-in (see top-level
+# MULTIFLOATSF_INSTALL_PRECOMPILED_MOD option).
 
-# Also install the generated Fortran source alongside the installed .mod
-# files so downstream projects using a mismatched compiler can recompile
-# the module locally. .f90 source is compiler-independent, so it is
-# placed at <libdir>/fmod/ (no compiler-version subdirectory).
-install(FILES ${_GENERATED_SRC}
-    DESTINATION ${CMAKE_INSTALL_LIBDIR}/fmod)
+# Where the .f90 lives in the install tree. Under share/ rather than lib/
+# because it's architecture-independent and not a linkable artifact.
+set(MULTIFLOATSF_SHARE_DIR share/multifloatsf/src
+    CACHE STRING "Install subdir (below <prefix>) for the fypp-expanded Fortran sources")
+
+install(FILES ${_SRC_QUAD} ${_SRC_NOQUAD}
+    DESTINATION ${MULTIFLOATSF_SHARE_DIR})
+# Also ship the fypp template itself for consumers who want to regenerate
+# (e.g. custom fypp macros). Optional — most consumers use the
+# pre-expanded .f90s and never touch fypp.
+install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/multifloats.fypp
+    DESTINATION ${MULTIFLOATSF_SHARE_DIR})
+
+# Opt-in: also install a precompiled compiler-tagged archive + .mod. The
+# source-build path in Config.cmake still takes precedence; these are
+# convenience artifacts for distro packagers who want the system-compiler
+# build of the module pre-built alongside.
+if(MULTIFLOATSF_INSTALL_PRECOMPILED_MOD)
+    fortran_install_library(multifloatsf)
+    fortran_install_modules(multifloatsf)
+endif()
+
+# Config.cmake: source-build selector. The template sits next to the
+# project's other CMake helpers under cmake/.
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    ${CMAKE_SOURCE_DIR}/cmake/multifloatsfConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/multifloatsfConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/multifloatsf
+    PATH_VARS MULTIFLOATSF_SHARE_DIR)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/multifloatsfConfigVersion.cmake
+    VERSION ${MULTIFLOATS_ABI_VERSION}.0.0
+    COMPATIBILITY SameMajorVersion)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/multifloatsfConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/multifloatsfConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/multifloatsf)

@@ -109,6 +109,19 @@ option(BUILD_MPFR_TESTS "Build MPFR-based precision tests (mpreal + libmpfr)" OF
 # opt-in switch.
 option(MULTIFLOATS_USE_LTO "Build the libraries with LTO (-flto + fat objects)" ON)
 
+# Fortran module distribution model. OFF (default) — ship the fypp-expanded
+# `.f90` source under <prefix>/share/multifloatsf/src/ and let consumers
+# compile the module with their own Fortran compiler at find_package() time.
+# This sidesteps the .mod-file-format and derived-type-mangling
+# incompatibilities between compilers (and between versions of the same
+# compiler). ON — *additionally* install a compiler-tagged `.mod` + tagged
+# static archive for distro packagers who want to ship pre-compiled
+# artifacts for the system compiler. Consumer-side find_package() still
+# prefers the source-build path regardless; the precompiled artifacts are
+# available for opt-in use.
+option(MULTIFLOATSF_INSTALL_PRECOMPILED_MOD
+    "Install compiler-tagged pre-compiled Fortran .mod + archive (opt-in)" OFF)
+
 # =============================================================================
 # Library subprojects
 # =============================================================================
@@ -233,6 +246,16 @@ if(BUILD_TESTING)
     set_target_properties(cpp_crosscheck PROPERTIES LINKER_LANGUAGE Fortran)
     target_link_libraries(cpp_crosscheck PRIVATE stdc++)
     add_test(NAME crosscheck_cpp_fortran COMMAND cpp_crosscheck 5000 0xc0ffee)
+
+    # Consumer smoke for the source-distributed Fortran package. Drives
+    # an `install --prefix <scratch>` + a fresh find_package(multifloatsf)
+    # + build + run of a minimal Fortran consumer. Catches install-tree
+    # regressions (missing .f90 variants, broken Config.cmake, toolchain
+    # tag drift). Not part of the regular build; needs an already-built
+    # tree which is what ctest consumes anyway.
+    add_test(NAME consumer_fortran_smoke
+        COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_consumer_fortran.sh
+                ${CMAKE_CURRENT_BINARY_DIR})
 endif()  # BUILD_TESTING
 
 # ----------------------------------------------------------------------

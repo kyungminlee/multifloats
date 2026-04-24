@@ -1,0 +1,91 @@
+# multifloatsfConfig.cmake — source-build Fortran module for multifloats.
+#
+# The Fortran module's `.mod` file format and its elemental/module-mangled
+# symbol names are private to each Fortran compiler (and often version).
+# To sidestep that, multifloatsf is distributed as the pre-expanded Fortran
+# source (`multifloats-{quad,noquad}.f90`) plus this config. At consumer
+# find_package() time we probe the consumer's Fortran compiler for REAL(16)
+# support, pick the right variant, and build a per-consumer static library
+# with the consumer's own compiler — so `.mod` always matches.
+#
+# Usage:
+#   enable_language(Fortran)  # must precede find_package()
+#   find_package(multifloatsf REQUIRED)
+#   target_link_libraries(myapp PRIVATE multifloats::fortran_module)
+#
+# The C-ABI backing library (multifloats, unmangled `adddd`/`sindd`/...) is
+# pulled in transitively so the consumer only links one target.
+
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(multifloats CONFIG)
+
+# Shipped pre-expanded sources. Both variants are always installed; we pick
+# the one that matches the consumer compiler's REAL(16) capability.
+set_and_check(_MULTIFLOATSF_SHARE_DIR "@PACKAGE_MULTIFLOATSF_SHARE_DIR@")
+
+if(NOT TARGET multifloats::fortran_module)
+  if(NOT CMAKE_Fortran_COMPILER_LOADED)
+    message(FATAL_ERROR
+      "multifloatsf requires a Fortran compiler. "
+      "Call `enable_language(Fortran)` (or list Fortran in `project(...)`) "
+      "before `find_package(multifloatsf)`.")
+  endif()
+
+  # Probe the *consumer* compiler for a usable REAL(16). Mirrors the
+  # producer-side probe in fsrc/CMakeLists.txt — needed because neither
+  # the `.mod` format nor the REAL(16) availability of the build host
+  # carries over to the consumer.
+  include(CheckFortranSourceCompiles)
+  check_fortran_source_compiles("
+      program t
+        use, intrinsic :: ieee_arithmetic, only: ieee_is_finite
+        real(16) :: x, y
+        real(8)  :: d
+        x = 1.0
+        y = x + x
+        d = real(x, 8)
+        if (ieee_is_finite(x)) y = y * x
+      end program
+  " _MULTIFLOATSF_HAS_REAL16 SRC_EXT f90)
+
+  if(_MULTIFLOATSF_HAS_REAL16)
+    set(_MULTIFLOATSF_SRC "${_MULTIFLOATSF_SHARE_DIR}/multifloats-quad.f90")
+  else()
+    set(_MULTIFLOATSF_SRC "${_MULTIFLOATSF_SHARE_DIR}/multifloats-noquad.f90")
+  endif()
+
+  if(NOT EXISTS "${_MULTIFLOATSF_SRC}")
+    message(FATAL_ERROR
+      "multifloatsf: Fortran source not found at ${_MULTIFLOATSF_SRC}. "
+      "The install tree may be incomplete.")
+  endif()
+
+  # Per-consumer .mod output. Scoped under the top-level build dir so
+  # multiple subprojects that call find_package(multifloatsf) share one
+  # compile (guarded by the TARGET check above anyway).
+  set(_MULTIFLOATSF_MOD_DIR "${CMAKE_BINARY_DIR}/multifloatsf-fmod")
+  file(MAKE_DIRECTORY "${_MULTIFLOATSF_MOD_DIR}")
+
+  add_library(multifloatsf STATIC "${_MULTIFLOATSF_SRC}")
+  set_target_properties(multifloatsf PROPERTIES
+    Fortran_MODULE_DIRECTORY "${_MULTIFLOATSF_MOD_DIR}"
+    POSITION_INDEPENDENT_CODE ON)
+  # Downstream `use multifloats` finds multifloats.mod via this dir.
+  target_include_directories(multifloatsf INTERFACE "${_MULTIFLOATSF_MOD_DIR}")
+  # Every bind(c) interface in the module resolves to an unmangled *dd
+  # symbol in libmultifloats.
+  target_link_libraries(multifloatsf PUBLIC multifloats::multifloats)
+
+  # Correctness — IntelLLVM. ifx defaults to -fp-model=fast at -O2+. DD
+  # error-free transformations require strict IEEE associativity and no
+  # FMA contraction. Mirrors fsrc/CMakeLists.txt producer-side flag.
+  if(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
+    target_compile_options(multifloatsf PRIVATE -fp-model=precise)
+  endif()
+
+  add_library(multifloats::fortran_module ALIAS multifloatsf)
+endif()
+
+check_required_components(multifloatsf)
