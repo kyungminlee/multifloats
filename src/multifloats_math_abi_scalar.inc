@@ -111,19 +111,19 @@ float64x2_t jndd(int n, float64x2_t a) { return to(multifloats::jn(n, from(a)));
 float64x2_t yndd(int n, float64x2_t a) { return to(multifloats::yn(n, from(a))); }
 // Range sweeps: Yn uses the stable forward-recurrence single-sweep kernel;
 // Jn loops over Miller-backward per output (forward is unstable for n > x).
+// `float64x2_t` and `multifloats::float64x2` are layout-compatible (asserted
+// in multifloats.h), so reinterpret_cast the caller's buffer in place — no
+// std::vector allocation, no copy, and no `bad_alloc` hazard across the
+// extern "C" boundary.
 void jndd_range(int n1, int n2, float64x2_t a, float64x2_t *out) {
-  int size = n2 - n1 + 1;
-  if (size <= 0) return;
-  std::vector<float64x2> buf(size);
-  multifloats::jn(n1, n2, from(a), buf.data());
-  for (int i = 0; i < size; ++i) out[i] = to(buf[i]);
+  if (n2 < n1) return;
+  multifloats::jn(n1, n2, from(a),
+                  reinterpret_cast<multifloats::float64x2 *>(out));
 }
 void yndd_range(int n1, int n2, float64x2_t a, float64x2_t *out) {
-  int size = n2 - n1 + 1;
-  if (size <= 0) return;
-  std::vector<float64x2> buf(size);
-  multifloats::yn(n1, n2, from(a), buf.data());
-  for (int i = 0; i < size; ++i) out[i] = to(buf[i]);
+  if (n2 < n1) return;
+  multifloats::yn(n1, n2, from(a),
+                  reinterpret_cast<multifloats::float64x2 *>(out));
 }
 
 // Fused sincos / sinhcosh. Out-pointer style (C has no multi-value return).

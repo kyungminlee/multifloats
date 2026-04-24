@@ -819,6 +819,14 @@ inline constexpr float64x2 nextafter(float64x2 const &x, float64x2 const &y) {
   // nextafter(nextafter(x, +inf), -inf) == x.
   double ax = std::abs(x._limbs[0]);
   double inf = std::numeric_limits<double>::infinity();
+  // x.hi == 0 special: ulp_up(0) is min_subnormal ≈ 5e-324, and `ulp/2^53`
+  // underflows to 0 — leaving us returning `x ± 0 == x`, which would loop
+  // any caller that walks DD numbers via nextafter. Step by the smallest
+  // representable double instead. (No DD lo limb can survive at this scale.)
+  if (ax == 0.0) {
+    double step = std::numeric_limits<double>::denorm_min();
+    return (x < y) ? float64x2(step) : float64x2(-step);
+  }
   double ulp = std::nextafter(ax, inf) - ax;
   double eps = std::ldexp(ulp, -53);
   return (x < y) ? x + float64x2(eps) : x - float64x2(eps);

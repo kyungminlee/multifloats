@@ -110,9 +110,13 @@ std::complex<float64x2> sinpi(std::complex<float64x2> const &z) {
   sinhcosh(pib_dd, sh, ch);
   // Linear correction for the bits beyond DD: sinh(x+ε) ≈ sinh + cosh·ε,
   // cosh(x+ε) ≈ cosh + sinh·ε. ε = pib_lo is small enough that higher-order
-  // terms are below DD precision.
-  float64x2 sh_new = sh + ch * float64x2(pib_lo);
-  float64x2 ch_new = ch + sh * float64x2(pib_lo);
+  // terms are below DD precision. Skip when sh/ch saturate (|π·b| > ~710):
+  // inf·finite (still inf) is harmless but inf·0 = NaN poisons the answer.
+  float64x2 sh_new = sh, ch_new = ch;
+  if (std::isfinite(ch._limbs[0]) && std::isfinite(sh._limbs[0])) {
+    sh_new = sh + ch * float64x2(pib_lo);
+    ch_new = ch + sh * float64x2(pib_lo);
+  }
   return {s * ch_new, c * sh_new};
 }
 
@@ -125,7 +129,10 @@ std::complex<float64x2> cospi(std::complex<float64x2> const &z) {
   pi_times_dd_td(b, pib_dd, pib_lo);
   float64x2 sh, ch;
   sinhcosh(pib_dd, sh, ch);
-  float64x2 sh_new = sh + ch * float64x2(pib_lo);
-  float64x2 ch_new = ch + sh * float64x2(pib_lo);
+  float64x2 sh_new = sh, ch_new = ch;
+  if (std::isfinite(ch._limbs[0]) && std::isfinite(sh._limbs[0])) {
+    sh_new = sh + ch * float64x2(pib_lo);
+    ch_new = ch + sh * float64x2(pib_lo);
+  }
   return {c * ch_new, -(s * sh_new)};
 }

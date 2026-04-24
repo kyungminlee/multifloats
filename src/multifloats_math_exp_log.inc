@@ -486,6 +486,12 @@ float64x2 pow(float64x2 const &x, float64x2 const &y) {
   tsum3_finalize(T0, T1, T2);
 
   float64x2 res = exp2_from_reduced(n_d, T0, T1);
+  // At the overflow rim (|n_d| past the exp2 saturation cap) `res._limbs[0]`
+  // is ±inf or 0. The linear correction `res * LN2 * T2` would then be
+  // inf*finite (still inf, OK) or inf*0 = NaN (when T2 happens to be 0),
+  // and `res + NaN` poisons the answer. Skip the correction in that regime —
+  // the answer is already saturated to its ±inf / 0 sentinel.
+  if (!std::isfinite(res._limbs[0])) return res;
   // 0x1.62e42fefa39efp-1 = round-to-nearest double of ln 2.
   constexpr double LN2 = 0x1.62e42fefa39efp-1;
   double corr = res._limbs[0] * (LN2 * T2);

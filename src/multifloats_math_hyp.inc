@@ -61,9 +61,11 @@ float64x2 tanh(float64x2 const &x) {
     r._limbs[1] = 0.0;
     return r;
   }
-  // For |x| > 37, exp(-2|x|) < 2^-106, so tanh(x) = ±1 to full DD.
-  if (x._limbs[0] > 37.0) return float64x2(1.0);
-  if (x._limbs[0] < -37.0) return float64x2(-1.0);
+  // For |x| ≥ 38, 2·exp(-2|x|) < 2⁻¹⁰⁹ ≈ 0.16 · ulp_dd(1), so tanh(x)
+  // rounds to ±1 to full DD. (At |x| = 37, 2·exp(-74) ≈ 1.5 · ulp_dd(1),
+  // so saturating there would lose ~1.5 DD ulp at the threshold.)
+  if (x._limbs[0] >= 38.0) return float64x2(1.0);
+  if (x._limbs[0] <= -38.0) return float64x2(-1.0);
   if (std::abs(x._limbs[0]) < 0.5) {
     return sinh(x) / cosh(x);
   }
