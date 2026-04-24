@@ -250,15 +250,18 @@ jobs:
           # Apple Clang — C++ library only (skip Fortran target + all
           # tests). Use whatever Apple Clang ships on macos-15; the
           # OUTPUT_NAME tag (`appleclang-<major>`) records the version.
-          # Homebrew gfortran is still installed so CMake's Fortran
+          # Homebrew gfortran-15 is still installed so CMake's Fortran
           # language probe at configure time succeeds — we just don't
-          # build the multifloatsf target.
+          # build the multifloatsf target. Homebrew's gcc formula
+          # installs versioned binaries only (`gfortran-15`, no
+          # unversioned `gfortran`), so we name the version-suffixed
+          # binary explicitly.
           - compiler: appleclang
             version: system
-            brew_pkg: gcc  # for gfortran (CMake Fortran-enable probe)
+            brew_pkg: gcc@15
             cc: clang
             cxx: clang++
-            fc: gfortran
+            fc: gfortran-15
             run_tests: false
 
     steps:
@@ -266,8 +269,14 @@ jobs:
 
       - name: Install fypp + toolchain
         run: |
-          pip install fypp mpmath
-          brew install ${{ matrix.brew_pkg }}
+          # uv: dd_constants_up_to_date prefers `uv run --with mpmath
+          # python3 ...`, so installing uv sidesteps macOS's
+          # PEP-668-protected system Python (where `pip install mpmath`
+          # silently goes to a different interpreter than ctest invokes).
+          # uv tool install fypp puts the fypp CLI on PATH without
+          # touching the system Python at all.
+          brew install uv ${{ matrix.brew_pkg }}
+          uv tool install fypp
 
       - name: Configure
         run: |
@@ -348,8 +357,9 @@ jobs:
 
       - name: Install fypp + Homebrew GCC 14
         run: |
-          pip install fypp mpmath
-          brew install gcc@14
+          # See build-lto-mac for rationale (uv + uv tool install).
+          brew install uv gcc@14
+          uv tool install fypp
 
       - name: Configure & build
         run: |
