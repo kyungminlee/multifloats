@@ -8,7 +8,40 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-04-24
+
 ### Breaking
+
+- **C++ type unification** (commit `6f1c472`): the parallel
+  `float64x2_t` (C POD) and `multifloats::float64x2` (C++ class) types
+  were collapsed into one `struct float64x2 { double limbs[2]; }` used
+  by both languages. `_limbs` → `limbs`; `.hi` / `.lo` field accesses
+  on the old C POD become `.limbs[0]` / `.limbs[1]`. Similarly
+  `complex64x2_t` is gone — C sees `struct complex64x2 { float64x2 re, im; }`,
+  C++ sees `using complex64x2 = std::complex<float64x2>;`. Fortran
+  `bind(c)` interop types (`type dd_c`) switched from `hi, lo` fields
+  to `limbs(2)`. Linker symbol set, calling convention, and on-disk
+  layout are all unchanged; `MULTIFLOATS_ABI_VERSION` stays at 2.
+- **C++ namespace move** (commit `6f1c472`): the public header no
+  longer injects `float64x2` / `complex64x2` into the global namespace
+  via `using multifloats::…`. External C++ consumers must spell the
+  types as `multifloats::float64x2` / `multifloats::complex64x2`, or
+  add their own `using multifloats::float64x2;` at TU scope. The
+  extern "C" `*dd` prototypes now sit inside `namespace multifloats`
+  — function calls resolve via ADL when the argument type is a
+  `multifloats::float64x2` (common case, no user action) or via
+  explicit qualification otherwise.
+- **Fortran module distribution model** (commit `22ea804`): the
+  default install no longer ships a compiler-tagged `.mod` + archive.
+  Instead the pre-expanded `multifloats-quad.f90` and
+  `multifloats-noquad.f90` sources are installed under
+  `<prefix>/share/multifloatsf/src/` and a
+  `multifloatsfConfig.cmake` lets consumers `find_package(multifloatsf)`
+  + compile the module with their own Fortran compiler. Cross-compiler
+  consumers are now viable (gfortran-13 library ↔ gfortran-15
+  consumer, flang ↔ ifx, etc.). Precompiled `.mod` install is retained
+  as an opt-in flag (`-DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON`) for
+  distro packagers.
 
 - **Fortran-surface prefix rename** (commit `44b3a64`, 2026-04-17): the
   remaining `mf_` / `cx_` / `MF_` tokens in the Fortran module were
@@ -48,6 +81,15 @@ Dates are ISO-8601 UTC.
 
 ### Added
 
+- **Fortran source-distribution package** (commit `22ea804`):
+  `cmake/multifloatsfConfig.cmake.in`, both `multifloats-{quad,noquad}.f90`
+  variants, and `test/consumer-fortran/` + `scripts/check_consumer_fortran.sh`
+  as a new `consumer_fortran_smoke` ctest driving install → configure →
+  build → run of a find_package-based consumer.
+- **Layout static_asserts** on `multifloats::float64x2` (commit
+  `6f1c472`): `std::is_standard_layout_v` + `std::is_trivially_copyable_v`,
+  replacing the pre-refactor tautological `sizeof(a)==sizeof(a)`
+  boundary check.
 - C++ I/O: `to_string(float64x2, int precision=32)` and
   `operator<<(std::ostream&, float64x2 const&)` (audit #5).
 - Fortran `sincos` / `sinhcosh` generic subroutines delegating to
@@ -99,6 +141,10 @@ Dates are ISO-8601 UTC.
 
 ### Fixed
 
+- **`isinf(float64x2)`** now scans both limbs (commit `6f1c472`),
+  matching `isnan` / `isfinite`. A non-canonical DD with finite `hi`
+  and infinite `lo` (constructible via the C ABI) previously
+  classified as not-finite, not-inf, not-nan.
 - `catandd` imaginary part lost ~7 decimals when `|b|` is small and
   `|a|` moderate (num/den ≈ 1, cancellation in `0.25·log(num/den)`):
   max_rel dropped from 3.3e-25 to 9.5e-32, mean_rel from 4.4e-28 to
