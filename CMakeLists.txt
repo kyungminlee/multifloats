@@ -108,10 +108,13 @@ add_subdirectory(fsrc)  # project(multifloatsf) → libmultifloatsf-<compiler>.a
 # -O level comes from CMAKE_<LANG>_FLAGS_<CONFIG> (Release default is
 # -O3 -DNDEBUG on GNU/Clang). -fext-numeric-literals is a *correctness*
 # flag for GCC: it enables `1.0q` __float128 literals used by the
-# quadmath oracle in test/fuzz.cc and bench.cc. Not optional.
+# quadmath oracle in test/fuzz.cc and bench.cc. Not optional on GCC;
+# Clang/icpx don't accept the flag at all (and don't need it — they
+# parse `1.0q` literals natively when __float128 is enabled).
 function(mf_add_cpp_executable name source)
     add_executable(${name} ${source})
-    target_compile_options(${name} PRIVATE -fext-numeric-literals)
+    target_compile_options(${name} PRIVATE
+        $<$<CXX_COMPILER_ID:GNU>:-fext-numeric-literals>)
     # Tests are privileged consumers — they exercise src/ implementation
     # helpers (multifloats_td.hh) that aren't part of the installed API.
     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
@@ -214,7 +217,8 @@ set_target_properties(crosscheck-bindings PROPERTIES
     Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fmod/test)
 
 add_executable(cpp_crosscheck ./test/crosscheck.cc)
-target_compile_options(cpp_crosscheck PRIVATE -fext-numeric-literals)
+target_compile_options(cpp_crosscheck PRIVATE
+    $<$<CXX_COMPILER_ID:GNU>:-fext-numeric-literals>)
 target_include_directories(cpp_crosscheck PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 target_link_libraries(cpp_crosscheck PRIVATE
     multifloats crosscheck-bindings multifloatsf quadmath)
@@ -251,7 +255,8 @@ if(BUILD_MPFR_TESTS)
     # source file carries an MPFR oracle in one compile mode and the
     # quadmath-only fast regression gate in the other.
     add_executable(cpp_fuzz_mpfr ./test/fuzz.cc)
-    target_compile_options(cpp_fuzz_mpfr PRIVATE -fext-numeric-literals)
+    target_compile_options(cpp_fuzz_mpfr PRIVATE
+        $<$<CXX_COMPILER_ID:GNU>:-fext-numeric-literals>)
     target_compile_definitions(cpp_fuzz_mpfr PRIVATE USE_MPFR)
     target_include_directories(cpp_fuzz_mpfr PRIVATE ${MPREAL_INCLUDE_DIR})
     target_link_libraries(cpp_fuzz_mpfr PRIVATE multifloats quadmath MPFR::MPFR)

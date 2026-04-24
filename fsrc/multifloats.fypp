@@ -110,7 +110,8 @@ module multifloats
     private
 
     ! Wrap C's fma() as a pure elemental function. ieee_fma from
-    ! ieee_arithmetic is impure in gfortran <= 12, so we bypass it.
+    ! ieee_arithmetic is impure in gfortran <= 12 and absent entirely
+    ! in gfortran <= 12 (added in gfortran-13), so we bypass it.
     interface
         pure function c_fma(x, y, z) bind(c, name="fma")
             import :: c_double
@@ -118,6 +119,12 @@ module multifloats
             real(c_double) :: c_fma
         end function
     end interface
+
+    ! Public elemental fma wrapper. Test code (test/test.f90) needs an
+    ! ieee_fma replacement that works on every supported gfortran
+    ! version; expose `mf_fma` so callers don't need their own libc
+    ! binding. Internal uses keep calling `c_fma` directly.
+    public :: mf_fma
 
     ! C-ABI matmul kernels (defined in multifloats_math.cc). The Fortran
     ! float64x2 type has SEQUENCE layout [hi, lo] which is bit-compatible
@@ -828,6 +835,19 @@ contains
     ! ================================================================
     ! PROCEDURE IMPLEMENTATIONS
     ! ================================================================
+
+    ! ----------------------------------------------------------------
+    ! Public fma wrapper (delegates to libc fma via the c_fma
+    ! interface above). Elemental so it broadcasts over arrays the
+    ! same way ieee_fma would have. Exposed for test code that needs
+    ! a portable fma replacement on gfortran <= 12 (which lacks
+    ! ieee_fma in ieee_arithmetic entirely).
+    ! ----------------------------------------------------------------
+    pure elemental function mf_fma(x, y, z) result(r)
+        real(c_double), intent(in) :: x, y, z
+        real(c_double) :: r
+        r = c_fma(x, y, z)
+    end function
 
     ! ----------------------------------------------------------------
     ! Internal conversion helpers (elemental)

@@ -27,7 +27,11 @@ set_target_properties(multifloats PROPERTIES
     SOVERSION ${MULTIFLOATS_ABI_VERSION}
     # Hide all C++ symbols; only extern "C" dd_* functions are exported.
     CXX_VISIBILITY_PRESET    hidden
-    VISIBILITY_INLINES_HIDDEN ON)
+    VISIBILITY_INLINES_HIDDEN ON
+    # PIC unconditionally so consumers can embed the static archive into
+    # a downstream shared library (the `.so` linker requires every input
+    # .o to be PIC). Negligible cost on x86_64 / arm64.
+    POSITION_INDEPENDENT_CODE ON)
 
 # Strip non-API symbols from the static archive. The compiler emits
 # out-of-line copies of some inline header functions + TU-internal helpers

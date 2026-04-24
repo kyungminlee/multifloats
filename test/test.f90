@@ -232,7 +232,7 @@ contains
     ! We expect bitwise exactness for this specific case if logic is correct
     ! but let's re-calculate expected based on current module logic
     q1 = b%limbs(1) / a%limbs(1)
-    r = ieee_fma(-q1, a%limbs(1), b%limbs(1))
+    r = mf_fma(-q1, a%limbs(1), b%limbs(1))
     r = r + b%limbs(2) - q1 * a%limbs(2)
     q2 = r / a%limbs(1)
     s = q1
@@ -245,7 +245,7 @@ contains
 
     ! 1.0 / (1 + 1e-10)
     q1 = 1.0d0 / a%limbs(1)
-    r = ieee_fma(-q1, a%limbs(1), 1.0d0)
+    r = mf_fma(-q1, a%limbs(1), 1.0d0)
     r = r - q1 * a%limbs(2)
     q2 = r / a%limbs(1)
     s = q1
@@ -439,7 +439,7 @@ contains
     double precision, intent(in) :: a, b
     double precision, intent(out) :: p, e
     p = a * b
-    e = ieee_fma(a, b, -p)
+    e = mf_fma(a, b, -p)
   end subroutine
 
   subroutine test_overflow_paths()

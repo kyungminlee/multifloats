@@ -154,12 +154,23 @@ jobs:
             -DMULTIFLOATS_USE_LTO=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
 
-      - name: Build everything (C++ + Fortran)
+      # GCC matrix entries build everything (libraries + test executables);
+      # tests run below. Non-GCC entries build only the two installable
+      # libraries — the C++ test executables include <quadmath.h> (the GCC
+      # libquadmath header) and tap GCC-only `-fext-numeric-literals`, so
+      # they don't compile under clang/icpx on the current CI image.
+      # icpx and modern clang *do* support `__float128` (binary-compatible
+      # with GCC); enabling test parity would mean apt-installing
+      # `libquadmath-dev` and propagating `-fp-model=precise` to the test
+      # targets — deferred.
+      - name: Build everything (C++ + Fortran + tests)
+        if: matrix.compiler == 'gcc'
         run: cmake --build build -j$(nproc)
 
-      # Tests run on GCC entries only — the C++ tests require libquadmath
-      # (__float128) and the test scaffolding (-fext-numeric-literals) that
-      # only GCC ships. Other compilers still get a build smoke-test.
+      - name: Build libraries only
+        if: matrix.compiler != 'gcc'
+        run: cmake --build build --target multifloats --target multifloatsf -j$(nproc)
+
       - name: Test
         if: matrix.compiler == 'gcc'
         run: cd build && ctest --output-on-failure -j$(nproc)
@@ -200,12 +211,21 @@ jobs:
 
       - name: Configure & build
         run: |
+          # MULTIFLOATS_STRIP_SYMBOLS=OFF: the localize_symbols.sh
+          # post-build hook (objcopy --keep-global-symbols + strip
+          # --strip-unneeded) damages COMDAT-grouped hidden namespace
+          # functions like `multifloats::hypot`, which GNU ld then
+          # discards. The strip is correct for LTO archives (call
+          # sites inline before strip runs); it is wrong for non-LTO
+          # archives where the C++ namespace API must remain
+          # link-resolvable. Disable just for this job.
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-14 \
             -DCMAKE_CXX_COMPILER=g++-14 \
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
+            -DMULTIFLOATS_STRIP_SYMBOLS=OFF \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(nproc)
 

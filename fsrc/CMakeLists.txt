@@ -40,6 +40,12 @@ fortran_module_layout(multifloatsf)
 target_include_directories(multifloatsf PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../src)
 
+# PIC unconditionally so consumers can embed the static archive into a
+# downstream shared library (matches src/CMakeLists.txt; see rationale
+# there). Negligible cost on x86_64 / arm64.
+set_target_properties(multifloatsf PROPERTIES
+    POSITION_INDEPENDENT_CODE ON)
+
 # Correctness — IntelLLVM. ifx defaults to -fp-model=fast at -O2+. DD
 # error-free transformations require strict IEEE associativity and no
 # FMA contraction — see src/CMakeLists.txt for the full rationale.
