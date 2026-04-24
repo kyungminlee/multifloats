@@ -59,12 +59,15 @@ float64x2 exp2_from_reduced(double n_d, double rh, double rl) {
   float64x2 mantissa = T * pow2s;
 
   int n = static_cast<int>(n_d);
-  int half_n = n / 2;
+  // Single ldexp per limb: the previous half_n split was defensive but
+  // unnecessary. |mantissa.hi| ≤ 2 (table T·pow2s), so ldexp(., n) for
+  // n in the capped range [exp2_min, exp2_max] = [-1056, 1024] cannot
+  // overflow the *intermediate* — only the final result, which is what
+  // we want (inf at n≥1024, 0 at n≤-1056). Splitting at half_n produced
+  // identical results at both rim cases.
   float64x2 r;
-  r._limbs[0] = std::ldexp(mantissa._limbs[0], half_n);
-  r._limbs[1] = std::ldexp(mantissa._limbs[1], half_n);
-  r._limbs[0] = std::ldexp(r._limbs[0], n - half_n);
-  r._limbs[1] = std::ldexp(r._limbs[1], n - half_n);
+  r._limbs[0] = std::ldexp(mantissa._limbs[0], n);
+  r._limbs[1] = std::ldexp(mantissa._limbs[1], n);
   return r;
 }
 

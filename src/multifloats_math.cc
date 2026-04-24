@@ -33,7 +33,6 @@
 #include "dd_constants.hh"
 #include <cstdint>
 #include <cstring>
-#include <vector>
 
 // Triple-double primitive bodies (declarations in multifloats_td.hh) and
 // DD polynomial evaluators (horner/neval/deval — previously inline in
@@ -95,12 +94,6 @@ using namespace multifloats::detail;  // sincos_td + TD primitives
 // name (the ABI .inc files live inside extern "C", which is not a namespace
 // but inherits enclosing lookup).
 using multifloats::float64x2;
-using multifloats::detail::float64x3;
-using multifloats::detail::td_add_td;
-using multifloats::detail::td_mul_td;
-using multifloats::detail::td_sub_double;
-using multifloats::detail::td_to_dd;
-using multifloats::detail::td_from_dd;
 
 static inline float64x2 from(float64x2_t x) { float64x2 r; r._limbs[0] = x.hi; r._limbs[1] = x.lo; return r; }
 static inline float64x2_t to(float64x2 const &x) { return {x._limbs[0], x._limbs[1]}; }
