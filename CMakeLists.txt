@@ -178,9 +178,14 @@ add_test(NAME fuzz_fortran_determinism
 mf_add_fortran_executable(fortran_abi_equivalence ./test/abi_equivalence.f90)
 add_test(NAME precision_abi_equivalence COMMAND fortran_abi_equivalence)
 
-# fortran_bench is generated from a fypp template. The .fypp file uses
-# BENCH / BENCHC / BENCHARR macros to collapse per-op scaffolding (tick /
-# loop / elapsed × 2 + report) to one line per op.
+# fortran_bench / fortran_bench_abi pin feed/drain helpers with
+# `!GCC$ ATTRIBUTES NOINLINE :: …` to keep benchmark loops honest.
+# That attribute syntax was added in gfortran-13; gfortran ≤ 12 errors
+# out at parse time. The bench targets are not exercised by ctest, so
+# skip them on older gfortran instead of complicating the source. Keep
+# the bench .fypp generation rule (it's cheap and lets `cmake --build`
+# of the test suite still succeed when bench-the-target is requested
+# explicitly on a supported compiler).
 set(_BENCH_F90 ${CMAKE_CURRENT_BINARY_DIR}/test/bench.f90)
 add_custom_command(
     OUTPUT ${_BENCH_F90}
@@ -190,7 +195,10 @@ add_custom_command(
         ${_BENCH_F90}
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/bench.fypp
     VERBATIM)
-mf_add_fortran_executable(fortran_bench ${_BENCH_F90})
+if(NOT (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU"
+        AND CMAKE_Fortran_COMPILER_VERSION VERSION_LESS 13))
+    mf_add_fortran_executable(fortran_bench ${_BENCH_F90})
+endif()
 
 # BLAS extensions (not installed)
 add_library(blas-multifloat STATIC
@@ -201,7 +209,10 @@ target_link_libraries(blas-multifloat PRIVATE multifloatsf)
 # Fortran library uses C++ DD kernels via bind(C) (extern "C" in multifloats_math.cc)
 target_link_libraries(multifloatsf PUBLIC multifloats)
 
-mf_add_fortran_executable(fortran_bench_abi ./test/bench_abi.f90)
+if(NOT (CMAKE_Fortran_COMPILER_ID STREQUAL "GNU"
+        AND CMAKE_Fortran_COMPILER_VERSION VERSION_LESS 13))
+    mf_add_fortran_executable(fortran_bench_abi ./test/bench_abi.f90)
+endif()
 
 # Cross-language differential fuzz. Drives the C++ and Fortran kernels
 # of add/sub/mul/div/neg/abs/sqrt/{==,!=,<} from a single C++ binary on
