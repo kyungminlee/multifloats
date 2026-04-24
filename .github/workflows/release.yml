@@ -247,27 +247,38 @@ jobs:
             fc: gfortran-15
             run_tests: true
 
-          # Apple Clang — C++ library only (skip Fortran target + all
-          # tests). Use whatever Apple Clang ships on macos-15; the
-          # OUTPUT_NAME tag (`appleclang-<major>`) records the version.
-          # Homebrew gfortran is still installed so CMake's Fortran
-          # language probe at configure time succeeds — we just don't
-          # build the multifloatsf target.
-          - compiler: appleclang
-            version: system
-            brew_pkg: gcc  # for gfortran (CMake Fortran-enable probe)
-            cc: clang
-            cxx: clang++
-            fc: gfortran
-            run_tests: false
+          # NOTE: Apple Clang entry temporarily disabled. libc++'s
+          # <complex> uses a `__promote` extension trait that
+          # static_asserts is_arithmetic on the template arguments,
+          # which trips when `std::pow(complex<float64x2>, …)` etc.
+          # are instantiated. libstdc++'s `__promote` doesn't have
+          # this constraint, so the GCC matrix entries pass. Fixing
+          # cleanly requires either (a) declaring our std:: complex
+          # specializations earlier in the include chain, (b) adding
+          # libc++-specific overloads, or (c) avoiding std::complex
+          # math template paths inside our TUs. Re-enable once one
+          # of those lands.
+          # - compiler: appleclang
+          #   version: system
+          #   brew_pkg: gcc@15
+          #   cc: clang
+          #   cxx: clang++
+          #   fc: gfortran-15
+          #   run_tests: false
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install fypp + toolchain
         run: |
-          pip install fypp mpmath
-          brew install ${{ matrix.brew_pkg }}
+          # uv: dd_constants_up_to_date prefers `uv run --with mpmath
+          # python3 ...`, so installing uv sidesteps macOS's
+          # PEP-668-protected system Python (where `pip install mpmath`
+          # silently goes to a different interpreter than ctest invokes).
+          # uv tool install fypp puts the fypp CLI on PATH without
+          # touching the system Python at all.
+          brew install uv ${{ matrix.brew_pkg }}
+          uv tool install fypp
 
       - name: Configure
         run: |
@@ -348,8 +359,9 @@ jobs:
 
       - name: Install fypp + Homebrew GCC 14
         run: |
-          pip install fypp mpmath
-          brew install gcc@14
+          # See build-lto-mac for rationale (uv + uv tool install).
+          brew install uv gcc@14
+          uv tool install fypp
 
       - name: Configure & build
         run: |
