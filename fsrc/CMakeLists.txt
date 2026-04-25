@@ -134,25 +134,6 @@ if(MULTIFLOATSF_LTO_ON)
     endif()
 endif()
 
-# Silence gfortran's -Wlto-type-mismatch on the Fortran ↔ C boundary.
-# The Fortran bind(c) bridge types (type(float64x2_t) / type(complex64x2_t)
-# defined in multifloats.fypp as `{real(c_double) :: hi, lo}` POD structs)
-# are *layout-compatible* with the C++ side's `multifloats::float64x2`
-# (trivially-copyable struct with `double limbs[2]`) and with
-# `std::complex<multifloats::float64x2>` respectively — pinned by
-# static_asserts in the public header and verified empirically by the
-# precision_abi_equivalence and crosscheck_cpp_fortran ctests. But
-# gfortran's LTO type-checker compares *type names*, not just layout, and
-# fires 1500+ "type of 'c_dd_cdd_*' does not match original declaration"
-# warnings per build. The warnings were introduced in v0.3.0 by the
-# float64x2 C++-side unification (the pre-v0.3.0 C typedef matched the
-# Fortran bridge by name as well as layout). Scoped to GNU + LTO because
-# only gfortran's LTO pass emits this diagnostic.
-if(MULTIFLOATSF_LTO_ON AND CMAKE_Fortran_COMPILER_ID STREQUAL "GNU")
-    target_compile_options(multifloatsf PRIVATE -Wno-lto-type-mismatch)
-    target_link_options(multifloatsf PRIVATE -Wno-lto-type-mismatch)
-endif()
-
 # =============================================================================
 # Install
 # =============================================================================

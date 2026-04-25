@@ -127,9 +127,10 @@ module multifloats
     public :: mf_fma
 
     ! C-ABI matmul kernels (defined in multifloats_math.cc). The Fortran
-    ! real64x2 type has SEQUENCE layout [hi, lo] which is bit-compatible
-    ! with the C float64x2 struct, so we pass arrays by c_loc. The final
-    ! renorm_interval arg mirrors DD_FMA_RENORM_INTERVAL (0 = off).
+    ! real64x2 type has SEQUENCE layout `limbs(2)` which is bit-compatible
+    ! with the C `struct float64x2 { double limbs[2]; }`, so we pass
+    ! arrays by c_loc. The final renorm_interval arg mirrors
+    ! DD_FMA_RENORM_INTERVAL (0 = off).
     interface
         pure subroutine c_dd_matmul_mm(a, b, c, m, k, n, ri) &
                 bind(c, name="matmuldd_mm")

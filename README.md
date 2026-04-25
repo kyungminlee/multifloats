@@ -4,10 +4,10 @@ Double-double arithmetic for Fortran and C++.
 
 `multifloats` provides two derived/template types,
 
-| Type             | Storage             | Precision        |
-| ---------------- | ------------------- | ---------------- |
-| `float64x2`      | 2 × `real(dp)`      | ~106 bits (~32 decimal digits) |
-| `complex64x2`   | 2 × `float64x2`     | ~106 bits per component |
+| Fortran type | C / C++ type    | Storage             | Precision        |
+| ------------ | --------------- | ------------------- | ---------------- |
+| `real64x2`   | `float64x2`     | 2 × `real(dp)`      | ~106 bits (~32 decimal digits) |
+| `cmplx64x2`  | `complex64x2`   | 2 × `float64x2`     | ~106 bits per component |
 
 implemented natively from error-free transformations on regular IEEE
 doubles. There are no quad-precision (`real(16)` / `__float128`) temporaries
@@ -23,16 +23,18 @@ algorithmic surface so the same kernels can be used from either language.
 
 ### Fortran (`fsrc/multifloats.fypp` → `multifloats` module)
 
-- **Types** — `float64x2` and `complex64x2`. Both carry the `SEQUENCE`
+- **Types** — `real64x2` and `cmplx64x2`. Both carry the `SEQUENCE`
   attribute so they can appear in `EQUIVALENCE` statements (required by
-  some LAPACK routines such as `wlaln2` / `DLALN2`).
+  some LAPACK routines such as `wlaln2` / `DLALN2`). The bind(c)
+  interop types `float64x2` / `complex64x2` (matching the C struct
+  tags) live in the same module for the C-ABI bridge.
 - **Operators** — `+`, `-`, `*`, `/`, `**`, `==`, `/=`, `<`, `>`, `<=`,
-  `>=` between every combination of {`float64x2`, `complex64x2`,
+  `>=` between every combination of {`real64x2`, `cmplx64x2`,
   `real(dp)`, `real(sp)`, `integer`, `complex(dp)`, `complex(sp)`}.
 - **Constructors and assignment** — every supported numeric kind, in
   both directions, including the non-default integer kinds
   `integer(int8)`, `integer(int16)`, `integer(int64)`. Identity
-  constructors `float64x2(float64x2)` and `complex64x2(complex64x2)`
+  constructors `real64x2(real64x2)` and `cmplx64x2(cmplx64x2)`
   let generic code call the constructor regardless of input type.
 - **`<cmath>`-style intrinsics** — `abs`, `sqrt`, `cbrt`, `exp`, `exp2`,
   `expm1`, `log`, `log2`, `log10`, `log1p`, `sin`, `cos`, `tan`, `asin`,
@@ -46,13 +48,13 @@ algorithmic surface so the same kernels can be used from either language.
   `maxexponent`, `storage_size`.
 - **Reductions** — `sum`, `product`, `maxval`, `minval`, `maxloc`,
   `minloc`, `findloc`, `dot_product`, `norm2`, `matmul` for both
-  `float64x2` and `complex64x2`, supporting all rank-1..7 forms with
+  `real64x2` and `cmplx64x2`, supporting all rank-1..7 forms with
   `dim=`, `mask=`, and `back=` arguments.
 - **Other** — `random_number` (rank 0..7), defined formatted I/O for
   both types, and inquiry functions matching `real(dp)` semantics on the
   leading limb.
 
-The `float64x2` interface is designed to mirror `REAL(KIND=16)` so that
+The `real64x2` interface is designed to mirror `REAL(KIND=16)` so that
 existing quad-precision code can switch types with minimal changes.
 
 ### C / C++ (`include/multifloats.h`)
@@ -148,7 +150,7 @@ promotions / truncations. The fuzz reports `max_rel = mean_rel = 0` over
   `scale`, `set_exponent`
 - **Mixed-mode arithmetic where one side is dp**: `dd + dp` (`add_fd`)
   reports 0 because the lo-limb error is in the dp ulp range
-- **Every constructor**: `float64x2(...)` and `complex64x2(...)` for
+- **Every constructor**: `real64x2(...)` and `cmplx64x2(...)` for
   every supported numeric kind
 - **Every assignment**: `dd ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
   and `cdd ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
@@ -290,7 +292,7 @@ The `matmul` surface provides three shape-dispatched operations:
 | `matmul(A, x)`    | `A(m,k) * x(k)   → y(m)`                     |
 | `matmul(x, B)`    | `x(k)   * B(k,n) → y(n)`                     |
 
-Both real (`float64x2`) and complex (`complex64x2`) operands are
+Both real (`real64x2`) and complex (`cmplx64x2`) operands are
 supported through the same Fortran generic. The C ABI exposes the three
 kernels directly as `matmuldd_mm` / `matmuldd_mv` / `matmuldd_vm`
 (complex matmul is composed in Fortran from four real matmuls).
@@ -372,8 +374,8 @@ state.
 ```fortran
 use multifloats                    ! generic sqrt/atan overloads live here
 integer, parameter :: dp = 8
-type(float64x2) :: x, y
-x = float64x2(1.0_dp)              ! from a dp literal
+type(real64x2) :: x, y
+x = real64x2(1.0_dp)               ! from a dp literal
 y = sqrt(atan(x) * 4)              ! sqrt(pi) to full DD
 print *, y                         ! defined I/O: ~32 digits
 ```
@@ -382,10 +384,10 @@ print *, y                         ! defined I/O: ~32 digits
 
 ```c
 #include "multifloats.h"            /* linked with -lmultifloats */
-float64x2_t x = {1.0, 0.0};
-float64x2_t pi4 = atandd(x);        /* pi/4 as a DD */
-float64x2_t pi = muldd((float64x2_t){4.0, 0.0}, pi4);
-printf("pi.hi = %.17g  pi.lo = %.17g\n", pi.hi, pi.lo);
+float64x2 x = {1.0, 0.0};
+float64x2 pi4 = atandd(x);          /* pi/4 as a DD */
+float64x2 pi = muldd((float64x2){4.0, 0.0}, pi4);
+printf("pi.hi = %.17g  pi.lo = %.17g\n", pi.limbs[0], pi.limbs[1]);
 ```
 
 ### C++
@@ -427,7 +429,7 @@ The build produces:
   compiler tag comes from `cmake/FortranCompiler.cmake`; the generated
   `.mod` files live under `build/fmod/`).
 - `libblas-multifloat.a` — `wgemm` / `wtrsm` BLAS shims that operate on
-  `float64x2` matrices.
+  `real64x2` matrices (Fortran-side type).
 - Several test executables (see below).
 
 ## Tests
@@ -474,7 +476,7 @@ build/cpp_fuzz_mpfr 10000 42   # iterations, seed
 fsrc/multifloats.fypp     -- Fortran source (fypp template)
 include/multifloats.h     -- unified C / C++ public header
 src/                      -- C++ .cc sources and implementation-detail .inc fragments
-blas/                     -- BLAS shims for float64x2
+blas/                     -- BLAS shims for real64x2
 test/                     -- Fortran and C++ test suites
 external/                 -- vendored references (MultiFloats.jl, LAPACK)
 ```
