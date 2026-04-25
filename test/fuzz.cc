@@ -95,9 +95,20 @@ using multifloats_test::mp_isnan;
 
 // mpreal covers fmin/fmax/fmod/copysign but is missing fdim. Fill the gap
 // with a local wrapper so CHK2(fdim) derives mpfr::fdim(m1, m2) the same
-// way as the other scalar binary ops.
+// way as the other scalar binary ops. lerp / modulo are similarly absent
+// from mpreal — wrap them by hand against the same definitions multifloats
+// uses (C++20 lerp endpoint-exact form, Python-style positive-mod modulo).
 namespace mpfr {
 inline mp_t fdim(mp_t const &a, mp_t const &b) { return a > b ? a - b : mp_t(0); }
+inline mp_t lerp(mp_t const &a, mp_t const &b, mp_t const &t) {
+  return a + t * (b - a);
+}
+inline mp_t modulo(mp_t const &a, mp_t const &b) {
+  mp_t r = mpfr::fmod(a, b);
+  if (r == mp_t(0)) return r;
+  bool sa = (r < mp_t(0)), sb = (b < mp_t(0));
+  return (sa != sb) ? (r + b) : r;
+}
 }  // namespace mpfr
 
 #define MP_PARAM(...) , __VA_ARGS__
@@ -225,6 +236,13 @@ struct StatEntry {
   double sum_rel = 0.0;
 #endif
   long count = 0;
+  // Worst-case sample (the input pair that produced the largest rel_err
+  // recorded in this stat row). For ops with an integer parameter (bjn,
+  // pow_int, etc.) the second slot carries that parameter as a q_t.
+  q_t worst_i1 = 0;
+  q_t worst_i2 = 0;
+  q_t worst_expected = 0;
+  q_t worst_got = 0;
 };
 
 static constexpr int kMaxStats = 256;
@@ -246,22 +264,32 @@ static StatEntry *find_or_create_stat(char const *op) {
 }
 
 #ifdef USE_MPFR
-static void update_stat(char const *op, double rq, double rdd) {
+static void update_stat(char const *op, double rq, double rdd,
+                        q_t i1, q_t i2, q_t expected, q_t got) {
   if (!std::isfinite(rq) || !std::isfinite(rdd)) return;
   StatEntry *s = find_or_create_stat(op);
   if (!s) return;
   if (rq  > s->max_q)  s->max_q  = rq;
-  if (rdd > s->max_dd) s->max_dd = rdd;
+  if (rdd > s->max_dd) {
+    s->max_dd = rdd;
+    s->worst_i1 = i1; s->worst_i2 = i2;
+    s->worst_expected = expected; s->worst_got = got;
+  }
   s->sum_q  += rq;
   s->sum_dd += rdd;
   ++s->count;
 }
 #else
-static void update_stat(char const *op, double rel) {
+static void update_stat(char const *op, double rel,
+                        q_t i1, q_t i2, q_t expected, q_t got) {
   if (!std::isfinite(rel)) return;
   StatEntry *s = find_or_create_stat(op);
   if (!s) return;
-  if (rel > s->max_rel) s->max_rel = rel;
+  if (rel > s->max_rel) {
+    s->max_rel = rel;
+    s->worst_i1 = i1; s->worst_i2 = i2;
+    s->worst_expected = expected; s->worst_got = got;
+  }
   s->sum_rel += rel;
   ++s->count;
 }
@@ -274,7 +302,9 @@ static void update_stat(char const *op, double rel) {
 // Full-DD tier: kernels that should deliver ~106 bits of precision end-to-end.
 // exp/log/trig/hyperbolic/pow/tgamma/lgamma hit full DD via the native
 // polynomial kernels. fmod is excluded because its large-quotient subtraction
-// loses precision through catastrophic cancellation once |x/y| grows.
+// loses precision through catastrophic cancellation once |x/y| grows; the
+// remainder/remquo/modulo trio share fmod's kernel and inherit its floor,
+// so they are excluded for the same reason.
 //
 // Complex ops emit "<op>_re" / "<op>_im" stat rows (one per component);
 // matching both here keeps them on the full-DD tier.
@@ -287,9 +317,10 @@ static void update_stat(char const *op, double rel) {
 // function — handled by is_pi_trig below.
 static bool is_full_dd(char const *op) {
   static char const *kList[] = {
-      "add", "sub", "mul", "div", "sqrt", "abs", "neg",
+      "add", "sub", "mul", "div", "sqrt", "cbrt", "abs", "neg",
       "add_fd", "mul_df", "fmin", "fmax", "copysign", "fdim",
-      "hypot", "trunc", "round", "scalbn", "min3", "max3", "fmadd",
+      "hypot", "trunc", "round", "scalbn", "min3", "max3",
+      "fmadd", "fma_cxx", "lerp",
       "floor", "ceil", "nearbyint", "rint",
       "lround", "llround", "lrint", "llrint",
       "logb", "ilogb", "ldexp", "scalbln",
@@ -554,10 +585,10 @@ static void check(char const *op, mf::float64x2 const &got, q_t expected,
     if (denom_mp < input_mag_mp) denom_mp = input_mag_mp;
     double rq  = (mpfr::abs(to_mp(expected) - expected_mp) / denom_mp).toDouble();
     double rdd = (mpfr::abs(to_mp(got)      - expected_mp) / denom_mp).toDouble();
-    update_stat(op, rq, rdd);
+    update_stat(op, rq, rdd, i1, i2, expected, got_q);
   }
 #else
-  update_stat(op, rel_err);
+  update_stat(op, rel_err, i1, i2, expected, got_q);
 #endif
 
   if (rel_err > tol) {
@@ -689,6 +720,19 @@ static void print_all_stats() {
               "           dd = rel_err(multifloats DD vs mpreal).\n"
               "  q ≈ 1e-33 is the float128 mantissa floor; dd above q means\n"
               "  the DD kernel — not the float128 reference — is the loss.\n");
+  std::printf("\nWorst-case inputs per op (sample at max_dd). For ops with an\n"
+              "integer parameter (bjn, byn, pow_int, scalbn, …), i2 carries\n"
+              "that parameter; for unary ops i2 is unused.\n");
+  std::printf("  %-16s %14s\n", "op", "max_dd");
+  for (int i = 0; i < g_nstats; ++i) {
+    StatEntry const &s = g_stats[i];
+    if (s.count == 0 || s.max_dd == 0.0) continue;
+    std::printf("  %-16s %14.3e  i1=%s\n",
+                s.name, s.max_dd, qstr(s.worst_i1));
+    std::printf("  %-16s %14s  i2=%s\n",  "", "", qstr(s.worst_i2));
+    std::printf("  %-16s %14s  ref=%s\n", "", "", qstr(s.worst_expected));
+    std::printf("  %-16s %14s  got=%s\n", "", "", qstr(s.worst_got));
+  }
 #else
   std::printf("Per-operation precision report (relative error vs __float128):\n");
   std::printf("  %-16s %10s %14s %14s\n", "op", "n", "max_rel", "mean_rel");
@@ -700,6 +744,19 @@ static void print_all_stats() {
     }
     std::printf("  %-16s %10ld  %14.3e %14.3e\n", s.name, s.count, s.max_rel,
                 s.sum_rel / s.count);
+  }
+  std::printf("\nWorst-case inputs per op (max_rel sample). For ops with an\n"
+              "integer parameter (bjn, byn, pow_int, scalbn, …), i2 carries\n"
+              "that parameter; for unary ops i2 is unused.\n");
+  std::printf("  %-16s %14s\n", "op", "max_rel");
+  for (int i = 0; i < g_nstats; ++i) {
+    StatEntry const &s = g_stats[i];
+    if (s.count == 0 || s.max_rel == 0.0) continue;
+    std::printf("  %-16s %14.3e  i1=%s\n",
+                s.name, s.max_rel, qstr(s.worst_i1));
+    std::printf("  %-16s %14s  i2=%s\n",  "", "", qstr(s.worst_i2));
+    std::printf("  %-16s %14s  ref=%s\n", "", "", qstr(s.worst_expected));
+    std::printf("  %-16s %14s  got=%s\n", "", "", qstr(s.worst_got));
   }
   std::printf("\n");
 #endif
@@ -1011,6 +1068,19 @@ int main(int argc, char **argv) {
     seed = std::strtoull(argv[2], nullptr, 0);
   }
 
+  // Once-per-run smoke: nan(tag) must produce a DD whose hi limb is NaN
+  // and whose lo limb is finite (canonicalized to 0 by the constructor).
+  {
+    mf::float64x2 nq = mf::nan("");
+    if (!std::isnan(nq.limbs[0]) || std::isnan(nq.limbs[1])) {
+      report_fail("nan", "expected (NaN, finite); got non-canonical pair");
+    }
+    mf::float64x2 nt = mf::nan("42");
+    if (!std::isnan(nt.limbs[0])) {
+      report_fail("nan", "tagged nan(\"42\") did not produce NaN");
+    }
+  }
+
   Rng rng(seed);
 #ifdef USE_MPFR
   mpfr::mpreal::set_default_prec(multifloats_test::kMpfrPrec);
@@ -1053,8 +1123,56 @@ int main(int argc, char **argv) {
     CHK_IF(both_finite, "mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
     CHK_IF(both_finite && q2 != (q_t)0, "div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
     CHK1_IF(sqrt, q_isfinite(q1) && q1 >= (q_t)0);
+    // cbrt: defined on all finite reals (including negatives). The qp
+    // reference cbrtq is the analogue of multifloats' Karp/Markstein
+    // refinement, and mpreal exposes cbrt via ADL.
+    CHK1_IF(cbrt, q_isfinite(q1));
     CHK("abs", mf::abs(f1), q1 < 0 ? -q1 : q1, q1, (q_t)0, mpfr::abs(m1));
     CHK("neg", -f1, -q1, q1, (q_t)0, -m1);
+
+    // fpclassify: integer return — both DD and qp inspect the hi-limb
+    // of their representation, so the classification must agree. libquadmath
+    // has no fpclassifyq, so reconstruct the qp class from its primitive
+    // predicates. The subnormal class differs between DD (|hi| < 2^-1022)
+    // and qp (|q| < ~3.4e-4932) — gate it out so subnormals never reach
+    // here as a false fail.
+    {
+      int dd_cls = mf::fpclassify(f1);
+      int qp_cls;
+      if (q_isnan(q1)) qp_cls = FP_NAN;
+      else if (!q_isfinite(q1)) qp_cls = FP_INFINITE;
+      else if (q1 == (q_t)0) qp_cls = FP_ZERO;
+      else qp_cls = FP_NORMAL;  // qp subnormals don't appear in our distribution
+      // DD says SUBNORMAL when |hi| < 2^-1022 — those samples skip this check.
+      if (dd_cls != FP_SUBNORMAL && dd_cls != qp_cls) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf),
+                      "dd_cls=%d qp_cls=%d  (q1=%s)", dd_cls, qp_cls, qstr(q1));
+        report_fail("fpclassify", buf);
+      }
+    }
+
+    // nextafter / nexttoward: deterministic invariants rather than max_rel
+    // (DD's step ≈ ulp(hi)·2⁻⁵³ doesn't match qp's 113-bit step). We assert
+    // the four properties: identity at equal inputs, strict ordering toward
+    // the target, monotonicity in y, and one-step round-trip.
+    if (q_isfinite(q1) && q_isfinite(q2) && q1 != q2) {
+      mf::float64x2 nA = mf::nextafter(f1, f2);
+      mf::float64x2 nT = mf::nexttoward(f1, f2);
+      bool ok =
+          mf::nextafter(f1, f1) == f1 &&
+          nA == nT &&
+          ((q1 < q2) ? (nA > f1 && nA <= f2)
+                     : (nA < f1 && nA >= f2)) &&
+          mf::nextafter(nA, f1) == f1;
+      if (!ok) {
+        char buf[160];
+        std::snprintf(buf, sizeof(buf),
+                      "q1=%s q2=%s nA=(%a, %a)", qstr(q1), qstr(q2),
+                      nA.limbs[0], nA.limbs[1]);
+        report_fail("nextafter", buf);
+      }
+    }
     CHK1_IF(trunc, q_isfinite(q1) && aq1 < (q_t)1e15q);
     CHK1_IF(round, q_isfinite(q1) && aq1 < (q_t)1e15q);
     // floor/ceil share trunc/round's magnitude gate: beyond 2^52 ≈ 4.5e15
@@ -1137,6 +1255,65 @@ int main(int argc, char **argv) {
               static_cast<float64x2>(f2),
               static_cast<float64x2>(mf::float64x2(d1)))),
           fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
+      // The C++-named `multifloats::fma` overload routes through the same
+      // DD x*y+z path and must match fmadd to within the same tolerance.
+      // Pinning the public name catches a future refactor that diverges
+      // the C ABI symbol from the C++ overload.
+      CHK("fma_cxx",
+          mf::fma(f1, f2, mf::float64x2(d1)),
+          fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
+
+      // lerp: C++20 endpoint-exact a + t*(b - a). Use d1 ∈ [-1, 1]-ish
+      // as the interpolant (DD-representable scalar t) so the qp
+      // reference parses cleanly as `q1 + (q_t)d1 * (q2 - q1)`.
+      // Endpoint exactness is implicit — sweeping t == 0 / t == 1
+      // explicitly would need its own branch and is covered by the
+      // C++20 contract reading test/test.cc.
+      CHK("lerp",
+          mf::lerp(f1, f2, mf::float64x2(d1)),
+          q1 + (q_t)d1 * (q2 - q1),
+          q1, q2, mpfr::lerp(m1, m2, to_mp(d1)));
+
+      // modulo: same gate as fmod (`q2 != 0 && |q1| < 1e20 && |q2| > 1e-20`).
+      // Definition: fmod-style remainder but sign-corrected so the result
+      // takes y's sign — Python's `%` semantics, not C's. The mpfr wrapper
+      // above mirrors exactly the multifloats branch.
+      // Hoist the qp reference so the comma-rich Python-mod expression
+      // doesn't tangle with the CHK macro's argument splitting.
+      q_t modulo_ref = fmodq(q1, q2);
+      if (modulo_ref != (q_t)0 &&
+          (signbitq(modulo_ref) != 0) != (signbitq(q2) != 0)) {
+        modulo_ref = modulo_ref + q2;
+      }
+      CHK_IF(q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q,
+             "modulo",
+             mf::modulo(f1, f2),
+             modulo_ref,
+             q1, q2, mpfr::modulo(m1, m2));
+
+      // remainder / remquo: IEEE-754 round-half-to-even remainder.
+      // Stricter input gate than fmod because the round(x/y) step's
+      // amplification fails for very small |y|.
+      CHK2_IF(remainder, q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q);
+      if (q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q) {
+        int dd_quo = 0;
+        mf::float64x2 dd_rem = mf::remquo(f1, f2, &dd_quo);
+        // mpreal lacks remquo; compose by hand at MP precision.
+        CHK("remquo",
+            dd_rem, remainderq(q1, q2),
+            q1, q2, m1 - mpfr::round(m1 / m2) * m2);
+        // Quotient sanity: the round-to-nearest of x/y must agree
+        // (gated to small magnitudes so the int cast doesn't overflow).
+        if (aq1 / aq2 < (q_t)1e9q) {
+          int qp_quo = (int)std::round((double)(q1 / q2));
+          if (dd_quo != qp_quo) {
+            char buf[96];
+            std::snprintf(buf, sizeof(buf),
+                          "dd_quo=%d qp_quo=%d", dd_quo, qp_quo);
+            report_fail("remquo.q", buf);
+          }
+        }
+      }
     }
 
     // Periodic (every 100): transcendentals.

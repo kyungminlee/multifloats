@@ -8,6 +8,46 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+### Changed
+
+- **Default CMake build is now library-only.** A plain
+  `cmake -S . -B build` produces just `multifloats` and
+  `multifloatsf`. Tests, benchmarks, the `blas-multifloat` smoke
+  target, and the MPFR / Boost comparison harnesses are all opt-in.
+  Use `-DBUILD_TESTING=ON` for the test suite (which also brings in
+  `blas-multifloat`), `-DMULTIFLOATS_BUILD_BENCH=ON` for the
+  microbenchmarks, `-DBUILD_MPFR_TESTS=ON` for the 3-way MPFR
+  precision check, and `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` for
+  the `boost::multiprecision::cpp_double_double` comparison
+  (fetches Boost ≥ 1.89 via FetchContent). See README "Build" for
+  the full table. Consumers that previously relied on the
+  default-ON `BUILD_TESTING` (via `include(CTest)`) or on the
+  default-on-top-level `MULTIFLOATS_BUILD_BENCH` need to opt in
+  explicitly.
+
+### Added
+
+- `boost::multiprecision::cpp_double_double` precision and speed
+  comparison harnesses (`boost_dd_fuzz`, `boost_dd_bench`) plus a
+  `bjn_probe` regime sweep, gated behind
+  `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON`. Documented in
+  `doc/developer/BOOST_COMPARISON.md`.
+- Worst-case input printer in both `cpp_fuzz` and `boost_dd_fuzz`
+  precision reports — alongside `max_rel` / `mean_rel`, each op now
+  prints the `(i1, i2, ref, got)` sample that produced its worst
+  rel-err. Makes stochastic precision anomalies debuggable from a
+  single run rather than requiring a custom probe rebuild.
+- Fuzz coverage for `cbrt`, `fma_cxx`, `lerp`, `modulo`,
+  `remainder`, `remquo`, `fpclassify`, `nextafter`, `nexttoward`,
+  and `nan(tag)`.
+
+### Fixed
+
+- `multifloats::sqrt` Karp–Markstein refinement step now uses
+  `two_prod(c, c)` (FMA-based exact scalar product) instead of a
+  full DD multiply for the residual `x − c²`. ~2.2× faster, max_rel
+  3.5e-32 vs 4.1e-32 prior.
+
 ## [0.3.4] — 2026-04-24
 
 ### Changed

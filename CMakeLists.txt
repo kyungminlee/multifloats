@@ -24,11 +24,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# include(CTest) provides the standard `BUILD_TESTING` cache option
-# (default ON) and calls enable_testing(). Test executables and the
-# `add_test()` registrations below are all gated on BUILD_TESTING so a
-# downstream `add_subdirectory(multifloats)` can disable our tests
-# uniformly with `-DBUILD_TESTING=OFF`.
+# Test executables and `add_test()` registrations are all gated on
+# BUILD_TESTING. We default it OFF so a plain `cmake -S . -B build`
+# only builds the library — opt in with `-DBUILD_TESTING=ON` to get
+# the cpp_test / cpp_fuzz / fortran_* tests, or with the focused
+# options below (MULTIFLOATS_BUILD_BENCH, MULTIFLOATS_BUILD_BOOST_COMPARE,
+# BUILD_MPFR_TESTS) for the optional surfaces.
+#
+# Pre-declaring BUILD_TESTING before include(CTest) overrides the
+# CTest module's default-ON; include(CTest) still wires up the test
+# infrastructure (enable_testing, DartConfiguration) when the user
+# flips it on, and `add_subdirectory(multifloats)` consumers can also
+# pass `-DBUILD_TESTING=OFF` to disable in aggregate.
+option(BUILD_TESTING "Build the testing tree." OFF)
 include(CTest)
 
 # Default build type. CMake leaves CMAKE_BUILD_TYPE empty for single-config
@@ -85,20 +93,24 @@ if(BUILD_TESTING)
 endif()
 
 # Optional micro-benchmarks (cpp_bench, fortran_bench, fortran_bench_abi).
-# Not registered as ctests; not installed. Default ON when this is the top
-# project (developer convenience), OFF when add_subdirectory'd into a
-# parent (parents shouldn't get our bench targets unless they ask). CI
-# passes -DMULTIFLOATS_BUILD_BENCH=OFF — the release workflow doesn't run
-# bench, and the bench Fortran source uses `!GCC$ ATTRIBUTES NOINLINE`
-# which only works on gfortran ≥ 13.
+# Not registered as ctests; not installed. Default OFF — opt in with
+# -DMULTIFLOATS_BUILD_BENCH=ON. The bench Fortran source uses
+# `!GCC$ ATTRIBUTES NOINLINE` which only works on gfortran ≥ 13.
 option(MULTIFLOATS_BUILD_BENCH
     "Build microbenchmark executables (cpp_bench / fortran_bench[_abi])"
-    ${PROJECT_IS_TOP_LEVEL})
+    OFF)
 
 # MPFR precision tests — off by default; on-demand high-precision
 # reference (mpreal/MPFR) for comparing against quadmath and DD. Does
 # not affect the installed library. Implies BUILD_TESTING.
 option(BUILD_MPFR_TESTS "Build MPFR-based precision tests (mpreal + libmpfr)" OFF)
+
+# Boost cpp_double_double comparison — fetches Boost via FetchContent and
+# builds two extra targets (boost_dd_fuzz, boost_dd_bench) that run the same
+# precision/timing harness as cpp_fuzz / cpp_bench but with the boost DD
+# backend. OFF by default so default builds and CI don't pull boost.
+option(MULTIFLOATS_BUILD_BOOST_COMPARE
+    "Build Boost.Multiprecision cpp_double_double comparison test/bench" OFF)
 
 # Link-time optimization for the installed libraries. ON (default)
 # enables LTO + fat-LTO objects in src/ and fsrc/ so the static
@@ -281,16 +293,41 @@ if(MULTIFLOATS_BUILD_BENCH)
 endif()
 
 # BLAS extensions (not installed). Compile-only smoke target, useful for
-# downstream consumers that want to wire BLAS-style entry points; depends
-# only on the Fortran library so it always builds.
-add_library(blas-multifloat STATIC
-    ./blas/wgemm.f90
-    ./blas/wtrsm.f90)
-target_link_libraries(blas-multifloat PRIVATE multifloatsf)
+# downstream consumers that want to wire BLAS-style entry points; gated
+# on BUILD_TESTING since nothing in the default-build target graph
+# depends on it (it exists to exercise the Fortran ABI surface).
+if(BUILD_TESTING)
+    add_library(blas-multifloat STATIC
+        ./blas/wgemm.f90
+        ./blas/wtrsm.f90)
+    target_link_libraries(blas-multifloat PRIVATE multifloatsf)
+endif()
 
 # =============================================================================
 # Optional MPFR-based precision tests
 # =============================================================================
+if(MULTIFLOATS_BUILD_BOOST_COMPARE)
+    include(FetchContent)
+    set(BOOST_INCLUDE_LIBRARIES "multiprecision;math")
+    FetchContent_Declare(Boost
+        URL https://github.com/boostorg/boost/releases/download/boost-1.89.0/boost-1.89.0-cmake.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(Boost)
+
+    mf_add_cpp_executable(boost_dd_fuzz  ./test/test_boost_dd.cc)
+    target_link_libraries(boost_dd_fuzz  PRIVATE Boost::multiprecision Boost::math)
+
+    mf_add_cpp_executable(boost_dd_bench ./test/bench_boost_dd.cc)
+    target_link_libraries(boost_dd_bench PRIVATE Boost::multiprecision Boost::math)
+
+    mf_add_cpp_executable(bjn_probe ./test/probe_bjn.cc)
+    target_link_libraries(bjn_probe PRIVATE Boost::multiprecision Boost::math)
+
+    if(BUILD_TESTING)
+        add_test(NAME fuzz_boost_dd COMMAND boost_dd_fuzz 100000 0x42)
+    endif()
+endif()
+
 if(BUILD_MPFR_TESTS AND BUILD_TESTING)
     find_package(MPFR REQUIRED)
 
