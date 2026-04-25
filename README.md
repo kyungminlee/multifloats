@@ -418,19 +418,35 @@ Requires:
 ```sh
 cmake -B build -S .
 cmake --build build
-ctest --test-dir build --output-on-failure
 ```
 
-The build produces:
+A default build produces only the two installable libraries:
+
 - `libmultifloats.a` — the C++ kernels (header-only API via
   `include/multifloats.h`; this static archive holds the out-of-line math
   bodies and the extern "C" `*dd` entry points declared in the same header).
 - `libmultifloatsf-<compiler>.a` — the Fortran module library (the
   compiler tag comes from `cmake/FortranCompiler.cmake`; the generated
   `.mod` files live under `build/fmod/`).
-- `libblas-multifloat.a` — `wgemm` / `wtrsm` BLAS shims that operate on
-  `real64x2` matrices (Fortran-side type).
-- Several test executables (see below).
+
+Everything else — tests, benchmarks, the `blas-multifloat` smoke
+target, MPFR / Boost comparison harnesses — is opt-in via CMake
+options. None of them are pulled in by a default consumer build.
+
+| Option                              | Default | What it adds |
+|-------------------------------------|---------|--------------|
+| `-DBUILD_TESTING=ON`                | OFF     | C++ + Fortran test/fuzz executables, ctest registrations, and the `libblas-multifloat.a` smoke target (`wgemm`, `wtrsm` BLAS shims for `real64x2` matrices). |
+| `-DMULTIFLOATS_BUILD_BENCH=ON`      | OFF     | `cpp_bench`, `fortran_bench`, `fortran_bench_abi` micro-benchmarks. |
+| `-DBUILD_MPFR_TESTS=ON`             | OFF     | `cpp_fuzz_mpfr` 3-way precision test (needs `libmpfr-dev`). Implies `BUILD_TESTING`. |
+| `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF  | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89 via FetchContent). |
+
+To run the test suite:
+
+```sh
+cmake -B build -S . -DBUILD_TESTING=ON
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
 
 ## Tests
 
