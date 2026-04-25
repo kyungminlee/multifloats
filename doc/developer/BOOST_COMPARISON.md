@@ -13,6 +13,13 @@ The two harnesses live in `test/test_boost_dd.cc` (precision fuzz) and
 `FetchContent`). Both use the same `__float128` (libquadmath) reference
 oracle as `cpp_fuzz` and `cpp_bench`.
 
+For the exhaustive op-by-op matrix (every operation either side
+implements, with `max_rel` and bench timings side-by-side, including
+multifloats-only surfaces such as the complex DD kernels and the
+π-scaled trig family) see [`BOOST_OP_MATRIX.md`](BOOST_OP_MATRIX.md).
+Regenerate it with `scripts/build_op_matrix.py` after re-running the
+four harnesses.
+
 ## Methodology
 
 - **Precision**: each op runs at 1,000,000 iterations against the same
