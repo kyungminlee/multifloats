@@ -107,18 +107,49 @@ fused-rounding precision benefit and doing 2 DD ops where multifloats
 does one combined two_prod-and-renorm.
 
 ### Where boost wins
-The only places boost actively beats multifloats:
+The only place boost legitimately beats multifloats:
 - **`bjn` precision (19× win)**: integer-order Bessel J. Boost's
   `bessel_jn` has 4 dispatch regimes (asymptotic / forward
   recurrence / power-series / CF1+backward). multifloats has 2
   (forward when n ≤ x, Miller's CF1 when n > x). The regime
   boundary in multifloats produces accuracy cliffs that 4-regime
   dispatch avoids.
-- **`abs` / `neg` / `copysign` speed**: 2–8× faster on boost. These
-  are 1–3-instruction kernels where the multifloats `template<>`
-  instantiation isn't getting inlined as aggressively. Likely room to
-  recover with judicious `__attribute__((always_inline))` or by
-  exposing the underlying primitive.
+
+### `abs` / `neg` / `copysign` speed: a measurement artifact, not a
+### real gap
+
+The bench numbers above show boost winning `abs` (0.13×), `neg`
+(0.26×), and `copysign` (0.54×). **This is a methodology mismatch,
+not a kernel-quality gap.** The multifloats kernels (`negdd`,
+`fabsdd`, `copysigndd`) are exported from `libmultifloats` with
+`MULTIFLOATS_API` = `__attribute__((visibility("default")))`; the
+bench executable is built without `-flto`, so each call to a
+1–3-instruction kernel pays a CALL + struct-spill/reload ABI dance
+(~10 cycles of glue around 1 cycle of actual work).
+
+Boost's `cpp_double_double::operator-()` and `fabs` are
+`inline constexpr` in a header — fully inlined into the BENCH loop
+body, no call, no spill.
+
+Verified by rebuilding `cpp_bench` with `-flto`:
+
+| op | cpp_bench default | cpp_bench `-flto` | boost_dd_bench |
+|---|---|---|---|
+| abs | 0.0030 s | **0.0006 s** | 0.0004 s |
+| neg | 0.0027 s | **0.0003 s** | 0.0007 s |
+| copysign | 0.0014 s | 0.0011 s | 0.0007 s |
+
+With matched call-site inlining, multifloats *wins* `neg` by 2.3×
+(boost's `negate()` checks isnan/isinf and renormalizes; multifloats
+is one `xorpd`) and ties `abs` (boost's `fabs` skips the
+canonical-zero branch multifloats keeps for `(±0, ±0)` correctness).
+
+Why the bench keeps its current methodology: the file header at
+`test/bench.cc:1` calls out that this is timing through the C ABI on
+purpose, because that's what a Fortran or `bind(c)` consumer
+*actually* sees. The win/loss verdict for those consumers is
+faithfully reported. C++ users calling the inline `multifloats::abs(x)`
+header path get the LTO-inlined cost, which matches or beats boost.
 
 ### Where boost is also slow
 - `fmin`, `fmax`, `fdim` are tied or boost-faster on cpp_bench-side,
