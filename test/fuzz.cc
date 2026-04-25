@@ -720,8 +720,8 @@ static void print_all_stats() {
 static void check(char const *op, complex64x2 const &got,
                   __complex128 expected, q_t i1, q_t i2
                   MP_PARAM(CMp const &expected_mp)) {
-  mf::float64x2 got_re = got.real();
-  mf::float64x2 got_im = got.imag();
+  mf::float64x2 got_re = got.re;
+  mf::float64x2 got_im = got.im;
   q_t exp_re = crealq(expected);
   q_t exp_im = cimagq(expected);
 

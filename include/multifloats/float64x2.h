@@ -296,31 +296,44 @@ struct float64x2 {
 #endif /* __cplusplus */
 };
 
-/* complex64x2 — double-double complex.
- *   • C:   a plain POD (two back-to-back float64x2s, four doubles).
- *   • C++: a type alias for std::complex<float64x2>. C++11 §26.4/4 only
- *          guarantees the `T[2]` layout for T ∈ {float, double, long double};
- *          for user-defined T the ABI match rests on implementation detail.
- *          libstdc++ and libc++ both store two `_M_value[2]` / `_M_real` +
- *          `_M_imag` members laid out as `T[2]`, and the static_asserts
- *          below pin sizeof to 4*sizeof(double). If a future standard
- *          library changes that, the asserts fire at compile time. */
-#ifdef __cplusplus
-using complex64x2 = std::complex<float64x2>;
-#else
-struct complex64x2 { struct float64x2 re, im; };
+/* complex64x2 — double-double complex, identical POD in C and C++.
+ *
+ * A distinct struct (not a typedef for `std::complex<float64x2>`) so that
+ * LTO sees one and only one type identity for this struct at every C, C++,
+ * and Fortran `bind(c)` ABI boundary. Keeping `std::complex<float64x2>` as
+ * the authoritative kernel representation *inside* the library would make
+ * IR-level signatures of `c*dd` entry points diverge between the
+ * implementation TU and C/Fortran callers — LTO then rejects the link.
+ *
+ * For C++ callers who prefer `std::complex<float64x2>`, header-inline
+ * overloads (declared after the extern "C" block) marshal between the two
+ * representations. Layout compatibility is pinned by the static_asserts
+ * below; the overloads forward by value and inline away cleanly. */
+struct complex64x2 {
+  struct float64x2 re, im;
+};
+
+#ifndef __cplusplus
 typedef struct float64x2 float64x2;
 typedef struct complex64x2 complex64x2;
 #endif
 
 /* Guard against surprise padding — the entire C ABI and the Fortran
  * iso_c_binding layer assume float64x2 is exactly two back-to-back
- * doubles (and complex64x2 exactly four). C11 / C++11 required. */
+ * doubles (and complex64x2 exactly four). C11 / C++11 required. Also
+ * pin that `std::complex<float64x2>` matches complex64x2's layout so
+ * the C++ overload layer can rely on it for marshaling. */
 #ifdef __cplusplus
 static_assert(sizeof(float64x2) == 2 * sizeof(double),
               "float64x2 must be two back-to-back doubles with no padding");
 static_assert(sizeof(complex64x2) == 4 * sizeof(double),
+              "complex64x2 must be four back-to-back doubles with no padding");
+static_assert(sizeof(std::complex<float64x2>) == 4 * sizeof(double),
               "std::complex<float64x2> must be four back-to-back doubles with no padding");
+static_assert(std::is_standard_layout<complex64x2>::value,
+              "complex64x2 must be standard-layout (ABI interchange)");
+static_assert(std::is_trivially_copyable<complex64x2>::value,
+              "complex64x2 must be trivially copyable (ABI interchange)");
 #else
 _Static_assert(sizeof(struct float64x2) == 2 * sizeof(double),
                "float64x2 must be two back-to-back doubles with no padding");
@@ -623,7 +636,87 @@ MULTIFLOATS_API complex64x2 cexpidd(float64x2 a);
 #if defined(__clang__)
 #  pragma clang diagnostic pop
 #endif
-#endif
+
+/* ----------------------------------------------------------------------------
+ * C++ convenience overloads of the `c*dd` entry points taking
+ * `std::complex<float64x2>`. These are header-only — they forward to the
+ * POD-`complex64x2` extern "C" symbols above, so the ABI surface stays
+ * LTO-compatible while C++ consumers keep an idiomatic std::complex API.
+ *
+ * Marshaling is one word-for-word copy into/out of `complex64x2` (two
+ * float64x2 limbs). The `static_assert`s above pin layout compat; any
+ * future divergence trips at compile time.
+ * -------------------------------------------------------------------------- */
+namespace detail {
+inline complex64x2 cx_to_pod(std::complex<float64x2> const &z) {
+  return { z.real(), z.imag() };
+}
+inline std::complex<float64x2> cx_from_pod(complex64x2 const &z) {
+  return std::complex<float64x2>(z.re, z.im);
+}
+} // namespace detail
+
+inline std::complex<float64x2> cadddd(std::complex<float64x2> const &a,
+                                      std::complex<float64x2> const &b) {
+  return detail::cx_from_pod(cadddd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
+}
+inline std::complex<float64x2> csubdd(std::complex<float64x2> const &a,
+                                      std::complex<float64x2> const &b) {
+  return detail::cx_from_pod(csubdd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
+}
+inline std::complex<float64x2> cmuldd(std::complex<float64x2> const &a,
+                                      std::complex<float64x2> const &b) {
+  return detail::cx_from_pod(cmuldd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
+}
+inline std::complex<float64x2> cdivdd(std::complex<float64x2> const &a,
+                                      std::complex<float64x2> const &b) {
+  return detail::cx_from_pod(cdivdd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
+}
+
+#define MULTIFLOATS_CDD_UNARY_OVERLOAD(name)                                 \
+  inline std::complex<float64x2> name(std::complex<float64x2> const &z) {    \
+    return detail::cx_from_pod(name(detail::cx_to_pod(z)));                  \
+  }
+MULTIFLOATS_CDD_UNARY_OVERLOAD(cexpdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(cexpm1dd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(clogdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(clog2dd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(clog10dd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(clog1pdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(csqrtdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(csindd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(csinpidd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(ccosdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(ccospidd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(ctandd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(casindd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(cacosdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(catandd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(csinhdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(ccoshdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(ctanhdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(casinhdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(cacoshdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(catanhdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(cprojdd)
+MULTIFLOATS_CDD_UNARY_OVERLOAD(conjdd)
+#undef MULTIFLOATS_CDD_UNARY_OVERLOAD
+
+inline std::complex<float64x2> cpowdd(std::complex<float64x2> const &z,
+                                      std::complex<float64x2> const &w) {
+  return detail::cx_from_pod(cpowdd(detail::cx_to_pod(z), detail::cx_to_pod(w)));
+}
+
+inline float64x2 cabsdd (std::complex<float64x2> const &z) { return cabsdd (detail::cx_to_pod(z)); }
+inline float64x2 cargdd (std::complex<float64x2> const &z) { return cargdd (detail::cx_to_pod(z)); }
+inline float64x2 crealdd(std::complex<float64x2> const &z) { return z.real(); }
+inline float64x2 cimagdd(std::complex<float64x2> const &z) { return z.imag(); }
+
+// `cexpidd` takes a real `float64x2` so its overload set doesn't need a
+// std::complex variant — `multifloats::cexpi(a)` already returns
+// `std::complex<float64x2>` via the fused sincos path.
+
+#endif  /* __cplusplus */
 
 /* ============================================================================
  * C++-only section — free functions, transcendental decls, matmul, to_chars.

@@ -1,14 +1,20 @@
-// Complex DD C-ABI shims. `complex64x2` is an alias for
-// `std::complex<multifloats::float64x2>` in C++, so each entry point calls
-// the corresponding C++ implementation directly:
+// Complex DD C-ABI shims. `complex64x2` is now a distinct POD struct (two
+// back-to-back `float64x2`s) so the extern "C" signatures here match C and
+// Fortran `bind(c)` callers bit-for-bit — no `std::complex<float64x2>` on
+// the ABI surface (LTO rejected the type-identity mismatch).
+//
+// The authoritative C++ kernels still operate on `std::complex<float64x2>`:
 //   • transcendentals + abs/arg/proj → std:: specializations in
 //     complex64x2_std.inc (pulled into multifloats_math.cc
 //     inside `namespace std`)
 //   • Kind-D overloads (log2/log10/log1p/expm1/sinpi/cospi) →
 //     `namespace multifloats` overloads in
 //     complex64x2_abi_kernels.inc
-//   • trivial accessors (conj/real/imag) → std::complex member or
-//     generic template
+//
+// Each shim marshals the POD → `std::complex<float64x2>` at entry and back
+// at exit. The marshal is two float64x2 copies; the static_asserts in the
+// header pin layout compat, and with LTO enabled the round-trip is inlined
+// away entirely.
 //
 // The compensated complex DD multiply and divide keep their full bodies
 // here: std::complex's `operator*` / `operator/` templates are not
@@ -17,12 +23,19 @@
 // `dd_x2y2m1` at file scope in multifloats_math.cc are used by those
 // kernels and by the std:: log/asinh/atanh bodies.
 
-// ---- Complex DD arithmetic ------------------------------------------------
-// +, − are componentwise; std::complex's built-in operators already do the
-// right thing on std::complex<float64x2>.
+// Reuse the header-inline marshaling helpers (multifloats::detail::cx_*).
+using multifloats::detail::cx_from_pod;
+using multifloats::detail::cx_to_pod;
 
-complex64x2 cadddd(complex64x2 a, complex64x2 b) { return a + b; }
-complex64x2 csubdd(complex64x2 a, complex64x2 b) { return a - b; }
+// ---- Complex DD arithmetic ------------------------------------------------
+// +, − are componentwise on DD. Delegate to the float64x2 operators.
+
+complex64x2 cadddd(complex64x2 a, complex64x2 b) {
+  return { a.re + b.re, a.im + b.im };
+}
+complex64x2 csubdd(complex64x2 a, complex64x2 b) {
+  return { a.re - b.re, a.im - b.im };
+}
 
 // 4-mul form with cancellation-gated compensation. Each component is
 // computed the cheap way first (two DD muls + a DD add/sub); if the
@@ -41,8 +54,8 @@ complex64x2 csubdd(complex64x2 a, complex64x2 b) { return a - b; }
 // rejected in Fortran: ~2× slower and less precise — the subtraction
 // loses bits when |ac+bd| ≫ |Im|.
 complex64x2 cmuldd(complex64x2 a, complex64x2 b) {
-  float64x2 ar = a.real(), ai = a.imag();
-  float64x2 br = b.real(), bi = b.imag();
+  float64x2 ar = a.re, ai = a.im;
+  float64x2 br = b.re, bi = b.im;
 
   float64x2 p_re = ar * br;
   float64x2 q_re = ai * bi;
@@ -94,8 +107,8 @@ complex64x2 cmuldd(complex64x2 a, complex64x2 b) {
 // exact at every limb (no precision lost), and the post-scale denom is
 // bounded by 2 so no overflow can occur.
 complex64x2 cdivdd(complex64x2 a, complex64x2 b) {
-  float64x2 ar = a.real(), ai = a.imag();
-  float64x2 br = b.real(), bi = b.imag();
+  float64x2 ar = a.re, ai = a.im;
+  float64x2 br = b.re, bi = b.im;
 
   // Fast path: b is in the range where br²+bi² won't overflow/underflow.
   // The square of √DBL_MAX (~1.34e154) is the boundary; allow a generous
@@ -136,48 +149,48 @@ complex64x2 cdivdd(complex64x2 a, complex64x2 b) {
 
 // ---- Transcendentals → std:: specializations ------------------------------
 
-complex64x2 cexpdd  (complex64x2 z) { return std::exp (z); }
-complex64x2 clogdd  (complex64x2 z) { return std::log (z); }
-complex64x2 csqrtdd (complex64x2 z) { return std::sqrt(z); }
-complex64x2 cpowdd  (complex64x2 z, complex64x2 w) { return std::pow(z, w); }
+complex64x2 cexpdd  (complex64x2 z) { return cx_to_pod(std::exp (cx_from_pod(z))); }
+complex64x2 clogdd  (complex64x2 z) { return cx_to_pod(std::log (cx_from_pod(z))); }
+complex64x2 csqrtdd (complex64x2 z) { return cx_to_pod(std::sqrt(cx_from_pod(z))); }
+complex64x2 cpowdd  (complex64x2 z, complex64x2 w) {
+  return cx_to_pod(std::pow(cx_from_pod(z), cx_from_pod(w)));
+}
 
-complex64x2 csindd  (complex64x2 z) { return std::sin (z); }
-complex64x2 ccosdd  (complex64x2 z) { return std::cos (z); }
-complex64x2 ctandd  (complex64x2 z) { return std::tan (z); }
-complex64x2 casindd (complex64x2 z) { return std::asin(z); }
-complex64x2 cacosdd (complex64x2 z) { return std::acos(z); }
-complex64x2 catandd (complex64x2 z) { return std::atan(z); }
+complex64x2 csindd  (complex64x2 z) { return cx_to_pod(std::sin (cx_from_pod(z))); }
+complex64x2 ccosdd  (complex64x2 z) { return cx_to_pod(std::cos (cx_from_pod(z))); }
+complex64x2 ctandd  (complex64x2 z) { return cx_to_pod(std::tan (cx_from_pod(z))); }
+complex64x2 casindd (complex64x2 z) { return cx_to_pod(std::asin(cx_from_pod(z))); }
+complex64x2 cacosdd (complex64x2 z) { return cx_to_pod(std::acos(cx_from_pod(z))); }
+complex64x2 catandd (complex64x2 z) { return cx_to_pod(std::atan(cx_from_pod(z))); }
 
-complex64x2 csinhdd (complex64x2 z) { return std::sinh (z); }
-complex64x2 ccoshdd (complex64x2 z) { return std::cosh (z); }
-complex64x2 ctanhdd (complex64x2 z) { return std::tanh (z); }
-complex64x2 casinhdd(complex64x2 z) { return std::asinh(z); }
-complex64x2 cacoshdd(complex64x2 z) { return std::acosh(z); }
-complex64x2 catanhdd(complex64x2 z) { return std::atanh(z); }
+complex64x2 csinhdd (complex64x2 z) { return cx_to_pod(std::sinh (cx_from_pod(z))); }
+complex64x2 ccoshdd (complex64x2 z) { return cx_to_pod(std::cosh (cx_from_pod(z))); }
+complex64x2 ctanhdd (complex64x2 z) { return cx_to_pod(std::tanh (cx_from_pod(z))); }
+complex64x2 casinhdd(complex64x2 z) { return cx_to_pod(std::asinh(cx_from_pod(z))); }
+complex64x2 cacoshdd(complex64x2 z) { return cx_to_pod(std::acosh(cx_from_pod(z))); }
+complex64x2 catanhdd(complex64x2 z) { return cx_to_pod(std::atanh(cx_from_pod(z))); }
 
 // ---- Kind-D overloads in namespace multifloats ---------------------------
 
-complex64x2 cexpm1dd (complex64x2 z) { return multifloats::expm1(z); }
-complex64x2 clog2dd  (complex64x2 z) { return multifloats::log2 (z); }
-complex64x2 clog10dd (complex64x2 z) { return multifloats::log10(z); }
-complex64x2 clog1pdd (complex64x2 z) { return multifloats::log1p(z); }
-complex64x2 csinpidd (complex64x2 z) { return multifloats::sinpi(z); }
-complex64x2 ccospidd (complex64x2 z) { return multifloats::cospi(z); }
+complex64x2 cexpm1dd (complex64x2 z) { return cx_to_pod(multifloats::expm1(cx_from_pod(z))); }
+complex64x2 clog2dd  (complex64x2 z) { return cx_to_pod(multifloats::log2 (cx_from_pod(z))); }
+complex64x2 clog10dd (complex64x2 z) { return cx_to_pod(multifloats::log10(cx_from_pod(z))); }
+complex64x2 clog1pdd (complex64x2 z) { return cx_to_pod(multifloats::log1p(cx_from_pod(z))); }
+complex64x2 csinpidd (complex64x2 z) { return cx_to_pod(multifloats::sinpi(cx_from_pod(z))); }
+complex64x2 ccospidd (complex64x2 z) { return cx_to_pod(multifloats::cospi(cx_from_pod(z))); }
 
 // ---- Value accessors -----------------------------------------------------
 
-float64x2   cabsdd  (complex64x2 z) { return std::abs(z); }
-float64x2   cargdd  (complex64x2 z) { return std::arg(z); }
-complex64x2 cprojdd (complex64x2 z) { return std::proj(z); }
+float64x2   cabsdd  (complex64x2 z) { return std::abs(cx_from_pod(z)); }
+float64x2   cargdd  (complex64x2 z) { return std::arg(cx_from_pod(z)); }
+complex64x2 cprojdd (complex64x2 z) { return cx_to_pod(std::proj(cx_from_pod(z))); }
 
-// Conjugate: std::conj on the generic template is already componentwise
-// exact DD negation — each limb flips sign, no roundoff.
-complex64x2 conjdd  (complex64x2 z) { return std::conj(z); }
+// Conjugate: componentwise exact DD negation on the imag limb.
+complex64x2 conjdd  (complex64x2 z) { return { z.re, -z.im }; }
 
-// real/imag: trivial accessors. Returned directly to skip the round-trip
-// through std::complex construction.
-float64x2   crealdd (complex64x2 z) { return z.real(); }
-float64x2   cimagdd (complex64x2 z) { return z.imag(); }
+// real/imag: trivial accessors.
+float64x2   crealdd (complex64x2 z) { return z.re; }
+float64x2   cimagdd (complex64x2 z) { return z.im; }
 
 // ---- Matrix multiply (column-major) --------------------------------------
 //

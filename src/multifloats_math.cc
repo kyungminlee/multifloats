@@ -90,9 +90,10 @@ using namespace multifloats::detail;  // sincos_td + TD primitives
 
 // Pull the two public types into TU-scope so the anon namespace helpers,
 // the matmul wrappers, and the extern "C" shim blocks below can all name
-// them unqualified. `complex64x2` is a type alias for
-// `std::complex<float64x2>`, so the C/C++ boundary is a plain by-value call
-// with no marshaling.
+// them unqualified. `complex64x2` is a distinct POD (two back-to-back
+// float64x2s); the C-ABI shims in complex64x2_abi.inc marshal it to/from
+// `std::complex<float64x2>` at the kernel boundary so C/C++/Fortran all
+// see the same struct at the ABI layer (LTO type-identity match).
 using multifloats::float64x2;
 using multifloats::complex64x2;
 
