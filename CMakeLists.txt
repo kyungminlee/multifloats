@@ -24,11 +24,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# include(CTest) provides the standard `BUILD_TESTING` cache option
-# (default ON) and calls enable_testing(). Test executables and the
-# `add_test()` registrations below are all gated on BUILD_TESTING so a
-# downstream `add_subdirectory(multifloats)` can disable our tests
-# uniformly with `-DBUILD_TESTING=OFF`.
+# Test executables and `add_test()` registrations are all gated on
+# BUILD_TESTING. We default it OFF so a plain `cmake -S . -B build`
+# only builds the library — opt in with `-DBUILD_TESTING=ON` to get
+# the cpp_test / cpp_fuzz / fortran_* tests, or with the focused
+# options below (MULTIFLOATS_BUILD_BENCH, MULTIFLOATS_BUILD_BOOST_COMPARE,
+# BUILD_MPFR_TESTS) for the optional surfaces.
+#
+# Pre-declaring BUILD_TESTING before include(CTest) overrides the
+# CTest module's default-ON; include(CTest) still wires up the test
+# infrastructure (enable_testing, DartConfiguration) when the user
+# flips it on, and `add_subdirectory(multifloats)` consumers can also
+# pass `-DBUILD_TESTING=OFF` to disable in aggregate.
+option(BUILD_TESTING "Build the testing tree." OFF)
 include(CTest)
 
 # Default build type. CMake leaves CMAKE_BUILD_TYPE empty for single-config
@@ -288,12 +296,15 @@ if(MULTIFLOATS_BUILD_BENCH)
 endif()
 
 # BLAS extensions (not installed). Compile-only smoke target, useful for
-# downstream consumers that want to wire BLAS-style entry points; depends
-# only on the Fortran library so it always builds.
-add_library(blas-multifloat STATIC
-    ./blas/wgemm.f90
-    ./blas/wtrsm.f90)
-target_link_libraries(blas-multifloat PRIVATE multifloatsf)
+# downstream consumers that want to wire BLAS-style entry points; gated
+# on BUILD_TESTING since nothing in the default-build target graph
+# depends on it (it exists to exercise the Fortran ABI surface).
+if(BUILD_TESTING)
+    add_library(blas-multifloat STATIC
+        ./blas/wgemm.f90
+        ./blas/wtrsm.f90)
+    target_link_libraries(blas-multifloat PRIVATE multifloatsf)
+endif()
 
 # =============================================================================
 # Optional MPFR-based precision tests
