@@ -507,12 +507,18 @@ float64x2 pow(float64x2 const &x, float64x2 const &y) {
   // worst fuzz input (|y·Lf| ~ 17).
   double P1, P1e; two_prod(y.limbs[0], Lf.limbs[0], P1, P1e);
   double P2, P2e; two_prod(y.limbs[0], Lf.limbs[1], P2, P2e);
-  double P3 = y.limbs[1] * Lf.limbs[0];  // |y.lo·Lf.hi| ~ 6e-16
+  // P3 = y.lo · Lf.hi captured as an exact two_prod pair so the residual
+  // P3e (~ulp(P3) ≈ 1e-30·|y|) lands in the c-accumulator instead of
+  // being rounded away. A plain mul here mirrors the bug fixed in
+  // exp10's accumulator (commit de096bc): the missing P3e amplifies
+  // through exp2's saturation rim into a rel-err ~50× worse than the
+  // DD floor when y.lo · Lf.hi is near 1e-13.
+  double P3, P3e; two_prod(y.limbs[1], Lf.limbs[0], P3, P3e);
   // y.hi·Lf_extra ≲ 2e-33·|y|; y.lo·Lf.lo / y.lo·Lf_extra are ~1e-50, drop.
   double PX = y.limbs[0] * Lf_extra + y.limbs[1] * Lf.limbs[1];
 
   // Accumulate A + B into (h, l, c). Magnitude-descending: P1 (~|y·Lf|),
-  // AM, AL_h, P3 (~1e-15), then sub-ulp residuals P1e/P2/P2e/PX.
+  // AM, AL_h, P3 (~1e-15), then sub-ulp residuals P1e/P2/P2e/P3e/PX.
   double h = AH, l = 0.0, c = 0.0, t, u;
   two_sum(h, P1,   h, t); two_sum(l, t, l, u); c += u;
   two_sum(h, AM,   h, t); two_sum(l, t, l, u); c += u;
@@ -521,6 +527,7 @@ float64x2 pow(float64x2 const &x, float64x2 const &y) {
   two_sum(l, P1e,  l, u); c += u;
   two_sum(l, P2,   l, u); c += u;
   two_sum(l, P2e,  l, u); c += u;
+  two_sum(l, P3e,  l, u); c += u;
   two_sum(l, PX,   l, u); c += u;
   c += AL_l;
   // Keep (h, l, c) as triple-double through the integer-split step. Folding
