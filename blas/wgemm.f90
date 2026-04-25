@@ -1,17 +1,17 @@
 SUBROUTINE wgemm (transa, transb, m, n, k, alpha, a, lda, b, ldb, beta, c, ldc&
 &)
  use multifloats
- TYPE(FLOAT64X2) alpha, beta
+ TYPE(REAL64X2) alpha, beta
  INTEGER k, lda, ldb, ldc, m, n
  CHARACTER transa, transb
- TYPE(FLOAT64X2) a(lda,*), b(ldb,*), c(ldc,*)
+ TYPE(REAL64X2) a(lda,*), b(ldb,*), c(ldc,*)
  LOGICAL lsame
  EXTERNAL :: lsame
  EXTERNAL :: xerbla
- TYPE(FLOAT64X2) temp
+ TYPE(REAL64X2) temp
  INTEGER i, info, j, l, nrowa, nrowb
  LOGICAL nota, notb
- TYPE(FLOAT64X2) one, zero
+ TYPE(REAL64X2) one, zero
  one=1.0d+0
  zero=0.0d+0
  nota = lsame(transa, "N")

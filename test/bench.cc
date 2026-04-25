@@ -382,10 +382,10 @@ __attribute__((noinline))
 static void zffeed(complex64x2 *in) {
   double s = 0.0;
   for (int i = 0; i < N; ++i)
-    s += zfres[i].real().limbs[0] + zfres[i].real().limbs[1] + zfres[i].imag().limbs[0] + zfres[i].imag().limbs[1];
-  mf::float64x2 r = in[0].real();
+    s += zfres[i].re.limbs[0] + zfres[i].re.limbs[1] + zfres[i].im.limbs[0] + zfres[i].im.limbs[1];
+  mf::float64x2 r = in[0].re;
   r.limbs[0] += s * DRAIN_FEEDBACK_SCALE;
-  in[0].real(r);
+  in[0].re = r;
   zf_sink += s;
 }
 

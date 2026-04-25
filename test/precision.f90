@@ -64,13 +64,13 @@ program test_multifloats_precision
 contains
 
   pure elemental function dd_to_qp(x) result(y)
-    type(float64x2), intent(in) :: x
+    type(real64x2), intent(in) :: x
     real(qp) :: y
     y = real(x%limbs(1), qp) + real(x%limbs(2), qp)
   end function
 
   pure elemental function cdd_to_cqp(x) result(y)
-    type(complex64x2), intent(in) :: x
+    type(cmplx64x2), intent(in) :: x
     complex(qp) :: y
     y = cmplx(dd_to_qp(x%re), dd_to_qp(x%im), kind=qp)
   end function
@@ -87,7 +87,7 @@ contains
 
   subroutine check_real_close(label, got, expect, failures, scale)
     character(*), intent(in) :: label
-    type(float64x2), intent(in) :: got
+    type(real64x2), intent(in) :: got
     real(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp), intent(in), optional :: scale
@@ -109,7 +109,7 @@ contains
 
   subroutine check_complex_close(label, got, expect, failures, scale)
     character(*), intent(in) :: label
-    type(complex64x2), intent(in) :: got
+    type(cmplx64x2), intent(in) :: got
     complex(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp), intent(in), optional :: scale
@@ -133,7 +133,7 @@ contains
   ! are derived from the first-order derivative-corrected real DD kernels.
   subroutine check_complex_approx(label, got, expect, failures)
     character(*), intent(in) :: label
-    type(complex64x2), intent(in) :: got
+    type(cmplx64x2), intent(in) :: got
     complex(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp) :: err, bound
@@ -148,34 +148,34 @@ contains
 
   subroutine test_scalar_constructors(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x
-    type(complex64x2) :: z
+    type(real64x2) :: x
+    type(cmplx64x2) :: z
 
-    x = float64x2(1.25_dp)
+    x = real64x2(1.25_dp)
     call check_real_close('ctor dp', x, 1.25_qp, failures)
 
-    x = float64x2(real(1.25_sp, sp))
+    x = real64x2(real(1.25_sp, sp))
     call check_real_close('ctor sp', x, real(1.25_sp, qp), failures)
 
-    x = float64x2(17)
+    x = real64x2(17)
     call check_real_close('ctor int', x, 17.0_qp, failures)
 
-    x = float64x2('1.2345678901234567890123456789')
+    x = real64x2('1.2345678901234567890123456789')
     call check_real_close('ctor char', x, 1.2345678901234567890123456789_qp, failures)
 
     x = cmplx(2.5_dp, -9.0_dp, kind=dp)
     call check_real_close('assign complex->real', x, 2.5_qp, failures)
 
-    z = complex64x2(float64x2(1.5_dp), float64x2(-0.25_dp))
+    z = cmplx64x2(real64x2(1.5_dp), real64x2(-0.25_dp))
     call check_complex_close('ctor complex dd', z, cmplx(1.5_qp, -0.25_qp, qp), failures)
 
-    z = complex64x2(3.0_dp, -2.0_dp)
+    z = cmplx64x2(3.0_dp, -2.0_dp)
     call check_complex_close('ctor complex dp', z, cmplx(3.0_qp, -2.0_qp, qp), failures)
   end subroutine
 
   subroutine test_native_scalar_arithmetic(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x, y
+    type(real64x2) :: x, y
     real(qp) :: qx, qy
 
     x%limbs = [1.0_dp, 2.0e-30_dp]
@@ -202,7 +202,7 @@ contains
 
   subroutine test_native_unary_abs(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x
+    type(real64x2) :: x
     real(qp) :: qx
 
     x%limbs = [1.25_dp, 1.0e-30_dp]
@@ -213,24 +213,24 @@ contains
 
   subroutine test_native_comparisons(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x, y
+    type(real64x2) :: x, y
 
     x%limbs = [1.0_dp, 2.0e-30_dp]
     y%limbs = [2.0_dp, -3.0e-30_dp]
 
     call check_true('comparison lt', x < y, failures)
     call check_true('comparison gt', y > x, failures)
-    call check_true('comparison eq', float64x2(2) == 2, failures)
+    call check_true('comparison eq', real64x2(2) == 2, failures)
     call check_true('comparison ne', x /= y, failures)
   end subroutine
 
   subroutine test_complex_arithmetic(failures)
     integer, intent(inout) :: failures
-    type(complex64x2) :: z1, z2
+    type(cmplx64x2) :: z1, z2
     complex(qp) :: q1, q2
 
-    z1 = complex64x2(float64x2(1.25_dp), float64x2(-0.5_dp))
-    z2 = complex64x2(0.75_dp, 0.25_dp)
+    z1 = cmplx64x2(real64x2(1.25_dp), real64x2(-0.5_dp))
+    z2 = cmplx64x2(0.75_dp, 0.25_dp)
     q1 = cdd_to_cqp(z1)
     q2 = cdd_to_cqp(z2)
 
@@ -250,8 +250,8 @@ contains
 
   subroutine test_array_ops(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: a(2), m1(2,2), m2(2,2), mv(2), mm(2,2)
-    type(complex64x2) :: cz(2)
+    type(real64x2) :: a(2), m1(2,2), m2(2,2), mv(2), mm(2,2)
+    type(cmplx64x2) :: cz(2)
     real(qp) :: qa(2), qm1(2,2), qm2(2,2), qv(2), qmm(2,2)
     complex(qp) :: qcz(2)
 
@@ -267,8 +267,8 @@ contains
     call check_true('maxloc', all(maxloc(a) == maxloc(qa)), failures)
     call check_true('findloc', all(findloc(a, a(2)) == findloc(qa, qa(2))), failures)
 
-    m1 = reshape([float64x2(1.0_dp), float64x2(2.0_dp), float64x2(3.0_dp), float64x2(4.0_dp)], [2,2])
-    m2 = reshape([float64x2(0.5_dp), float64x2(-1.0_dp), float64x2(1.5_dp), float64x2(2.0_dp)], [2,2])
+    m1 = reshape([real64x2(1.0_dp), real64x2(2.0_dp), real64x2(3.0_dp), real64x2(4.0_dp)], [2,2])
+    m2 = reshape([real64x2(0.5_dp), real64x2(-1.0_dp), real64x2(1.5_dp), real64x2(2.0_dp)], [2,2])
     qm1 = reshape([1.0_qp, 2.0_qp, 3.0_qp, 4.0_qp], [2,2])
     qm2 = reshape([0.5_qp, -1.0_qp, 1.5_qp, 2.0_qp], [2,2])
 
@@ -284,7 +284,7 @@ contains
     call check_real_close('matmul mv 1', mv(1), qv(1), failures, scale=10.0_qp)
     call check_real_close('matmul mv 2', mv(2), qv(2), failures, scale=10.0_qp)
 
-    cz = [complex64x2(1.0_dp, -0.5_dp), complex64x2(0.25_dp, 0.75_dp)]
+    cz = [cmplx64x2(1.0_dp, -0.5_dp), cmplx64x2(0.25_dp, 0.75_dp)]
     qcz = [cdd_to_cqp(cz(1)), cdd_to_cqp(cz(2))]
     call check_complex_close('complex sum', sum(cz), sum(qcz), failures)
     call check_complex_close('complex dot_product', dot_product(cz, cz), dot_product(qcz, qcz), failures)
@@ -292,7 +292,7 @@ contains
 
   subroutine test_rounding_and_random(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x, r
+    type(real64x2) :: x, r
 
     x%limbs = [3.5_dp, 2.0e-30_dp]
     call check_true('dble', abs(dble(x) - real(dd_to_qp(x), dp)) <= epsilon(1.0_dp), failures)
@@ -312,7 +312,7 @@ contains
 
   subroutine test_signed_zero(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: pz, nz, x, y
+    type(real64x2) :: pz, nz, x, y
     pz%limbs = [0.0_dp, 0.0_dp]
     nz%limbs = [-0.0_dp, 0.0_dp]
 
@@ -334,7 +334,7 @@ contains
     call check_true('abs(-0) = +0', x%limbs(1) == 0.0_dp .and. sign(1.0_dp, x%limbs(1)) > 0.0_dp, failures)
 
     ! 1.0 / +0 = +inf, 1.0 / -0 = -inf
-    y = float64x2(1.0_dp)
+    y = real64x2(1.0_dp)
     x = y / pz
     call check_true('1/+0 = +inf', .not. ieee_is_finite(x%limbs(1)) .and. x%limbs(1) > 0.0_dp, failures)
     x = y / nz
@@ -349,12 +349,12 @@ contains
 
   subroutine test_infinities(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: pinf, ninf, one, zero, x
+    type(real64x2) :: pinf, ninf, one, zero, x
     real(dp) :: inf
     inf = ieee_value(inf, ieee_positive_inf)
     pinf%limbs = [inf, 0.0_dp]
     ninf%limbs = [-inf, 0.0_dp]
-    one = float64x2(1.0_dp)
+    one = real64x2(1.0_dp)
     zero%limbs = [0.0_dp, 0.0_dp]
 
     ! +inf + +inf = +inf
@@ -368,7 +368,7 @@ contains
     x = pinf + ninf
     call check_true('+inf + -inf = NaN', ieee_is_nan(x%limbs(1)), failures)
     ! +inf * 2 = +inf
-    x = pinf * float64x2(2.0_dp)
+    x = pinf * real64x2(2.0_dp)
     call check_true('+inf * 2 = +inf', x%limbs(1) > huge(1.0_dp), failures)
     ! +inf * 0 = NaN
     x = pinf * zero
@@ -396,11 +396,11 @@ contains
 
   subroutine test_nan_propagation(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: nan, x, one
+    type(real64x2) :: nan, x, one
     real(dp) :: nan_d
     nan_d = ieee_value(nan_d, ieee_quiet_nan)
     nan%limbs = [nan_d, 0.0_dp]
-    one = float64x2(1.0_dp)
+    one = real64x2(1.0_dp)
 
     ! NaN propagates through arithmetic
     x = nan + one
@@ -423,7 +423,7 @@ contains
 
   subroutine test_subnormal_boundary(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: smallest, x
+    type(real64x2) :: smallest, x
     real(dp) :: t
 
     ! Smallest normal double in DD form
@@ -439,7 +439,7 @@ contains
     call check_true('tiny + tiny = 2*tiny', x%limbs(1) == 2.0_dp * t, failures)
 
     ! tiny * 0.5 → subnormal in dp
-    x = smallest * float64x2(0.5_dp)
+    x = smallest * real64x2(0.5_dp)
     call check_true('tiny * 0.5 finite', ieee_is_finite(x%limbs(1)), failures)
     call check_true('tiny * 0.5 < tiny', x%limbs(1) < t, failures)
 
@@ -451,7 +451,7 @@ contains
 
   subroutine test_huge_boundary(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: big, x
+    type(real64x2) :: big, x
     real(dp) :: h
     h = huge(1.0_dp)
     big%limbs = [h, 0.0_dp]
@@ -462,7 +462,7 @@ contains
         .and. .not. ieee_is_nan(x%limbs(1)) .and. x%limbs(1) > 0.0_dp, failures)
 
     ! huge * 2 = +inf
-    x = big * float64x2(2.0_dp)
+    x = big * real64x2(2.0_dp)
     call check_true('huge * 2 = inf', .not. ieee_is_finite(x%limbs(1)) &
         .and. .not. ieee_is_nan(x%limbs(1)), failures)
 
@@ -482,13 +482,13 @@ contains
 
   subroutine test_reduction_mask(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: a(5), s
+    type(real64x2) :: a(5), s
     real(qp) :: qa(5)
     logical :: mask(5)
     integer :: i
 
     do i = 1, 5
-      a(i) = float64x2(real(i, dp))
+      a(i) = real64x2(real(i, dp))
       qa(i) = real(i, qp)
     end do
     mask = [.true., .false., .true., .false., .true.]  ! 1, 3, 5
@@ -514,13 +514,13 @@ contains
 
   subroutine test_reduction_dim(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: m(2,3), v1(3), v2(2)
+    type(real64x2) :: m(2,3), v1(3), v2(2)
     real(qp) :: qm(2,3), qv1(3), qv2(2)
     integer :: i, j
 
     do j = 1, 3
       do i = 1, 2
-        m(i,j) = float64x2(real(10*i + j, dp))
+        m(i,j) = real64x2(real(10*i + j, dp))
         qm(i,j) = real(10*i + j, qp)
       end do
     end do
@@ -584,7 +584,7 @@ contains
 
   subroutine test_assignments_to_dd(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x
+    type(real64x2) :: x
 
     ! dd <- real / int / complex of every kind we expose.
     x = 3.5_dp
@@ -607,7 +607,7 @@ contains
 
   subroutine test_assignments_to_cdd(failures)
     integer, intent(inout) :: failures
-    type(complex64x2) :: z
+    type(cmplx64x2) :: z
 
     z = 3.5_dp
     call check_complex_close('cdd <- dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
@@ -630,7 +630,7 @@ contains
 
   subroutine test_assignments_from_dd(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x
+    type(real64x2) :: x
     real(dp) :: d
     real(sp) :: s
     integer :: i
@@ -673,82 +673,82 @@ contains
 
   subroutine test_constructors(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x
-    type(complex64x2) :: z
+    type(real64x2) :: x
+    type(cmplx64x2) :: z
 
-    ! float64x2(...) — every supported single-arg form.
-    x = float64x2(3.5_dp)
-    call check_real_close('ctor float64x2 dp', x, 3.5_qp, failures)
-    x = float64x2(3.5_sp)
-    call check_real_close('ctor float64x2 sp', x, real(3.5_sp, qp), failures)
-    x = float64x2(7)
-    call check_real_close('ctor float64x2 int', x, 7.0_qp, failures)
-    x = float64x2(7_int8)
-    call check_real_close('ctor float64x2 int8', x, 7.0_qp, failures)
-    x = float64x2(1234_int16)
-    call check_real_close('ctor float64x2 int16', x, 1234.0_qp, failures)
-    x = float64x2(123456789012_int64)
-    call check_real_close('ctor float64x2 int64', x, 123456789012.0_qp, failures)
-    x = float64x2('1.2345678901234567890123456789')
-    call check_real_close('ctor float64x2 char', x, &
+    ! real64x2(...) — every supported single-arg form.
+    x = real64x2(3.5_dp)
+    call check_real_close('ctor real64x2 dp', x, 3.5_qp, failures)
+    x = real64x2(3.5_sp)
+    call check_real_close('ctor real64x2 sp', x, real(3.5_sp, qp), failures)
+    x = real64x2(7)
+    call check_real_close('ctor real64x2 int', x, 7.0_qp, failures)
+    x = real64x2(7_int8)
+    call check_real_close('ctor real64x2 int8', x, 7.0_qp, failures)
+    x = real64x2(1234_int16)
+    call check_real_close('ctor real64x2 int16', x, 1234.0_qp, failures)
+    x = real64x2(123456789012_int64)
+    call check_real_close('ctor real64x2 int64', x, 123456789012.0_qp, failures)
+    x = real64x2('1.2345678901234567890123456789')
+    call check_real_close('ctor real64x2 char', x, &
         1.2345678901234567890123456789_qp, failures)
-    x = float64x2((2.5_dp, -8.0_dp))      ! cdp → dd takes the real part
-    call check_real_close('ctor float64x2 cdp', x, 2.5_qp, failures)
-    x = float64x2((1.25_sp, 4.0_sp))      ! csp → dd takes the real part
-    call check_real_close('ctor float64x2 csp', x, real(1.25_sp, qp), failures)
-    z = complex64x2(float64x2(1.0_dp), float64x2(2.0_dp))
-    x = float64x2(z)                      ! cdd → dd takes the real part
-    call check_real_close('ctor float64x2 cdd', x, 1.0_qp, failures)
+    x = real64x2((2.5_dp, -8.0_dp))      ! cdp → dd takes the real part
+    call check_real_close('ctor real64x2 cdp', x, 2.5_qp, failures)
+    x = real64x2((1.25_sp, 4.0_sp))      ! csp → dd takes the real part
+    call check_real_close('ctor real64x2 csp', x, real(1.25_sp, qp), failures)
+    z = cmplx64x2(real64x2(1.0_dp), real64x2(2.0_dp))
+    x = real64x2(z)                      ! cdd → dd takes the real part
+    call check_real_close('ctor real64x2 cdd', x, 1.0_qp, failures)
 
-    ! complex64x2(...) — single-arg forms.
-    z = complex64x2(float64x2(1.5_dp))
+    ! cmplx64x2(...) — single-arg forms.
+    z = cmplx64x2(real64x2(1.5_dp))
     call check_complex_close('ctor cdd dd', z, cmplx(1.5_qp, 0.0_qp, qp), failures)
-    z = complex64x2(3.5_dp)
+    z = cmplx64x2(3.5_dp)
     call check_complex_close('ctor cdd dp', z, cmplx(3.5_qp, 0.0_qp, qp), failures)
-    z = complex64x2(3.5_sp)
+    z = cmplx64x2(3.5_sp)
     call check_complex_close('ctor cdd sp', z, cmplx(real(3.5_sp, qp), 0.0_qp, qp), failures)
-    z = complex64x2(7)
+    z = cmplx64x2(7)
     call check_complex_close('ctor cdd int', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
-    z = complex64x2(7_int8)
+    z = cmplx64x2(7_int8)
     call check_complex_close('ctor cdd int8', z, cmplx(7.0_qp, 0.0_qp, qp), failures)
-    z = complex64x2(1234_int16)
+    z = cmplx64x2(1234_int16)
     call check_complex_close('ctor cdd int16', z, cmplx(1234.0_qp, 0.0_qp, qp), failures)
-    z = complex64x2(123456789012_int64)
+    z = cmplx64x2(123456789012_int64)
     call check_complex_close('ctor cdd int64', z, &
         cmplx(123456789012.0_qp, 0.0_qp, qp), failures)
-    z = complex64x2((2.5_dp, -8.0_dp))
+    z = cmplx64x2((2.5_dp, -8.0_dp))
     call check_complex_close('ctor cdd cdp', z, cmplx(2.5_qp, -8.0_qp, qp), failures)
-    z = complex64x2((1.25_sp, 4.0_sp))
+    z = cmplx64x2((1.25_sp, 4.0_sp))
     call check_complex_close('ctor cdd csp', z, &
         cmplx(real(1.25_sp, qp), real(4.0_sp, qp), qp), failures)
 
-    ! complex64x2(re, im) — matching-kind two-arg forms.
-    z = complex64x2(float64x2(1.5_dp), float64x2(-2.5_dp))
+    ! cmplx64x2(re, im) — matching-kind two-arg forms.
+    z = cmplx64x2(real64x2(1.5_dp), real64x2(-2.5_dp))
     call check_complex_close('ctor cdd dd,dd', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
-    z = complex64x2(1.5_dp, -2.5_dp)
+    z = cmplx64x2(1.5_dp, -2.5_dp)
     call check_complex_close('ctor cdd dp,dp', z, cmplx(1.5_qp, -2.5_qp, qp), failures)
-    z = complex64x2(1.5_sp, -2.5_sp)
+    z = cmplx64x2(1.5_sp, -2.5_sp)
     call check_complex_close('ctor cdd sp,sp', z, &
         cmplx(real(1.5_sp, qp), real(-2.5_sp, qp), qp), failures)
-    z = complex64x2(10, 20)
+    z = cmplx64x2(10, 20)
     call check_complex_close('ctor cdd int,int', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
-    z = complex64x2(1_int8, 2_int8)
+    z = cmplx64x2(1_int8, 2_int8)
     call check_complex_close('ctor cdd i8,i8', z, cmplx(1.0_qp, 2.0_qp, qp), failures)
-    z = complex64x2(100_int16, 200_int16)
+    z = cmplx64x2(100_int16, 200_int16)
     call check_complex_close('ctor cdd i16,i16', z, cmplx(100.0_qp, 200.0_qp, qp), failures)
-    z = complex64x2(10_int64, 20_int64)
+    z = cmplx64x2(10_int64, 20_int64)
     call check_complex_close('ctor cdd i64,i64', z, cmplx(10.0_qp, 20.0_qp, qp), failures)
 
-    ! complex64x2 mixed-kind two-arg forms.
-    z = complex64x2(float64x2(1.5_dp), 2.5_dp)
+    ! cmplx64x2 mixed-kind two-arg forms.
+    z = cmplx64x2(real64x2(1.5_dp), 2.5_dp)
     call check_complex_close('ctor cdd dd,dp', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
-    z = complex64x2(1.5_dp, float64x2(2.5_dp))
+    z = cmplx64x2(1.5_dp, real64x2(2.5_dp))
     call check_complex_close('ctor cdd dp,dd', z, cmplx(1.5_qp, 2.5_qp, qp), failures)
   end subroutine
 
   subroutine test_assignments_from_cdd(failures)
     integer, intent(inout) :: failures
-    type(complex64x2) :: z
+    type(cmplx64x2) :: z
     real(dp) :: d
     real(sp) :: s
     integer :: i
@@ -780,13 +780,13 @@ contains
 
   subroutine test_loc_back(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: a(5)
+    type(real64x2) :: a(5)
     real(qp) :: qa(5)
     integer :: i
 
     ! Build an array with a duplicated max so back= matters
-    a = [float64x2(1.0_dp), float64x2(3.0_dp), float64x2(2.0_dp), &
-         float64x2(3.0_dp), float64x2(0.0_dp)]
+    a = [real64x2(1.0_dp), real64x2(3.0_dp), real64x2(2.0_dp), &
+         real64x2(3.0_dp), real64x2(0.0_dp)]
     do i = 1, 5
       qa(i) = real(a(i)%limbs(1), qp)
     end do
@@ -799,17 +799,17 @@ contains
         all(minloc(a, back=.true.) == minloc(qa, back=.true.)), failures)
 
     call check_true('findloc forward', &
-        all(findloc(a, float64x2(3.0_dp)) == findloc(qa, 3.0_qp)), failures)
+        all(findloc(a, real64x2(3.0_dp)) == findloc(qa, 3.0_qp)), failures)
     call check_true('findloc back', &
-        all(findloc(a, float64x2(3.0_dp), back=.true.) == findloc(qa, 3.0_qp, back=.true.)), &
+        all(findloc(a, real64x2(3.0_dp), back=.true.) == findloc(qa, 3.0_qp, back=.true.)), &
         failures)
   end subroutine
 
   subroutine test_ulp_boundary(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: one, eps_dd, x
+    type(real64x2) :: one, eps_dd, x
     real(dp) :: e
-    one = float64x2(1.0_dp)
+    one = real64x2(1.0_dp)
     e = epsilon(1.0_dp)
     eps_dd%limbs = [e, 0.0_dp]
 
@@ -823,7 +823,7 @@ contains
     call check_true('lo limb stays', x%limbs(2) == 0.5_dp * e * e, failures)
 
     ! 1 + ulp(lo) should round into lo limb of DD
-    x = one + float64x2(0.5_dp * e * e)
+    x = one + real64x2(0.5_dp * e * e)
     call check_true('1 + 0.5 eps^2 finite', ieee_is_finite(x%limbs(1)) &
         .and. ieee_is_finite(x%limbs(2)), failures)
   end subroutine
@@ -834,12 +834,12 @@ contains
   subroutine test_sincos_sinhcosh(failures)
     integer, intent(inout) :: failures
     real(dp), parameter :: samples(5) = [0.0_dp, 0.1_dp, -1.25_dp, 3.1_dp, 7.0_dp]
-    type(float64x2) :: xs(5), ss(5), cs(5), sref(5), cref(5)
+    type(real64x2) :: xs(5), ss(5), cs(5), sref(5), cref(5)
     integer :: i
     character(len=32) :: tag
 
     do i = 1, 5
-      xs(i) = float64x2(samples(i))
+      xs(i) = real64x2(samples(i))
     end do
 
     ! Fused vs separate: must be bit-equal since both go through the same
@@ -876,43 +876,43 @@ contains
   ! cospi. Each check is a simple identity point.
   subroutine test_new_generic_intrinsics(failures)
     integer, intent(inout) :: failures
-    type(float64x2) :: x, r
-    type(complex64x2) :: z, cr
+    type(real64x2) :: x, r
+    type(cmplx64x2) :: z, cr
     real(qp) :: xq
 
     ! Real DD: log2(8)=3, log1p(0)=0, expm1(0)=0.
-    x = float64x2(8.0_dp); r = log2(x)
+    x = real64x2(8.0_dp); r = log2(x)
     call check_real_close('log2(8)', r, 3.0_qp, failures)
-    x = float64x2(0.0_dp); r = log1p(x)
+    x = real64x2(0.0_dp); r = log1p(x)
     call check_real_close('log1p(0)', r, 0.0_qp, failures)
-    x = float64x2(0.0_dp); r = expm1(x)
+    x = real64x2(0.0_dp); r = expm1(x)
     call check_real_close('expm1(0)', r, 0.0_qp, failures)
 
     ! Small-input log1p / expm1: require full-DD precision.
     xq = 1.0e-20_qp
-    x = float64x2(real(xq, dp)); r = log1p(x)
+    x = real64x2(real(xq, dp)); r = log1p(x)
     call check_real_close('log1p(1e-20)', r, xq, failures)
     r = expm1(x)
     call check_real_close('expm1(1e-20)', r, xq, failures)
 
     ! Complex DD identity points.
-    z = complex64x2(2.0_dp, 0.0_dp); cr = log2(z)
+    z = cmplx64x2(2.0_dp, 0.0_dp); cr = log2(z)
     call check_complex_close('clog2(2)', cr, (1.0_qp, 0.0_qp), failures)
-    z = complex64x2(10.0_dp, 0.0_dp); cr = log10(z)
+    z = cmplx64x2(10.0_dp, 0.0_dp); cr = log10(z)
     call check_complex_close('clog10(10)', cr, (1.0_qp, 0.0_qp), failures)
-    z = complex64x2(0.0_dp, 0.0_dp); cr = log1p(z)
+    z = cmplx64x2(0.0_dp, 0.0_dp); cr = log1p(z)
     call check_complex_close('clog1p(0)', cr, (0.0_qp, 0.0_qp), failures)
-    z = complex64x2(0.0_dp, 0.0_dp); cr = expm1(z)
+    z = cmplx64x2(0.0_dp, 0.0_dp); cr = expm1(z)
     call check_complex_close('cexpm1(0)', cr, (0.0_qp, 0.0_qp), failures)
 
     ! Half-integer sinpi / cospi: exact zeros and ±1.
-    z = complex64x2(0.5_dp, 0.0_dp); cr = sinpi(z)
+    z = cmplx64x2(0.5_dp, 0.0_dp); cr = sinpi(z)
     call check_complex_close('csinpi(0.5)', cr, (1.0_qp, 0.0_qp), failures)
-    z = complex64x2(0.5_dp, 0.0_dp); cr = cospi(z)
+    z = cmplx64x2(0.5_dp, 0.0_dp); cr = cospi(z)
     call check_complex_close('ccospi(0.5)', cr, (0.0_qp, 0.0_qp), failures)
-    z = complex64x2(1.0_dp, 0.0_dp); cr = sinpi(z)
+    z = cmplx64x2(1.0_dp, 0.0_dp); cr = sinpi(z)
     call check_complex_close('csinpi(1)', cr, (0.0_qp, 0.0_qp), failures)
-    z = complex64x2(1.0_dp, 0.0_dp); cr = cospi(z)
+    z = cmplx64x2(1.0_dp, 0.0_dp); cr = cospi(z)
     call check_complex_close('ccospi(1)', cr, (-1.0_qp, 0.0_qp), failures)
   end subroutine
 
@@ -951,19 +951,19 @@ contains
     integer, intent(in) :: m, k, n
     character(*), intent(in) :: label
     integer, intent(inout) :: failures
-    type(float64x2) :: a(m, k), b(k, n), c(m, n)
+    type(real64x2) :: a(m, k), b(k, n), c(m, n)
     real(qp) :: aq(m, k), bq(k, n), cq_ref(m, n), err, mag, rel
     integer :: i, j, p
 
     do j = 1, k
       do i = 1, m
-        a(i,j) = float64x2(a_dp(i,j))
+        a(i,j) = real64x2(a_dp(i,j))
         aq(i,j) = real(a_dp(i,j), qp)
       end do
     end do
     do j = 1, n
       do i = 1, k
-        b(i,j) = float64x2(b_dp(i,j))
+        b(i,j) = real64x2(b_dp(i,j))
         bq(i,j) = real(b_dp(i,j), qp)
       end do
     end do

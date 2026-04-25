@@ -1,6 +1,6 @@
 program consumer
   ! Smoke test for the source-distributed multifloatsf package. Exercises:
-  !   - the type(float64x2) derived type (layout, %limbs accessor),
+  !   - the type(real64x2) derived type (layout, %limbs accessor),
   !   - an inline elemental arithmetic operator (`+` on DD), and
   !   - a transcendental that routes through the C ABI (sqrt → sqrtdd).
   ! The printed values are stable to the final ULP so the driver script
@@ -9,7 +9,7 @@ program consumer
   use, intrinsic :: iso_fortran_env, only: dp => real64
   implicit none
 
-  type(float64x2) :: x, y, z, r
+  type(real64x2) :: x, y, z, r
 
   ! x = 1.0 exactly (zero lo limb).
   x = 1.0_dp

@@ -46,7 +46,7 @@ contains
   end subroutine assert
 
   subroutine assert_eq(a, b_h, b_l, msg)
-    type(float64x2), intent(in) :: a
+    type(real64x2), intent(in) :: a
     double precision, intent(in) :: b_h, b_l
     character(*), intent(in) :: msg
     ! We allow small difference in the second limb if it's due to minor precision differences in target calculation
@@ -62,7 +62,7 @@ contains
   end subroutine assert_eq
 
   subroutine assert_approx(a, b_h, b_l, msg)
-    type(float64x2), intent(in) :: a
+    type(real64x2), intent(in) :: a
     double precision, intent(in) :: b_h, b_l
     character(*), intent(in) :: msg
     real(16) :: qa, qb
@@ -80,7 +80,7 @@ contains
   end subroutine
 
   subroutine assert_approx_qp(a, b, msg)
-    type(float64x2), intent(in) :: a
+    type(real64x2), intent(in) :: a
     real(16), intent(in) :: b
     character(*), intent(in) :: msg
     real(16) :: qa
@@ -102,7 +102,7 @@ contains
   end function
 
   subroutine test_assignment()
-    type(float64x2) :: a
+    type(real64x2) :: a
     a = 1.234d0
     call assert_eq(a, 1.234d0, 0.0d0, "assignment 1.234")
     a = -0.0d0
@@ -110,7 +110,7 @@ contains
   end subroutine
 
   subroutine test_comparisons()
-    type(float64x2) :: a, b
+    type(real64x2) :: a, b
     ! a = 1 + 1e-20, b = 1 + 2e-20
     a = 1.0d0; a%limbs(2) = 1.0d-20
     b = 1.0d0; b%limbs(2) = 2.0d-20
@@ -145,7 +145,7 @@ contains
   end subroutine
 
   subroutine test_addition()
-    type(float64x2) :: a, b, c
+    type(real64x2) :: a, b, c
     double precision :: s, e
 
     ! (1 + 1e-20) + (1 + 1e-20) = 2 + 2e-20
@@ -174,7 +174,7 @@ contains
   end subroutine
 
   subroutine test_subtraction()
-    type(float64x2) :: a, b, c
+    type(real64x2) :: a, b, c
     double precision :: s, e
 
     a = 2.0d0; a%limbs(2) = 2.0d-20
@@ -195,7 +195,7 @@ contains
   end subroutine
 
   subroutine test_multiplication()
-    type(float64x2) :: a, b, c
+    type(real64x2) :: a, b, c
     double precision :: s, e
 
     ! (1 + 1e-10)^2 = 1 + 2e-10 + 1e-20.
@@ -222,7 +222,7 @@ contains
   end subroutine
 
   subroutine test_division()
-    type(float64x2) :: a, b, c
+    type(real64x2) :: a, b, c
     double precision :: q1, q2, r, s, ee
 
     ! (1 + 1e-10)
@@ -256,7 +256,7 @@ contains
   end subroutine
 
   subroutine test_nonfinite()
-    type(float64x2) :: a, b, c
+    type(real64x2) :: a, b, c
     double precision :: inf, nan
     inf = ieee_value(inf, ieee_positive_inf)
     nan = ieee_value(nan, ieee_quiet_nan)
@@ -308,7 +308,7 @@ contains
   end subroutine
 
   subroutine test_isfinite()
-    type(float64x2) :: a
+    type(real64x2) :: a
     double precision :: inf
     inf = ieee_value(inf, ieee_positive_inf)
 
@@ -320,7 +320,7 @@ contains
   end subroutine
 
   subroutine test_renormalize()
-    type(float64x2) :: a
+    type(real64x2) :: a
     ! Manually set unnormalized state
     a%limbs(1) = 1.0d0
     a%limbs(2) = 1.0d0
@@ -334,7 +334,7 @@ contains
   end subroutine
 
   subroutine test_builtins()
-    type(float64x2) :: a, b
+    type(real64x2) :: a, b
     a = 1.0d0
     call assert(precision(a) == 31, "precision")
     call assert(minexponent(a) == minexponent(1.0d0), "minexponent")
@@ -353,7 +353,7 @@ contains
   end subroutine
 
   subroutine test_math_intrinsics()
-    type(float64x2) :: a, b, c
+    type(real64x2) :: a, b, c
     
     ! abs
     a = -1.0d0; a%limbs(2) = -1.0d-20
@@ -376,10 +376,10 @@ contains
     call assert_eq(min(a, b), 1.0d0, 0.0d0, "min")
     call assert_eq(max(a, b), 2.0d0, 0.0d0, "max")
     
-    ! floor/ceiling — module returns integer, wrap to float64x2 for assert_eq.
+    ! floor/ceiling — module returns integer, wrap to real64x2 for assert_eq.
     a = 1.5d0
-    call assert_eq(float64x2(floor(a)), 1.0d0, 0.0d0, "floor(1.5)")
-    call assert_eq(float64x2(ceiling(a)), 2.0d0, 0.0d0, "ceiling(1.5)")
+    call assert_eq(real64x2(floor(a)), 1.0d0, 0.0d0, "floor(1.5)")
+    call assert_eq(real64x2(ceiling(a)), 2.0d0, 0.0d0, "ceiling(1.5)")
     
     ! scale
     a = 1.0d0
@@ -445,7 +445,7 @@ contains
   subroutine test_overflow_paths()
     ! After P1, overflow / pole paths return IEEE infinity rather than
     ! huge(0.0_dp). These assertions catch the regression.
-    type(float64x2) :: a, r
+    type(real64x2) :: a, r
     double precision :: inf
 
     inf = ieee_value(inf, ieee_positive_inf)
@@ -489,7 +489,7 @@ contains
     ! P2: Fortran sinpi/cospi must hit full DD (~4e-32), not the legacy
     ! polynomial ceiling (~5e-27). assert_approx's tolerance is 1e-32,
     ! which the legacy kernel would have failed outright at x = 0.25.
-    type(float64x2) :: x, r
+    type(real64x2) :: x, r
     x = 0.25d0
     r = sinpi(x)
     call assert_approx(r, 0.7071067811865476d0, &
@@ -510,20 +510,20 @@ contains
     ! real kernels. Sanity-check identities that would fail if the
     ! complex formula were wrong. Precision validation is inherited from
     ! the real path's fuzz tests.
-    type(complex64x2) :: a(2, 2), b(2, 2), c(2, 2), u(2), v(2)
-    type(complex64x2) :: one, i_unit, two, zero, s
-    type(float64x2) :: zero_dd
-    zero_dd = float64x2(0.0d0)
-    one%re = float64x2(1.0d0); one%im = zero_dd
-    two%re = float64x2(2.0d0); two%im = zero_dd
+    type(cmplx64x2) :: a(2, 2), b(2, 2), c(2, 2), u(2), v(2)
+    type(cmplx64x2) :: one, i_unit, two, zero, s
+    type(real64x2) :: zero_dd
+    zero_dd = real64x2(0.0d0)
+    one%re = real64x2(1.0d0); one%im = zero_dd
+    two%re = real64x2(2.0d0); two%im = zero_dd
     zero%re = zero_dd; zero%im = zero_dd
-    i_unit%re = zero_dd; i_unit%im = float64x2(1.0d0)
+    i_unit%re = zero_dd; i_unit%im = real64x2(1.0d0)
 
     ! [1 i; i 1] * [1 -i; -i 1] = [2 0; 0 2] (identity up to complex phase)
     a(1,1) = one;    a(1,2) = i_unit
     a(2,1) = i_unit; a(2,2) = one
-    b(1,1) = one;              b(1,2)%re = zero_dd; b(1,2)%im = float64x2(-1.0d0)
-    b(2,1)%re = zero_dd; b(2,1)%im = float64x2(-1.0d0)
+    b(1,1) = one;              b(1,2)%re = zero_dd; b(1,2)%im = real64x2(-1.0d0)
+    b(2,1)%re = zero_dd; b(2,1)%im = real64x2(-1.0d0)
     b(2,2) = one
     c = matmul(a, b)
     call assert_approx(c(1,1)%re, 2.0d0, 0.0d0, "cdd_matmul [1,1].re")
@@ -540,7 +540,7 @@ contains
 
     ! dot(u, i*u) = conj(u_k) · (i u_k) = i (|u_1|^2 + |u_2|^2) = 2i
     v(1) = i_unit
-    v(2)%re = float64x2(-1.0d0); v(2)%im = zero_dd  ! i * i = -1
+    v(2)%re = real64x2(-1.0d0); v(2)%im = zero_dd  ! i * i = -1
     s = dot_product(u, v)
     call assert_approx(s%re, 0.0d0, 0.0d0, "cdd_dot(u, i·u) real == 0")
     call assert_approx(s%im, 2.0d0, 0.0d0, "cdd_dot(u, i·u) imag == 2")
@@ -551,19 +551,19 @@ contains
     ! compensation. Verify that the dim-reduction sum of a 1xN array
     ! matches the rank-1 sum bit-exactly, and that cdd sum preserves
     ! near-cancellation the same way the real sum does.
-    type(float64x2) :: a(6), ma(1, 6), col(1)
-    type(float64x2) :: s_flat, s_col_scalar
-    type(complex64x2) :: ca(6), cm(1, 6), ccol(1), cs, cs_col
+    type(real64x2) :: a(6), ma(1, 6), col(1)
+    type(real64x2) :: s_flat, s_col_scalar
+    type(cmplx64x2) :: ca(6), cm(1, 6), ccol(1), cs, cs_col
 
     ! Choose values that straddle DD exponents; naive left-fold loses
     ! the last element's contribution when accumulated before the
     ! large terms cancel. The compensated path should preserve it.
-    a(1) = float64x2(1.0d30)
-    a(2) = float64x2(1.0d0)
-    a(3) = float64x2(-1.0d30)
-    a(4) = float64x2(1.0d0)
-    a(5) = float64x2(1.0d30)
-    a(6) = float64x2(-1.0d30)
+    a(1) = real64x2(1.0d30)
+    a(2) = real64x2(1.0d0)
+    a(3) = real64x2(-1.0d30)
+    a(4) = real64x2(1.0d0)
+    a(5) = real64x2(1.0d30)
+    a(6) = real64x2(-1.0d30)
 
     s_flat = sum(a)
     ma(1, :) = a
@@ -575,12 +575,12 @@ contains
                        "sum(ma, dim=2) == 2 (compensated)")
 
     ! Same pattern in the real / imag limbs of a complex array.
-    ca(1)%re = float64x2(1.0d30); ca(1)%im = float64x2(2.0d30)
-    ca(2)%re = float64x2(1.0d0);  ca(2)%im = float64x2(2.0d0)
-    ca(3)%re = float64x2(-1.0d30);ca(3)%im = float64x2(-2.0d30)
-    ca(4)%re = float64x2(1.0d0);  ca(4)%im = float64x2(2.0d0)
-    ca(5)%re = float64x2(1.0d30); ca(5)%im = float64x2(2.0d30)
-    ca(6)%re = float64x2(-1.0d30);ca(6)%im = float64x2(-2.0d30)
+    ca(1)%re = real64x2(1.0d30); ca(1)%im = real64x2(2.0d30)
+    ca(2)%re = real64x2(1.0d0);  ca(2)%im = real64x2(2.0d0)
+    ca(3)%re = real64x2(-1.0d30);ca(3)%im = real64x2(-2.0d30)
+    ca(4)%re = real64x2(1.0d0);  ca(4)%im = real64x2(2.0d0)
+    ca(5)%re = real64x2(1.0d30); ca(5)%im = real64x2(2.0d30)
+    ca(6)%re = real64x2(-1.0d30);ca(6)%im = real64x2(-2.0d30)
 
     cs = sum(ca)
     cm(1, :) = ca
@@ -597,12 +597,12 @@ contains
 
   ! Local shims for facilities the multifloats module does not expose.
   logical function dd_is_finite(a) result(res)
-    type(float64x2), intent(in) :: a
+    type(real64x2), intent(in) :: a
     res = ieee_is_finite(a%limbs(1)) .and. ieee_is_finite(a%limbs(2))
   end function
 
   subroutine dd_renormalize(a)
-    type(float64x2), intent(inout) :: a
+    type(real64x2), intent(inout) :: a
     double precision :: hi, lo, s, b_prime
     if (abs(a%limbs(1)) >= abs(a%limbs(2))) then
       hi = a%limbs(1)

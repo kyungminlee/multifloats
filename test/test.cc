@@ -360,20 +360,20 @@ static void test_csqrt_zero_branch() {
   complex64x2 r;
   // csqrt(+0 + 0i) = +0 + 0i.
   r = csqrtdd(make_z(pz, 0.0, pz, 0.0));
-  REQUIRE(!std::signbit(r.real().limbs[0]));
-  REQUIRE(!std::signbit(r.imag().limbs[0]));
+  REQUIRE(!std::signbit(r.re.limbs[0]));
+  REQUIRE(!std::signbit(r.im.limbs[0]));
   // csqrt(-0 + 0i) = +0 + 0i (NOT -0 + 0i).
   r = csqrtdd(make_z(nz, 0.0, pz, 0.0));
-  REQUIRE(!std::signbit(r.real().limbs[0]));
-  REQUIRE(!std::signbit(r.imag().limbs[0]));
+  REQUIRE(!std::signbit(r.re.limbs[0]));
+  REQUIRE(!std::signbit(r.im.limbs[0]));
   // csqrt(-0 - 0i) = +0 - 0i (conjugate symmetry).
   r = csqrtdd(make_z(nz, 0.0, nz, 0.0));
-  REQUIRE(!std::signbit(r.real().limbs[0]));
-  REQUIRE(std::signbit(r.imag().limbs[0]));
+  REQUIRE(!std::signbit(r.re.limbs[0]));
+  REQUIRE(std::signbit(r.im.limbs[0]));
   // csqrt(+0 - 0i) = +0 - 0i.
   r = csqrtdd(make_z(pz, 0.0, nz, 0.0));
-  REQUIRE(!std::signbit(r.real().limbs[0]));
-  REQUIRE(std::signbit(r.imag().limbs[0]));
+  REQUIRE(!std::signbit(r.re.limbs[0]));
+  REQUIRE(std::signbit(r.im.limbs[0]));
 }
 
 // atan2 on zero-hi DDs must consult lo for the sign. If y = (+0, -subnormal)
@@ -671,8 +671,8 @@ static void test_complex_branch_cuts(Stats &stats) {
   };
   auto check_c = [&stats](char const *name, complex64x2 got, cq_t ref,
                           q_t tol) {
-    q_t got_re = (q_t)got.real().limbs[0] + (q_t)got.real().limbs[1];
-    q_t got_im = (q_t)got.imag().limbs[0] + (q_t)got.imag().limbs[1];
+    q_t got_re = (q_t)got.re.limbs[0] + (q_t)got.re.limbs[1];
+    q_t got_im = (q_t)got.im.limbs[0] + (q_t)got.im.limbs[1];
     q_t ref_re = crealq(ref);
     q_t ref_im = cimagq(ref);
     q_t mag = cabsq(ref); if (mag < 1) mag = 1;
@@ -713,8 +713,8 @@ static void test_complex_branch_cuts(Stats &stats) {
     cq_t ref_n = (cq_t)x; __imag__ ref_n = nz;
     check_c("clog(-x, +0)", clogdd(zp), clogq(ref_p), tol);
     check_c("clog(-x, -0)", clogdd(zn), clogq(ref_n), tol);
-    check_sign("clog(-x, +0) imag>0", clogdd(zp).imag().limbs[0], +1);
-    check_sign("clog(-x, -0) imag<0", clogdd(zn).imag().limbs[0], -1);
+    check_sign("clog(-x, +0) imag>0", clogdd(zp).im.limbs[0], +1);
+    check_sign("clog(-x, -0) imag<0", clogdd(zn).im.limbs[0], -1);
   }
 
   // csqrt on the negative real axis: imag takes the sign of imag input.
@@ -725,8 +725,8 @@ static void test_complex_branch_cuts(Stats &stats) {
     cq_t ref_n = (cq_t)x; __imag__ ref_n = nz;
     check_c("csqrt(-x, +0)", csqrtdd(zp), csqrtq(ref_p), tol);
     check_c("csqrt(-x, -0)", csqrtdd(zn), csqrtq(ref_n), tol);
-    check_sign("csqrt(-x, +0) imag>0", csqrtdd(zp).imag().limbs[0], +1);
-    check_sign("csqrt(-x, -0) imag<0", csqrtdd(zn).imag().limbs[0], -1);
+    check_sign("csqrt(-x, +0) imag>0", csqrtdd(zp).im.limbs[0], +1);
+    check_sign("csqrt(-x, -0) imag<0", csqrtdd(zn).im.limbs[0], -1);
   }
 
   // casin / cacos on the real axis with |Re z| > 1 have branch cuts at
@@ -750,9 +750,9 @@ static void test_complex_branch_cuts(Stats &stats) {
   //   catanh(−1 + 0i) = −∞ + 0i
   complex64x2 r_p = catanhdd(to_cmf_dp(+1.0, pz));
   complex64x2 r_n = catanhdd(to_cmf_dp(-1.0, pz));
-  REQUIRE(std::isinf(r_p.real().limbs[0]) && r_p.real().limbs[0] > 0);
-  REQUIRE(std::isinf(r_n.real().limbs[0]) && r_n.real().limbs[0] < 0);
-  REQUIRE(r_p.imag().limbs[0] == 0.0 && r_n.imag().limbs[0] == 0.0);
+  REQUIRE(std::isinf(r_p.re.limbs[0]) && r_p.re.limbs[0] > 0);
+  REQUIRE(std::isinf(r_n.re.limbs[0]) && r_n.re.limbs[0] < 0);
+  REQUIRE(r_p.im.limbs[0] == 0.0 && r_n.im.limbs[0] == 0.0);
 }
 
 // Huge-argument trig range-reduction sanity. sin(2π·k) is 0 exactly for
@@ -1193,16 +1193,16 @@ static void test_complex_accessors(Stats &stats) {
     {
       float64x2 rre = crealdd(z);
       float64x2 rim = cimagdd(z);
-      REQUIRE(rre.limbs[0] == z.real().limbs[0] && rre.limbs[1] == z.real().limbs[1]);
-      REQUIRE(rim.limbs[0] == z.imag().limbs[0] && rim.limbs[1] == z.imag().limbs[1]);
+      REQUIRE(rre.limbs[0] == z.re.limbs[0] && rre.limbs[1] == z.re.limbs[1]);
+      REQUIRE(rim.limbs[0] == z.im.limbs[0] && rim.limbs[1] == z.im.limbs[1]);
     }
     // conj: (re, -im) bitwise (signs of both limbs flipped).
     {
       complex64x2 c2 = conjdd(z);
-      REQUIRE(c2.real().limbs[0] == z.real().limbs[0] && c2.real().limbs[1] == z.real().limbs[1]);
+      REQUIRE(c2.re.limbs[0] == z.re.limbs[0] && c2.re.limbs[1] == z.re.limbs[1]);
       // Signed zero: conj should flip +0 ↔ -0 on the imag part.
-      REQUIRE(to_cq(c2.imag()) == -to_cq(z.imag()) ||
-              (z.imag().limbs[0] == 0.0 && z.imag().limbs[1] == 0.0));
+      REQUIRE(to_cq(c2.im) == -to_cq(z.im) ||
+              (z.im.limbs[0] == 0.0 && z.im.limbs[1] == 0.0));
     }
   }
 
@@ -1228,17 +1228,17 @@ static void test_complex_accessors(Stats &stats) {
     complex64x2 z = {{ic.re, 0.0}, {ic.im, 0.0}};
     complex64x2 r = cprojdd(z);
     if (std::isnan(ic.expect_re)) {
-      REQUIRE(std::isnan(r.real().limbs[0]));
+      REQUIRE(std::isnan(r.re.limbs[0]));
     } else {
-      REQUIRE(r.real().limbs[0] == ic.expect_re);
+      REQUIRE(r.re.limbs[0] == ic.expect_re);
       // Signed-zero on imag is the whole point of cproj: verify bit-exact.
       if (ic.expect_im == 0.0) {
-        REQUIRE(r.imag().limbs[0] == 0.0);
-        REQUIRE(std::signbit(r.imag().limbs[0]) == std::signbit(ic.expect_im));
+        REQUIRE(r.im.limbs[0] == 0.0);
+        REQUIRE(std::signbit(r.im.limbs[0]) == std::signbit(ic.expect_im));
       } else if (std::isnan(ic.expect_im)) {
-        REQUIRE(std::isnan(r.imag().limbs[0]));
+        REQUIRE(std::isnan(r.im.limbs[0]));
       } else {
-        REQUIRE(r.imag().limbs[0] == ic.expect_im);
+        REQUIRE(r.im.limbs[0] == ic.expect_im);
       }
     }
   }
@@ -1261,8 +1261,8 @@ static void test_complex_new_transcendentals(Stats &stats) {
   };
   auto check_c = [&stats](char const *name, complex64x2 got, cq_t ref,
                           q_t tol) {
-    q_t re_got = (q_t)got.real().limbs[0] + (q_t)got.real().limbs[1];
-    q_t im_got = (q_t)got.imag().limbs[0] + (q_t)got.imag().limbs[1];
+    q_t re_got = (q_t)got.re.limbs[0] + (q_t)got.re.limbs[1];
+    q_t im_got = (q_t)got.im.limbs[0] + (q_t)got.im.limbs[1];
     q_t ref_mag = cabsq(ref);
     q_t scale = ref_mag > 1 ? ref_mag : (q_t)1;
     q_t err = fabsq(re_got - crealq(ref)) + fabsq(im_got - cimagq(ref));
@@ -1331,11 +1331,11 @@ static void test_complex_new_transcendentals(Stats &stats) {
     complex64x2 s = csinpidd(z);
     complex64x2 c = ccospidd(z);
     // sin(n·π) = 0 exactly; cos(n·π) = (-1)^n.
-    REQUIRE(s.real().limbs[0] == 0.0 && s.real().limbs[1] == 0.0);
-    REQUIRE(s.imag().limbs[0] == 0.0 && s.imag().limbs[1] == 0.0);
-    REQUIRE(c.real().limbs[0] == ((n & 1) ? -1.0 : 1.0));
-    REQUIRE(c.real().limbs[1] == 0.0);
-    REQUIRE(c.imag().limbs[0] == 0.0 && c.imag().limbs[1] == 0.0);
+    REQUIRE(s.re.limbs[0] == 0.0 && s.re.limbs[1] == 0.0);
+    REQUIRE(s.im.limbs[0] == 0.0 && s.im.limbs[1] == 0.0);
+    REQUIRE(c.re.limbs[0] == ((n & 1) ? -1.0 : 1.0));
+    REQUIRE(c.re.limbs[1] == 0.0);
+    REQUIRE(c.im.limbs[0] == 0.0 && c.im.limbs[1] == 0.0);
   }
 
   // Non-integer z: csinpi / ccospi vs csinq(π·z) / ccosq(π·z). The ref

@@ -208,7 +208,10 @@ int issignalingdd(float64x2 a) {
 float64x2 nandd(const char *tagp) { return multifloats::nan(tagp); }
 
 // cis(x) = cos(x) + i sin(x)
-complex64x2 cexpidd(float64x2 a) { return multifloats::cexpi(a); }
+complex64x2 cexpidd(float64x2 a) {
+  auto r = multifloats::cexpi(a);
+  return { r.real(), r.imag() };
+}
 
 #undef MF_ABI_UNARY
 #undef MF_ABI_BINARY
