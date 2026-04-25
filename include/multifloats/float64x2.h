@@ -1186,32 +1186,28 @@ namespace detail {
 // =============================================================================
 
 inline constexpr float64x2 sqrt(float64x2 const &x) {
-  double s = std::sqrt(x.limbs[0]);
-  // Bail on 0, -0, negative, NaN, +Inf — the Karp-Markstein refinement
-  // would compute `inf - inf = NaN` in the residual step for +Inf, and
-  // `0 / 0` for 0. Leading-limb sqrt handles every IEEE special case.
-  if (!(x.limbs[0] > 0.0) || !std::isfinite(s)) {
+  double c = std::sqrt(x.limbs[0]);
+  // Bail on 0, -0, negative, NaN, +Inf — the refinement step would compute
+  // `inf - inf = NaN` for +Inf and `0 / 0` for 0. Leading-limb sqrt handles
+  // every IEEE special case.
+  if (!(x.limbs[0] > 0.0) || !std::isfinite(c)) {
     float64x2 r;
-    r.limbs[0] = s;
+    r.limbs[0] = c;
     return r;
   }
-  // Karp/Markstein: r = s + (x - s*s) / (2s), evaluated in DD. The
-  // correction reduces the DD residual to a scalar via
-  // `residual.limbs[0] * (0.5/s)`, so the residual's lo limb is
-  // dropped on the floor. Two higher-fidelity variants were measured
-  // (see doc/developer/INTERNALS.md anchor P1):
-  //   (a) full DD divide `residual / (2*s_dd)` — sqrt worst case near
-  //       perfect squares goes 0.76 → 0.39 ulp, but sqrt bench drops
-  //       ~55% and hypot/acosh take a 10–25% hit.
-  //   (b) `residual * float64x2(0.5/s)` (DD × scalar) — 0.76 → 0.58
-  //       ulp, sqrt bench drops ~30%.
-  // Baseline is already sub-1-ulp (0 ulp on exact k², ≤0.76 ulp with a
-  // non-zero lo limb). The gain from (a)/(b) isn't worth the speed
-  // regression for this library's usage pattern; keep baseline.
-  const float64x2 s_dd(s);
-  const float64x2 residual = x - s_dd * s_dd;
-  const float64x2 correction(residual.limbs[0] * (0.5 / s));
-  return s_dd + correction;
+  // Karp/Markstein: r = c + (x - c*c) / (2c), but evaluated entirely in
+  // scalar after computing c*c exactly. two_prod(c, c) gives the full c*c
+  // as (u, uu) in 2 FMAs; the residual then folds against both x limbs in
+  // scalar and gets divided by 2c. Final fast_two_sum renormalizes.
+  // Cheaper than building a DD `s_dd*s_dd` (avoids the DD multiply path
+  // entirely) and matches Boost.Multiprecision's eval_sqrt formulation.
+  double u = 0.0, uu = 0.0;
+  detail::two_prod(c, c, u, uu);
+  double cc = ((x.limbs[0] - u) - uu + x.limbs[1]) / (2.0 * c);
+  float64x2 r;
+  r.limbs[0] = c + cc;
+  r.limbs[1] = (c - r.limbs[0]) + cc;
+  return r;
 }
 
 inline constexpr float64x2 cbrt(float64x2 const &x) {

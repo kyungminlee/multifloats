@@ -84,7 +84,7 @@ From `cpp_fuzz_mpfr` at 200-bit MPFR reference, post-audit:
 | `sub`    | 1.7e-32    | 0.7                                                           |
 | `mul`    | 4.4e-32    | 1.8                                                           |
 | `div`    | 6.5e-32    | 2.7                                                           |
-| `sqrt`   | —          | 0 ulp on exact `k²`; ≤ 0.76 ulp with a non-zero lo limb       |
+| `sqrt`   | 3.5e-32    | ~1.4 (FMA-`two_prod` Karp–Markstein)                          |
 | `exp`    | 2.5e-31    | ~10                                                           |
 | `log`    | 3.0e-32    | ~1                                                            |
 | `log1p`  | 6.3e-32    | ~3                                                            |
@@ -104,12 +104,16 @@ elsewhere (documented in `doc/BENCHMARK.md`).
 Each of these has been tried under audit-quality fuzz and bench; do not
 re-attempt without new evidence that overrides the recorded trade-off.
 
-- **Full DD divide in `sqrt`'s Karp–Markstein step** (`include/multifloats.h`
-  near line 1200). Cuts worst-case residual 0.76 → 0.39 ulp near perfect
-  squares, costs ~55% on the sqrt bench and 10–25% on hypot/acosh.
-  Baseline is already sub-1-ulp. `residual * (0.5/s)` as DD×scalar was
-  also tried: 0.76 → 0.58 ulp, 30% slower. A code comment at the sqrt
-  site records the numbers.
+- **DD-multiply Karp–Markstein for `sqrt`.** The previous baseline built
+  `s_dd*s_dd` as a full DD multiply, then folded the residual against
+  `0.5/s` in scalar. The current implementation computes `c*c` exactly via
+  FMA-based `two_prod(c, c)` and keeps the entire correction in scalar
+  (matches Boost.Multiprecision's `eval_sqrt`). ~2.2× faster on the sqrt
+  bench, hypot picks up ~26% as a side effect, sqrt max_rel slightly
+  improves (4.1e-32 → 3.5e-32 over 480k samples; ~1.7 → ~1.4 ulp_dd).
+  Two higher-fidelity variants of the *old* baseline were
+  also rejected: full DD divide `residual / (2*s_dd)` (0.76 → 0.39 ulp,
+  -55%), and DD×scalar `residual * (0.5/s)` (0.76 → 0.58 ulp, -30%).
 - **Karatsuba complex multiply.** Saves one mul at the cost of a
   catastrophic cancellation in `Im = (a+b)(c+d) − ac − bd` when the
   true Im is near zero. Witness `a=(1,ε), b=(−1,ε)` — pinned in
