@@ -1,16 +1,16 @@
 SUBROUTINE wtrsm (side, uplo, transa, diag, m, n, alpha, a, lda, b, ldb)
  use multifloats
- TYPE(FLOAT64X2) alpha
+ TYPE(REAL64X2) alpha
  INTEGER lda, ldb, m, n
  CHARACTER diag, side, transa, uplo
- TYPE(FLOAT64X2) a(lda,*), b(ldb,*)
+ TYPE(REAL64X2) a(lda,*), b(ldb,*)
  LOGICAL lsame
  EXTERNAL :: lsame
  EXTERNAL :: xerbla
- TYPE(FLOAT64X2) temp
+ TYPE(REAL64X2) temp
  INTEGER i, info, j, k, nrowa
  LOGICAL lside, nounit, upper
- TYPE(FLOAT64X2) one, zero
+ TYPE(REAL64X2) one, zero
  one=1.0d+0
  zero=0.0d+0
  lside = lsame(side, "L")

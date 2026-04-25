@@ -146,7 +146,7 @@ contains
   subroutine gen_dd(x, f)
     ! Emit well-normalized random DD: |lo| <= 0.5 ulp(hi).
     type(dd_c), intent(out) :: x
-    type(float64x2), intent(out) :: f
+    type(real64x2), intent(out) :: f
     real(dp) :: r, rlo, rexp, mag
     integer :: e
     call random_number(r)
@@ -210,9 +210,9 @@ contains
 
   subroutine apply_unary(op, fa, da, frn, drn)
     character(*), intent(in) :: op
-    type(float64x2), intent(in) :: fa
+    type(real64x2), intent(in) :: fa
     type(dd_c),      intent(in) :: da
-    type(float64x2), intent(out) :: frn
+    type(real64x2), intent(out) :: frn
     type(dd_c),      intent(out) :: drn
     select case (op)
     case ("neg");   frn = -fa;            drn = c_dd_neg(da)
@@ -225,9 +225,9 @@ contains
 
   subroutine apply_binary(op, fa, fb, da, db, frn, drn)
     character(*), intent(in) :: op
-    type(float64x2), intent(in) :: fa, fb
+    type(real64x2), intent(in) :: fa, fb
     type(dd_c),      intent(in) :: da, db
-    type(float64x2), intent(out) :: frn
+    type(real64x2), intent(out) :: frn
     type(dd_c),      intent(out) :: drn
     select case (op)
     case ("add"); frn = fa + fb;          drn = c_dd_add(da, db)
@@ -243,7 +243,7 @@ contains
 
   subroutine apply_cmp(op, fa, fb, da, db, in_, ic)
     character(*), intent(in) :: op
-    type(float64x2), intent(in) :: fa, fb
+    type(real64x2), intent(in) :: fa, fb
     type(dd_c),      intent(in) :: da, db
     integer, intent(out) :: in_, ic
     select case (op)
@@ -260,7 +260,7 @@ contains
     character(*), intent(in) :: op
     integer, intent(in) :: mode
     integer :: k
-    type(float64x2) :: fa, frn
+    type(real64x2) :: fa, frn
     type(dd_c) :: da, drn
     character(80) :: tag
     do k = 1, N_FUZZ
@@ -279,7 +279,7 @@ contains
     character(*), intent(in) :: op
     integer, intent(in) :: mode
     integer :: k
-    type(float64x2) :: fa, fb, frn
+    type(real64x2) :: fa, fb, frn
     type(dd_c) :: da, db, drn
     do k = 1, N_FUZZ
       call gen_dd(da, fa); call gen_dd(db, fb)
@@ -292,7 +292,7 @@ contains
   subroutine fuzz_dd_cmp(op)
     character(*), intent(in) :: op
     integer :: k, in_, ic
-    type(float64x2) :: fa, fb
+    type(real64x2) :: fa, fb
     type(dd_c) :: da, db
     do k = 1, N_FUZZ
       call gen_dd(da, fa); call gen_dd(db, fb)
@@ -314,7 +314,7 @@ contains
     integer, parameter :: exps(15) = [ &
          0,  1, -1,  2, -2,  3,  7, 10, -10, 20, -20, 50, -50, 100, -100 ]
     integer :: k, j, n
-    type(float64x2) :: fa, fr
+    type(real64x2) :: fa, fr
     type(dd_c) :: da, dr
     character(80) :: tag
     do k = 1, N_FUZZ / size(exps)
@@ -333,7 +333,7 @@ contains
 
   subroutine fuzz_dd_modulo()
     integer :: k
-    type(float64x2) :: fa, fb, fr
+    type(real64x2) :: fa, fb, fr
     type(dd_c) :: da, db, dr
     do k = 1, N_FUZZ
       call gen_dd(da, fa); call gen_dd(db, fb)
@@ -356,7 +356,7 @@ contains
     real(dp), parameter :: lo(9) = [ &
       0.0_dp,  0.0_dp, 1.0e-17_dp, -1.0e-17_dp, 1.0e-18_dp, &
       -1.0e-18_dp, 1.0e-17_dp, -1.0e-17_dp, 1.0e3_dp ]
-    type(float64x2) :: fa, frn
+    type(real64x2) :: fa, frn
     type(dd_c) :: da, drn
     character(len=16), parameter :: ops(5) = [character(len=16) :: &
       "neg","abs","aint","anint","sqrt"]
@@ -380,7 +380,7 @@ contains
     character(len=16), parameter :: ops(8) = [character(len=16) :: &
       "add","sub","mul","div","min","max","sign","dim"]
     integer, parameter :: modes(8) = [1,1,1,1,4,4,4,4]
-    type(float64x2) :: fa, fb, frn
+    type(real64x2) :: fa, fb, frn
     type(dd_c) :: da, db, drn
     character(80) :: tag
     integer :: j, i

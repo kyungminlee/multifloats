@@ -61,7 +61,7 @@ program multifloat_fuzz
   integer, parameter :: num_iterations = 1000000
   integer :: i, num_errors = 0
   real(qp) :: q1, q2, qres
-  type(float64x2) :: f1, f2, fres
+  type(real64x2) :: f1, f2, fres
   double precision :: d1, d2
 
   real(qp) :: inf_q, nan_q
@@ -132,11 +132,11 @@ program multifloat_fuzz
     ! coverage added in PR-2: an independent qp-oracle sanity check on the
     ! dd_nint half-integer correction that PR-3 fixed.
     if (ieee_is_finite(real(q1, 8)) .and. abs(q1) < 2.0e9_qp) then
-      call check(float64x2(real(floor(f1),   dp)), real(floor(q1),   qp), &
+      call check(real64x2(real(floor(f1),   dp)), real(floor(q1),   qp), &
           "floor",   q1, 0.0_qp, num_errors)
-      call check(float64x2(real(ceiling(f1), dp)), real(ceiling(q1), qp), &
+      call check(real64x2(real(ceiling(f1), dp)), real(ceiling(q1), qp), &
           "ceiling", q1, 0.0_qp, num_errors)
-      call check(float64x2(real(nint(f1),    dp)), real(nint(q1),    qp), &
+      call check(real64x2(real(nint(f1),    dp)), real(nint(q1),    qp), &
           "nint",    q1, 0.0_qp, num_errors)
     end if
     if (ieee_is_finite(real(q1, 8)) .and. q1 /= 0.0_qp) then
@@ -144,7 +144,7 @@ program multifloat_fuzz
       ! exponent: Fortran's intrinsic returns integer. No magnitude gate
       ! needed (result bounded by ±1074 for any finite double). dd_exponent
       ! uses hi only — same convention as C++ mf::ilogb(x) = ilogb(x.hi).
-      call check(float64x2(real(exponent(f1), dp)), real(exponent(q1), qp), &
+      call check(real64x2(real(exponent(f1), dp)), real(exponent(q1), qp), &
           "exponent", q1, 0.0_qp, num_errors)
     end if
 
@@ -276,7 +276,7 @@ program multifloat_fuzz
       ! 3-arg min/max
       if (ieee_is_finite(real(q1, 8)) .and. ieee_is_finite(real(q2, 8))) then
         block
-          type(float64x2) :: f3
+          type(real64x2) :: f3
           real(qp) :: q3
           q3 = (q1 + q2) * 0.5_qp
           f3 = to_f64x2(q3)
@@ -430,7 +430,7 @@ contains
     end if
   end function
 
-  type(float64x2) function to_f64x2(q)
+  type(real64x2) function to_f64x2(q)
     real(qp), intent(in) :: q
     real(8) :: h, l
     if (.not. ieee_is_finite(real(q, 8))) then
@@ -522,7 +522,7 @@ contains
   end function
 
   subroutine check(f, q, op, i1, i2, errs)
-    type(float64x2), intent(in) :: f
+    type(real64x2), intent(in) :: f
     real(qp), intent(in) :: q
     character(*), intent(in) :: op
     real(qp), intent(in) :: i1, i2
@@ -596,7 +596,7 @@ contains
 
   ! Complex variant: check that real and imaginary parts both pass.
   subroutine check_cdd(c, q, op, ai_re, ai_im, bi_re, bi_im, errs)
-    type(complex64x2), intent(in) :: c
+    type(cmplx64x2), intent(in) :: c
     complex(qp), intent(in) :: q
     character(*), intent(in) :: op
     real(qp), intent(in) :: ai_re, ai_im, bi_re, bi_im
@@ -608,14 +608,14 @@ contains
   end subroutine
 
   subroutine fuzz_complex(f1, f2, q1, q2, errs)
-    type(float64x2), intent(in) :: f1, f2
+    type(real64x2), intent(in) :: f1, f2
     real(qp), intent(in) :: q1, q2
     integer, intent(inout) :: errs
-    type(complex64x2) :: cf1, cf2, cfres
+    type(cmplx64x2) :: cf1, cf2, cfres
     complex(qp) :: cq1, cq2, cqres
 
-    cf1 = complex64x2(f1, f2)
-    cf2 = complex64x2(f2, f1)
+    cf1 = cmplx64x2(f1, f2)
+    cf2 = cmplx64x2(f2, f1)
     cq1 = cmplx(q1, q2, qp)
     cq2 = cmplx(q2, q1, qp)
 
@@ -688,11 +688,11 @@ contains
   ! semantics of the equivalent dp ↔ X assignment. Kept explicit — each
   ! call uses a different intermediate type so no macro pattern fits.
   subroutine fuzz_assignments(f, q, errs)
-    type(float64x2), intent(in) :: f
+    type(real64x2), intent(in) :: f
     real(qp), intent(in) :: q
     integer, intent(inout) :: errs
-    type(float64x2) :: x_dp, x_sp, x_int, x_i8, x_i16, x_i64, x_cdp, x_csp
-    type(complex64x2) :: z_dp, z_int, z_cdp
+    type(real64x2) :: x_dp, x_sp, x_int, x_i8, x_i16, x_i64, x_cdp, x_csp
+    type(cmplx64x2) :: z_dp, z_int, z_cdp
     real(8) :: out_dp
     real(sp) :: out_sp
     integer :: out_int
@@ -750,18 +750,18 @@ contains
 
     ! ---------------- dd -> built-in (reverse) ----------------
     out_dp = f
-    call check(float64x2(out_dp), real(hi, qp), "asn_dp_dd", q, 0.0_qp, errs)
+    call check(real64x2(out_dp), real(hi, qp), "asn_dp_dd", q, 0.0_qp, errs)
 
     out_sp = f
-    call check(float64x2(real(out_sp, dp)), real(real(hi, sp), qp), &
+    call check(real64x2(real(out_sp, dp)), real(real(hi, sp), qp), &
         "asn_sp_dd", q, 0.0_qp, errs)
 
     out_cdp = f
-    call check(float64x2(real(out_cdp, dp)), real(hi, qp), "asn_cdp_dd_re", q, 0.0_qp, errs)
-    call check(float64x2(aimag(out_cdp)), 0.0_qp, "asn_cdp_dd_im", q, 0.0_qp, errs)
+    call check(real64x2(real(out_cdp, dp)), real(hi, qp), "asn_cdp_dd_re", q, 0.0_qp, errs)
+    call check(real64x2(aimag(out_cdp)), 0.0_qp, "asn_cdp_dd_im", q, 0.0_qp, errs)
 
     out_csp = f
-    call check(float64x2(real(real(out_csp, sp), dp)), &
+    call check(real64x2(real(real(out_csp, sp), dp)), &
         real(real(hi, sp), qp), "asn_csp_dd_re", q, 0.0_qp, errs)
 
     ! Integer truncation: must match Fortran's `int_var = real_dp_var`
@@ -773,58 +773,58 @@ contains
         if (q_trunc > 0_int64 .and. f%limbs(2) < 0.0_dp) q_trunc = q_trunc - 1_int64
         if (q_trunc < 0_int64 .and. f%limbs(2) > 0.0_dp) q_trunc = q_trunc + 1_int64
       end if
-      call check(float64x2(real(out_i64, dp)), real(q_trunc, qp), &
+      call check(real64x2(real(out_i64, dp)), real(q_trunc, qp), &
           "asn_i64_dd", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 2.0e9_dp) then
       out_int = f
-      call check(float64x2(real(out_int, dp)), real(int(hi), qp), &
+      call check(real64x2(real(out_int, dp)), real(int(hi), qp), &
           "asn_int_dd", q, 0.0_qp, errs)
     end if
 
-    ! ---------------- float64x2(...) constructors ----------------
-    call check(float64x2(hi), real(hi, qp), "ctor_dd_dp", q, 0.0_qp, errs)
-    call check(float64x2(real(hi, sp)), real(real(hi, sp), qp), &
+    ! ---------------- real64x2(...) constructors ----------------
+    call check(real64x2(hi), real(hi, qp), "ctor_dd_dp", q, 0.0_qp, errs)
+    call check(real64x2(real(hi, sp)), real(real(hi, sp), qp), &
         "ctor_dd_sp", q, 0.0_qp, errs)
     if (abs(hi) < 2.0e9_dp) then
-      call check(float64x2(int(hi)), real(int(hi), qp), &
+      call check(real64x2(int(hi)), real(int(hi), qp), &
           "ctor_dd_int", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 100.0_dp) then
-      call check(float64x2(int(hi, int8)), real(int(hi, int8), qp), &
+      call check(real64x2(int(hi, int8)), real(int(hi, int8), qp), &
           "ctor_dd_i8", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 30000.0_dp) then
-      call check(float64x2(int(hi, int16)), real(int(hi, int16), qp), &
+      call check(real64x2(int(hi, int16)), real(int(hi, int16), qp), &
           "ctor_dd_i16", q, 0.0_qp, errs)
     end if
     if (abs(hi) < 1.0e18_dp) then
-      call check(float64x2(int(hi, int64)), real(int(hi, int64), qp), &
+      call check(real64x2(int(hi, int64)), real(int(hi, int64), qp), &
           "ctor_dd_i64", q, 0.0_qp, errs)
     end if
-    call check(float64x2(cmplx(hi, 1.5_dp, dp)), real(hi, qp), &
+    call check(real64x2(cmplx(hi, 1.5_dp, dp)), real(hi, qp), &
         "ctor_dd_cdp", q, 0.0_qp, errs)
-    call check(float64x2(cmplx(real(hi, sp), 1.5_sp, sp)), &
+    call check(real64x2(cmplx(real(hi, sp), 1.5_sp, sp)), &
         real(real(hi, sp), qp), "ctor_dd_csp", q, 0.0_qp, errs)
 
-    ! ---------------- complex64x2(...) constructors ----------------
+    ! ---------------- cmplx64x2(...) constructors ----------------
     block
-      type(complex64x2) :: ztmp
-      ztmp = complex64x2(hi)
+      type(cmplx64x2) :: ztmp
+      ztmp = cmplx64x2(hi)
       call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_re", q, 0.0_qp, errs)
       call check(ztmp%im, 0.0_qp, "ctor_cdd_dp_im", q, 0.0_qp, errs)
-      ztmp = complex64x2(real(hi, sp))
+      ztmp = cmplx64x2(real(hi, sp))
       call check(ztmp%re, real(real(hi, sp), qp), "ctor_cdd_sp_re", q, 0.0_qp, errs)
-      ztmp = complex64x2(cmplx(hi, 2.5_dp, dp))
+      ztmp = cmplx64x2(cmplx(hi, 2.5_dp, dp))
       call check(ztmp%re, real(hi, qp), "ctor_cdd_cdp_re", q, 0.0_qp, errs)
       call check(ztmp%im, 2.5_qp, "ctor_cdd_cdp_im", q, 0.0_qp, errs)
-      ztmp = complex64x2(hi, hi)
+      ztmp = cmplx64x2(hi, hi)
       call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_dp_re", q, 0.0_qp, errs)
       call check(ztmp%im, real(hi, qp), "ctor_cdd_dp_dp_im", q, 0.0_qp, errs)
-      ztmp = complex64x2(f, hi)
+      ztmp = cmplx64x2(f, hi)
       call check(ztmp%re, real(hi, qp), "ctor_cdd_dd_dp_re", q, 0.0_qp, errs)
       call check(ztmp%im, real(hi, qp), "ctor_cdd_dd_dp_im", q, 0.0_qp, errs)
-      ztmp = complex64x2(hi, f)
+      ztmp = cmplx64x2(hi, f)
       call check(ztmp%re, real(hi, qp), "ctor_cdd_dp_dd_re", q, 0.0_qp, errs)
       call check(ztmp%im, real(hi, qp), "ctor_cdd_dp_dd_im", q, 0.0_qp, errs)
     end block
@@ -834,9 +834,9 @@ contains
   subroutine fuzz_arrays(errs)
     integer, intent(inout) :: errs
     integer, parameter :: nn = 8
-    type(float64x2) :: a(nn), b(nn), m(nn,nn)
+    type(real64x2) :: a(nn), b(nn), m(nn,nn)
     real(qp) :: qa(nn), qb(nn), qm(nn,nn)
-    type(float64x2) :: mvres(nn)
+    type(real64x2) :: mvres(nn)
     real(qp) :: qmvres(nn)
     real(qp) :: r(2)
     integer :: k, l
@@ -874,7 +874,7 @@ contains
   end subroutine
 
   subroutine check_comp(f1, f2, q1, q2, errs)
-    type(float64x2), intent(in) :: f1, f2
+    type(real64x2), intent(in) :: f1, f2
     real(qp), intent(in) :: q1, q2
     integer, intent(inout) :: errs
     real(qp) :: diff, mag

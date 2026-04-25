@@ -94,7 +94,7 @@ program bench_abi
   end interface
 
   ! Data arrays (native Fortran type)
-  type(float64x2), allocatable :: f1(:), f2(:), fres(:)
+  type(real64x2), allocatable :: f1(:), f2(:), fres(:)
   ! Mirror arrays (C ABI struct)
   type(dd_c),      allocatable :: d1(:), d2(:), dres(:)
   ! Int/logical result buffers
@@ -187,7 +187,7 @@ contains
 
   subroutine dd_drain(arr)
     !GCC$ ATTRIBUTES NOINLINE :: dd_drain
-    type(float64x2), intent(inout) :: arr(:)
+    type(real64x2), intent(inout) :: arr(:)
     real(dp) :: s
     integer :: j
     s = 0.0_dp

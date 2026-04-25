@@ -1,5 +1,5 @@
 #! Benchmark every kernel category exercised by test/fuzz.f90, comparing
-#! float64x2 / complex64x2 against REAL(16) / COMPLEX(16). Each op block
+#! real64x2 / cmplx64x2 against REAL(16) / COMPLEX(16). Each op block
 #! is ~12 lines of identical scaffolding (tick / loop / elapsed × 2 +
 #! report); fypp macros below collapse them to one line per op.
 #!
@@ -90,7 +90,7 @@
     tq = elapsed(t0)
     q_sink = q_sink + qacc
     call tick(t0)
-    facc = float64x2(0.0_dp)
+    facc = real64x2(0.0_dp)
     do r = 1, REPS_ARR
       facc = facc + ${fexpr}$
       a(1)%limbs(1) = a(1)%limbs(1) + facc%limbs(1) * 1.0e-30_dp
@@ -102,7 +102,7 @@
 
 program multifloat_bench
   ! Benchmark every kernel category exercised by test/fuzz.f90, comparing
-  ! the multifloats float64x2 / complex64x2 implementations against the
+  ! the multifloats real64x2 / cmplx64x2 implementations against the
   ! REAL(KIND=16) / COMPLEX(KIND=16) reference.
   !
   ! Anti–dead-code-elimination strategy:
@@ -128,19 +128,19 @@ program multifloat_bench
   integer, parameter :: REPS_ARR        = 200000  ! sum, dot, matmul, ...
 
   real(qp), allocatable :: q1(:), q2(:), q3(:), qpos(:), qsmall(:), qbnd(:), qres(:)
-  type(float64x2), allocatable :: f1(:), f2(:), f3(:), fpos(:), fsmall(:), fbnd(:), fres(:)
+  type(real64x2), allocatable :: f1(:), f2(:), f3(:), fpos(:), fsmall(:), fbnd(:), fres(:)
   complex(qp), allocatable :: cq1(:), cq2(:), cqres(:)
-  type(complex64x2), allocatable :: cf1(:), cf2(:), cfres(:)
+  type(cmplx64x2), allocatable :: cf1(:), cf2(:), cfres(:)
 
   real(qp) :: q_sink = 0.0_qp
-  type(float64x2) :: f_sink
+  type(real64x2) :: f_sink
   complex(qp) :: cq_sink = (0.0_qp, 0.0_qp)
-  type(complex64x2) :: cf_sink
+  type(cmplx64x2) :: cf_sink
 
   call init_data()
-  f_sink     = float64x2(0.0_dp)
-  cf_sink%re = float64x2(0.0_dp)
-  cf_sink%im = float64x2(0.0_dp)
+  f_sink     = real64x2(0.0_dp)
+  cf_sink%re = real64x2(0.0_dp)
+  cf_sink%im = real64x2(0.0_dp)
 
   print '(a)',         "================================================================"
   print '(a,i0,a,i0)', " multifloats benchmark — N=", N, " elements per rep, batched"
@@ -175,7 +175,7 @@ contains
   ! Plumbing
   ! ----------------------------------------------------------------
 
-  type(float64x2) function to_f64x2(q)
+  type(real64x2) function to_f64x2(q)
     real(qp), intent(in) :: q
     real(dp) :: h, l, s, b
     h = real(q, dp)
@@ -221,8 +221,8 @@ contains
       fbnd(i)  = to_f64x2(qbnd(i))
       cq1(i)   = cmplx(qbnd(i), qsmall(i), qp)
       cq2(i)   = cmplx(qsmall(i), qbnd(i), qp)
-      cf1(i)   = complex64x2(fbnd(i), fsmall(i))
-      cf2(i)   = complex64x2(fsmall(i), fbnd(i))
+      cf1(i)   = cmplx64x2(fbnd(i), fsmall(i))
+      cf2(i)   = cmplx64x2(fsmall(i), fbnd(i))
     end do
   end subroutine
 
@@ -267,7 +267,7 @@ contains
 
   subroutine ffeed(f_in)
     !GCC$ ATTRIBUTES NOINLINE :: ffeed
-    type(float64x2), intent(inout) :: f_in(:)
+    type(real64x2), intent(inout) :: f_in(:)
     real(dp) :: s
     integer :: i
     s = 0.0_dp
@@ -294,7 +294,7 @@ contains
 
   subroutine cffeed(cf_in)
     !GCC$ ATTRIBUTES NOINLINE :: cffeed
-    type(complex64x2), intent(inout) :: cf_in(:)
+    type(cmplx64x2), intent(inout) :: cf_in(:)
     real(dp) :: sr, si
     integer :: i
     sr = 0.0_dp; si = 0.0_dp
@@ -443,7 +443,7 @@ contains
     ! two intrinsics on the qp side (sin + cos). Sum them so the drain
     ! sees both. No BENCH macro fits — subroutine output via intent(out).
     block
-      type(float64x2) :: fs, fc
+      type(real64x2) :: fs, fc
       call tick(t0)
       do r = 1, REPS_TRIG
         do i = 1, N; qres(i) = sin(qsmall(i)) + cos(qsmall(i)); end do
@@ -499,7 +499,7 @@ contains
 
     ! Fused sinhcosh — one DD call vs qp sinh + cosh.
     block
-      type(float64x2) :: fs, fc
+      type(real64x2) :: fs, fc
       call tick(t0)
       do r = 1, REPS_TRIG
         do i = 1, N; qres(i) = sinh(qsmall(i)) + cosh(qsmall(i)); end do
@@ -605,7 +605,7 @@ contains
     ! not cqres/cfres, so BENCHC doesn't fit.
     block
       real(qp) :: qs
-      type(float64x2) :: fs
+      type(real64x2) :: fs
       call tick(t0)
       do r = 1, REPS_FAST
         do i = 1, N; qres(i) = abs(cq1(i)); end do
@@ -648,7 +648,7 @@ contains
     @:BENCHC1(asinh, REPS_VERY_SLOW)
     @:BENCHC1(acosh, REPS_VERY_SLOW)
     @:BENCHC1(atanh, REPS_VERY_SLOW)
-    ! cdd_pow via `**` on complex(qp) / complex64x2.
+    ! cdd_pow via `**` on complex(qp) / cmplx64x2.
     @:BENCHC2_OP(pow, REPS_VERY_SLOW, **)
   end subroutine
 
@@ -662,7 +662,7 @@ contains
     integer(int64) :: t0, n_ops
     real(real64) :: tq, tf
     real(qp) :: qa(NN), qb(NN), qm(NN, NN), qmv(NN), qacc
-    type(float64x2) :: a(NN), b(NN), m(NN, NN), mv(NN), facc
+    type(real64x2) :: a(NN), b(NN), m(NN, NN), mv(NN), facc
 
     n_ops = int(NN, int64) * int(REPS_ARR, int64)
 
