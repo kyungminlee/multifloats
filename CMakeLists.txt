@@ -93,15 +93,12 @@ if(BUILD_TESTING)
 endif()
 
 # Optional micro-benchmarks (cpp_bench, fortran_bench, fortran_bench_abi).
-# Not registered as ctests; not installed. Default ON when this is the top
-# project (developer convenience), OFF when add_subdirectory'd into a
-# parent (parents shouldn't get our bench targets unless they ask). CI
-# passes -DMULTIFLOATS_BUILD_BENCH=OFF — the release workflow doesn't run
-# bench, and the bench Fortran source uses `!GCC$ ATTRIBUTES NOINLINE`
-# which only works on gfortran ≥ 13.
+# Not registered as ctests; not installed. Default OFF — opt in with
+# -DMULTIFLOATS_BUILD_BENCH=ON. The bench Fortran source uses
+# `!GCC$ ATTRIBUTES NOINLINE` which only works on gfortran ≥ 13.
 option(MULTIFLOATS_BUILD_BENCH
     "Build microbenchmark executables (cpp_bench / fortran_bench[_abi])"
-    ${PROJECT_IS_TOP_LEVEL})
+    OFF)
 
 # MPFR precision tests — off by default; on-demand high-precision
 # reference (mpreal/MPFR) for comparing against quadmath and DD. Does
