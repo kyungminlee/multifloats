@@ -320,7 +320,8 @@ static bool is_full_dd(char const *op) {
       "add", "sub", "mul", "div", "sqrt", "cbrt", "abs", "neg",
       "add_fd", "mul_df", "fmin", "fmax",
       "fmaximum", "fminimum", "fmaximum_num", "fminimum_num",
-      "exp10",
+      "fmaximum_mag", "fminimum_mag", "fmaximum_mag_num", "fminimum_mag_num",
+      "exp10", "rsqrt", "roundeven", "llogb", "pown",
       "copysign", "fdim",
       "hypot", "trunc", "round", "scalbn", "min3", "max3",
       "fmadd", "fma_cxx", "lerp",
@@ -1126,6 +1127,12 @@ int main(int argc, char **argv) {
     CHK_IF(both_finite, "mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
     CHK_IF(both_finite && q2 != (q_t)0, "div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
     CHK1_IF(sqrt, q_isfinite(q1) && q1 >= (q_t)0);
+    // C23 rsqrt(x) = 1/sqrt(x). Reference: 1/sqrtq(x) at qp precision.
+    // Gate: x > 0 finite (rsqrt(0) = +inf, rsqrt(<0) = NaN — IEEE specials
+    // are returned by the kernel directly, no rel-err to record).
+    CHK_IF(q_isfinite(q1) && q1 > (q_t)0, "rsqrt",
+           mf::rsqrt(f1), (q_t)1.0q / sqrtq(q1), q1, (q_t)0,
+           mp_t(1) / mpfr::sqrt(m1));
     // cbrt: defined on all finite reals (including negatives). The qp
     // reference cbrtq is the analogue of multifloats' Karp/Markstein
     // refinement, and mpreal exposes cbrt via ADL.
@@ -1176,6 +1183,19 @@ int main(int argc, char **argv) {
         report_fail("nextafter", buf);
       }
     }
+
+    // C23 nextup / nextdown: equivalence to nextafter(x, ±inf). Property
+    // test (no max_rel) — DD step doesn't match qp step.
+    if (q_isfinite(q1)) {
+      mf::float64x2 up   = mf::nextup(f1);
+      mf::float64x2 down = mf::nextdown(f1);
+      mf::float64x2 inf_p( std::numeric_limits<double>::infinity());
+      mf::float64x2 inf_m(-std::numeric_limits<double>::infinity());
+      bool ok = (up   == mf::nextafter(f1, inf_p)) &&
+                (down == mf::nextafter(f1, inf_m)) &&
+                (up >= f1) && (down <= f1);
+      if (!ok) report_fail("nextup", "property failed");
+    }
     CHK1_IF(trunc, q_isfinite(q1) && aq1 < (q_t)1e15q);
     CHK1_IF(round, q_isfinite(q1) && aq1 < (q_t)1e15q);
     // floor/ceil share trunc/round's magnitude gate: beyond 2^52 ≈ 4.5e15
@@ -1193,6 +1213,12 @@ int main(int argc, char **argv) {
            to_mp(nearbyintq(q1)));
     CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "rint",
            mf::rint(f1), rintq(q1), q1, (q_t)0, to_mp(rintq(q1)));
+    // C23 roundeven: ties-to-even regardless of FE rounding mode. qp
+    // oracle: nearbyint with current rounding mode (the harness runs
+    // under the default FE_TONEAREST so they match).
+    CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "roundeven",
+           mf::roundeven(f1), nearbyintq(q1), q1, (q_t)0,
+           to_mp(nearbyintq(q1)));
 
     // Integer-rounding ops (return long / long long). Gate at 2^50 ≈ 1e15
     // so the cast (long) → double in the adapter is exact (long has up to
@@ -1228,6 +1254,14 @@ int main(int argc, char **argv) {
       ilogb_dd.limbs[0] = (double)mf::ilogb(f1);
       ilogb_dd.limbs[1] = 0.0;
       CHK("ilogb", ilogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
+          mp_t((long long)ilogbq(q1)));
+      // C23 llogb: long version of ilogb. Same value range, just wider
+      // return type — DD inputs span exponents in roughly [-1074, 1023]
+      // so all fit in int already; the column is a presence test.
+      mf::float64x2 llogb_dd;
+      llogb_dd.limbs[0] = (double)mf::llogb(f1);
+      llogb_dd.limbs[1] = 0.0;
+      CHK("llogb", llogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
           mp_t((long long)ilogbq(q1)));
     }
 
@@ -1289,6 +1323,49 @@ int main(int argc, char **argv) {
             to_mp(qp_fmaximum_num(q1, q2)));
         CHK("fminimum_num", mf::fminimum_num(f1, f2), qp_fminimum_num(q1, q2), q1, q2,
             to_mp(qp_fminimum_num(q1, q2)));
+
+        // C23 by-magnitude variants. Same NaN / signed-zero rules; the
+        // tie-break on |a|==|b| is the canonical (non-mag) helper.
+        auto qp_mag_max = [&](q_t a, q_t b) -> q_t {
+          if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
+          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+          if (aa > ab) return a;
+          if (aa < ab) return b;
+          return qp_fmaximum(a, b);
+        };
+        auto qp_mag_min = [&](q_t a, q_t b) -> q_t {
+          if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
+          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+          if (aa < ab) return a;
+          if (aa > ab) return b;
+          return qp_fminimum(a, b);
+        };
+        auto qp_mag_max_num = [&](q_t a, q_t b) -> q_t {
+          bool an = q_isnan(a), bn = q_isnan(b);
+          if (an && bn) return (q_t)(0.0/0.0);
+          if (an) return b; if (bn) return a;
+          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+          if (aa > ab) return a;
+          if (aa < ab) return b;
+          return qp_fmaximum(a, b);
+        };
+        auto qp_mag_min_num = [&](q_t a, q_t b) -> q_t {
+          bool an = q_isnan(a), bn = q_isnan(b);
+          if (an && bn) return (q_t)(0.0/0.0);
+          if (an) return b; if (bn) return a;
+          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+          if (aa < ab) return a;
+          if (aa > ab) return b;
+          return qp_fminimum(a, b);
+        };
+        CHK("fmaximum_mag",     mf::fmaximum_mag(f1, f2),     qp_mag_max(q1, q2),     q1, q2,
+            to_mp(qp_mag_max(q1, q2)));
+        CHK("fminimum_mag",     mf::fminimum_mag(f1, f2),     qp_mag_min(q1, q2),     q1, q2,
+            to_mp(qp_mag_min(q1, q2)));
+        CHK("fmaximum_mag_num", mf::fmaximum_mag_num(f1, f2), qp_mag_max_num(q1, q2), q1, q2,
+            to_mp(qp_mag_max_num(q1, q2)));
+        CHK("fminimum_mag_num", mf::fminimum_mag_num(f1, f2), qp_mag_min_num(q1, q2), q1, q2,
+            to_mp(qp_mag_min_num(q1, q2)));
       }
       CHK2(copysign);
       CHK2(fdim);
@@ -1535,6 +1612,12 @@ int main(int argc, char **argv) {
           if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
             CHK("pow_int",
                 mf::pow(f1, mf::float64x2((double)n)), res_q,
+                q1, (q_t)n, mpfr::pow(m1, to_mp((double)n)));
+            // C23 pown: same kernel as powi, separate row so coverage
+            // shows the C23 spelling lives in the header. Forwards to
+            // powi at compile time.
+            CHK("pown",
+                mf::pown(f1, n), res_q,
                 q1, (q_t)n, mpfr::pow(m1, to_mp((double)n)));
           }
         }

@@ -55,6 +55,7 @@
          "on. Drop -ffast-math (and -funsafe-math-optimizations) and rebuild."
 #endif
 
+#include <cfenv>
 #include <charconv>
 #include <cmath>
 #include <complex>
@@ -845,6 +846,55 @@ inline constexpr float64x2 fminimum_num(float64x2 const &a,
   return (a < b) ? a : b;
 }
 
+// C23 by-magnitude variants: pick by |a| vs |b|; on equal magnitude
+// (including ±0 / ±x ties) the tie-break matches fmaximum / fminimum.
+// Compare full DD magnitudes via fabs — comparing only |a.hi| against
+// |b.hi| misses cases where two DDs round to the same hi but the lo
+// limbs flip the magnitude ordering (e.g. a = (-x, +eps), b = (+x, -eps)
+// → |a| > |b| but |a.hi| == |b.hi|).
+
+inline constexpr float64x2 fmaximum_mag(float64x2 const &a,
+                                         float64x2 const &b) {
+  if (std::isnan(a.limbs[0]) || std::isnan(b.limbs[0])) return _nan_dd();
+  float64x2 aa = fabs(a), bb = fabs(b);
+  if (aa > bb) return a;
+  if (aa < bb) return b;
+  return fmaximum(a, b);
+}
+
+inline constexpr float64x2 fminimum_mag(float64x2 const &a,
+                                         float64x2 const &b) {
+  if (std::isnan(a.limbs[0]) || std::isnan(b.limbs[0])) return _nan_dd();
+  float64x2 aa = fabs(a), bb = fabs(b);
+  if (aa < bb) return a;
+  if (aa > bb) return b;
+  return fminimum(a, b);
+}
+
+inline constexpr float64x2 fmaximum_mag_num(float64x2 const &a,
+                                             float64x2 const &b) {
+  bool an = std::isnan(a.limbs[0]), bn = std::isnan(b.limbs[0]);
+  if (an && bn) return _nan_dd();
+  if (an) return b;
+  if (bn) return a;
+  float64x2 aa = fabs(a), bb = fabs(b);
+  if (aa > bb) return a;
+  if (aa < bb) return b;
+  return fmaximum(a, b);
+}
+
+inline constexpr float64x2 fminimum_mag_num(float64x2 const &a,
+                                             float64x2 const &b) {
+  bool an = std::isnan(a.limbs[0]), bn = std::isnan(b.limbs[0]);
+  if (an && bn) return _nan_dd();
+  if (an) return b;
+  if (bn) return a;
+  float64x2 aa = fabs(a), bb = fabs(b);
+  if (aa < bb) return a;
+  if (aa > bb) return b;
+  return fminimum(a, b);
+}
+
 
 inline constexpr float64x2 abs(float64x2 const &x) { return fabs(x); }
 inline constexpr float64x2 min(float64x2 const &x, float64x2 const &y) { return fmin(x, y); }
@@ -903,6 +953,11 @@ inline constexpr float64x2 scalbn(float64x2 const &x, int n) {
 
 inline constexpr int ilogb(float64x2 const &x) {
   return std::ilogb(x.limbs[0]);
+}
+
+// C23 llogb: same as ilogb but returns long.
+inline constexpr long llogb(float64x2 const &x) {
+  return static_cast<long>(std::ilogb(x.limbs[0]));
 }
 
 inline constexpr float64x2 copysign(float64x2 const &x, float64x2 const &y) {
@@ -1012,6 +1067,26 @@ inline constexpr float64x2 nearbyint(float64x2 const &x) {
 
 inline constexpr float64x2 rint(float64x2 const &x) { return nearbyint(x); }
 
+// C23 roundeven: round to nearest, ties to even, INDEPENDENT of the
+// current FE rounding mode (unlike nearbyint, which obeys FE_DOWNWARD
+// etc.). For DD: nearbyint already implements round-to-even at the
+// hardware level when FE_TONEAREST is set, so we use it as the kernel
+// and explicitly clamp the rounding direction with a fenv guard so a
+// caller running under FE_DOWNWARD still gets ties-to-even.
+inline float64x2 roundeven(float64x2 const &x) {
+#if defined(__cplusplus) && __cplusplus >= 201703L
+  // Save / restore FE rounding mode around the kernel call. constexpr
+  // can't reach fegetround/fesetround so this overload is non-constexpr.
+  int saved = std::fegetround();
+  if (saved != FE_TONEAREST) std::fesetround(FE_TONEAREST);
+  float64x2 r = nearbyint(x);
+  if (saved != FE_TONEAREST) std::fesetround(saved);
+  return r;
+#else
+  return nearbyint(x);
+#endif
+}
+
 namespace detail {
 // Shared half-integer correction for lround / llround. Given i = std::[l]lround(x_hi),
 // adjust ±1 based on how lo crosses the half-integer boundary of the true value.
@@ -1101,6 +1176,15 @@ inline constexpr float64x2 nexttoward(float64x2 const &x, float64x2 const &y) {
   return nextafter(x, y);
 }
 
+// C23 nextup / nextdown: IEEE 754 next-toward-+inf / -inf, regardless
+// of x. Forward to nextafter with a sentinel ±inf.
+inline constexpr float64x2 nextup(float64x2 const &x) {
+  return nextafter(x, float64x2(std::numeric_limits<double>::infinity()));
+}
+inline constexpr float64x2 nextdown(float64x2 const &x) {
+  return nextafter(x, float64x2(-std::numeric_limits<double>::infinity()));
+}
+
 // libquadmath nanq parity. The tag string encodes the NaN payload via
 // std::nan; lo is set to 0 so the result is a canonical DD NaN.
 inline float64x2 nan(const char *tagp) {
@@ -1176,6 +1260,11 @@ inline constexpr float64x2 modulo(float64x2 const &x, float64x2 const &y) {
 // Integer-exponent power via exponentiation-by-squaring. Returns exact
 // 1 for n == 0 (including for 0**0, matching C pow and Fortran). For
 // n < 0 returns 1 / powi(base, -n), adding one DD division at the end.
+// C23 pown: integer-exponent power. Identical kernel to powi (defined
+// just below) — kept as a separate name so callers using the standard
+// C23 spelling do not need to know the multifloats-internal alias.
+inline constexpr float64x2 pown(float64x2 base, int n);
+
 inline constexpr float64x2 powi(float64x2 base, int n) {
   if (n == 0) return float64x2(1.0);
   bool neg = (n < 0);
@@ -1193,6 +1282,8 @@ inline constexpr float64x2 powi(float64x2 base, int n) {
   }
   return neg ? (float64x2(1.0) / result) : result;
 }
+
+inline constexpr float64x2 pown(float64x2 base, int n) { return powi(base, n); }
 
 inline constexpr float64x2 remainder(float64x2 const &x, float64x2 const &y) {
   return x - round(x / y) * y;
@@ -1280,6 +1371,42 @@ inline constexpr float64x2 sqrt(float64x2 const &x) {
   float64x2 r;
   r.limbs[0] = c + cc;
   r.limbs[1] = (c - r.limbs[0]) + cc;
+  return r;
+}
+
+// C23 rsqrt: 1/sqrt(x). Could be expressed as `1/sqrt(x)` but a direct
+// formulation saves one DD-divide and dodges the spurious overflow at
+// |x| just below DBL_MAX.
+inline constexpr float64x2 rsqrt(float64x2 const &x) {
+  double c = 1.0 / std::sqrt(x.limbs[0]);
+  // Bail on 0, -0, negative, NaN, +Inf for the same reasons sqrt does:
+  // refinement would compute 0/0 or inf−inf otherwise.
+  if (!(x.limbs[0] > 0.0) || !std::isfinite(c)) {
+    float64x2 r;
+    r.limbs[0] = c;
+    return r;
+  }
+  // Newton step for 1/sqrt: y_new = y · (3 − x·y²) / 2 = y + y·(1 − x·y²)/2.
+  // The residual (1 − x·c²) cancels to ~ulp_dd, so the dominant product
+  // x.hi·c² must be captured exactly via two_prod — a plain mul would
+  // round x.hi·c² to a double, leaving (1 − round(x.hi·c²)) at most one
+  // ULP wide and capping the answer at double precision (1e-16).
+  double u = 0.0, uu = 0.0;
+  detail::two_prod(c, c, u, uu);                  // u + uu = c²  exact
+  double p = 0.0, pe = 0.0;
+  detail::two_prod(x.limbs[0], u, p, pe);         // p + pe = x.hi·c²  exact
+  // 1 − p is exact whenever 1/2 ≤ p ≤ 2 (Sterbenz). Convergence guarantees
+  // this for the rsqrt fixed point — c is correct to ~ulp(double) so
+  // |x·c² − 1| ≲ 1e-15 ⇒ p ∈ [1−ulp, 1+ulp] and the subtraction is exact.
+  double s = 1.0 - p;
+  // Sub-ULP corrections: pe (~ulp_dd·|p|), x.hi·uu (~ulp_dd·|p|),
+  // x.lo·u (~ulp_dd·|p|). Order doesn't matter at this scale; collapse
+  // into a scalar.
+  double resid = s - pe - x.limbs[0] * uu - x.limbs[1] * u;
+  double dc = c * (0.5 * resid);
+  float64x2 r;
+  r.limbs[0] = c + dc;
+  r.limbs[1] = (c - r.limbs[0]) + dc;
   return r;
 }
 

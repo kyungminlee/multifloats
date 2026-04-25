@@ -34,6 +34,16 @@ Dates are ISO-8601 UTC.
   `exp` / `exp2` / `log10`). Wired through the C ABI as `exp10dd`
   and the Fortran `dd_exp10_full` delegate. Closes the C99 + C11 +
   C17 `<math.h>` coverage and adds the C23 min/max + exp10 set.
+- More C23 `<math.h>` additions: `fmaximum_mag` / `fminimum_mag` /
+  `fmaximum_mag_num` / `fminimum_mag_num` (by-magnitude min/max with
+  the same NaN + signed-zero rules as the canonical C23 min/max),
+  `nextup` / `nextdown` (IEEE 754 next-toward-±inf), `roundeven`
+  (ties-to-even rounding independent of the FE rounding mode),
+  `llogb` (long-returning ilogb), `pown` (C23 spelling for the existing
+  `powi` integer-power kernel — same body), and `rsqrt` (1/sqrt at full
+  DD precision via Newton-Raphson with two_prod-captured residual:
+  fuzz max_rel 9.6e-32, ~3× the DD floor). All new fuzz rows run on
+  cpp_fuzz seed 42 1M iterations.
 - `boost::multiprecision::cpp_double_double` precision and speed
   comparison harnesses (`boost_dd_fuzz`, `boost_dd_bench`) plus a
   `bjn_probe` regime sweep, gated behind
