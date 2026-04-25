@@ -100,6 +100,13 @@ option(MULTIFLOATS_BUILD_BENCH
 # not affect the installed library. Implies BUILD_TESTING.
 option(BUILD_MPFR_TESTS "Build MPFR-based precision tests (mpreal + libmpfr)" OFF)
 
+# Boost cpp_double_double comparison — fetches Boost via FetchContent and
+# builds two extra targets (boost_dd_fuzz, boost_dd_bench) that run the same
+# precision/timing harness as cpp_fuzz / cpp_bench but with the boost DD
+# backend. OFF by default so default builds and CI don't pull boost.
+option(MULTIFLOATS_BUILD_BOOST_COMPARE
+    "Build Boost.Multiprecision cpp_double_double comparison test/bench" OFF)
+
 # Link-time optimization for the installed libraries. ON (default)
 # enables LTO + fat-LTO objects in src/ and fsrc/ so the static
 # archives can be linked by an LTO-aware *or* a non-LTO toolchain. Turn
@@ -291,6 +298,25 @@ target_link_libraries(blas-multifloat PRIVATE multifloatsf)
 # =============================================================================
 # Optional MPFR-based precision tests
 # =============================================================================
+if(MULTIFLOATS_BUILD_BOOST_COMPARE)
+    include(FetchContent)
+    set(BOOST_INCLUDE_LIBRARIES "multiprecision;math")
+    FetchContent_Declare(Boost
+        URL https://github.com/boostorg/boost/releases/download/boost-1.89.0/boost-1.89.0-cmake.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    FetchContent_MakeAvailable(Boost)
+
+    mf_add_cpp_executable(boost_dd_fuzz  ./test/test_boost_dd.cc)
+    target_link_libraries(boost_dd_fuzz  PRIVATE Boost::multiprecision Boost::math)
+
+    mf_add_cpp_executable(boost_dd_bench ./test/bench_boost_dd.cc)
+    target_link_libraries(boost_dd_bench PRIVATE Boost::multiprecision Boost::math)
+
+    if(BUILD_TESTING)
+        add_test(NAME fuzz_boost_dd COMMAND boost_dd_fuzz 100000 0x42)
+    endif()
+endif()
+
 if(BUILD_MPFR_TESTS AND BUILD_TESTING)
     find_package(MPFR REQUIRED)
 
