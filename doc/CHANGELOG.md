@@ -8,6 +8,27 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-04-26
+
+### Added
+
+- `MULTIFLOATS_HIDDEN_VISIBILITY` CMake option (default ON, preserves
+  prior behavior). Turn OFF to drop `-fvisibility=hidden` /
+  `-fvisibility-inlines-hidden` on the C++ kernels — useful when
+  embedding `libmultifloats.a` into a downstream shared library that
+  needs to re-export a wider C++ surface, or for symbol-level debugging
+  / profiling.
+
+### Changed
+
+- README refreshed for the v0.4 layout: the unified C/C++ header is now
+  documented at its real location `include/multifloats/float64x2.h`
+  (with `include/multifloats.h` kept as a compatibility shim), the LTO
+  archive naming convention (`libmultifloats-<compiler>.a` when
+  `MULTIFLOATS_USE_LTO=ON`) is called out, and the build options table
+  now includes `MULTIFLOATS_USE_LTO`, `MULTIFLOATS_HIDDEN_VISIBILITY`,
+  and `MULTIFLOATSF_INSTALL_PRECOMPILED_MOD`.
+
 ## [0.4.0] — 2026-04-25
 
 ### Changed

@@ -25,13 +25,22 @@ string(REGEX REPLACE "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+([0-9]+).*$"
 set_target_properties(multifloats PROPERTIES
     VERSION   ${MULTIFLOATS_ABI_VERSION}.0.0
     SOVERSION ${MULTIFLOATS_ABI_VERSION}
-    # Hide all C++ symbols; only extern "C" dd_* functions are exported.
-    CXX_VISIBILITY_PRESET    hidden
-    VISIBILITY_INLINES_HIDDEN ON
     # PIC unconditionally so consumers can embed the static archive into
     # a downstream shared library (the `.so` linker requires every input
     # .o to be PIC). Negligible cost on x86_64 / arm64.
     POSITION_INDEPENDENT_CODE ON)
+
+# Hide all C++ symbols; only extern "C" dd_* functions are exported.
+# Optional because some consumers want full visibility for debugging,
+# profiling tools that resolve inline-helper addresses, or when embedding
+# the archive into a library that re-exports a wider surface.
+option(MULTIFLOATS_HIDDEN_VISIBILITY
+       "Hide non-API C++ symbols (-fvisibility=hidden) in libmultifloats" ON)
+if(MULTIFLOATS_HIDDEN_VISIBILITY)
+    set_target_properties(multifloats PROPERTIES
+        CXX_VISIBILITY_PRESET     hidden
+        VISIBILITY_INLINES_HIDDEN ON)
+endif()
 
 # Strip non-API symbols from the static archive. The compiler emits
 # out-of-line copies of some inline header functions + TU-internal helpers

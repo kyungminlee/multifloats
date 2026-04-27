@@ -16,8 +16,10 @@ exclusively for the `to_qp` / `from_qp` conversion helpers and the defined
 I/O routines.
 
 The Fortran module ships in `fsrc/multifloats.fypp` (preprocessed via
-[fypp]) and the unified C/C++ header in `include/multifloats.h`. Both expose the same
-algorithmic surface so the same kernels can be used from either language.
+[fypp]) and the unified C/C++ header in `include/multifloats/float64x2.h`
+(with `include/multifloats.h` kept as a compatibility shim that simply
+includes it). Both expose the same algorithmic surface so the same kernels
+can be used from either language.
 
 ## Features
 
@@ -57,10 +59,12 @@ algorithmic surface so the same kernels can be used from either language.
 The `real64x2` interface is designed to mirror `REAL(KIND=16)` so that
 existing quad-precision code can switch types with minimal changes.
 
-### C / C++ (`include/multifloats.h`)
+### C / C++ (`include/multifloats/float64x2.h`)
 
 A single C++17 header in the `multifloats` namespace, providing the
 `float64x2` class with the same algorithmic kernels as the Fortran side.
+`include/multifloats.h` is preserved as a thin compatibility shim that
+forwards to it, so existing `#include "multifloats.h"` users keep working.
 
 The full `<cmath>` double-name surface (`floor`, `ceil`, `trunc`, `round`,
 `nearbyint`, `rint`, `lround`, `llround`, `lrint`, `llrint`, `frexp`,
@@ -383,7 +387,7 @@ print *, y                         ! defined I/O: ~32 digits
 ### C (via the C ABI)
 
 ```c
-#include "multifloats.h"            /* linked with -lmultifloats */
+#include <multifloats/float64x2.h>  /* linked with -lmultifloats */
 float64x2 x = {1.0, 0.0};
 float64x2 pi4 = atandd(x);          /* pi/4 as a DD */
 float64x2 pi = muldd((float64x2){4.0, 0.0}, pi4);
@@ -393,7 +397,7 @@ printf("pi.hi = %.17g  pi.lo = %.17g\n", pi.limbs[0], pi.limbs[1]);
 ### C++
 
 ```cpp
-#include "multifloats.h"            // same header; C++ section adds the class API
+#include <multifloats/float64x2.h>  // same header; C++ section adds the class API
 using namespace multifloats;
 float64x2 x(1.0);
 float64x2 pi = float64x2(4.0) * atan(x);
@@ -422,12 +426,18 @@ cmake --build build
 
 A default build produces only the two installable libraries:
 
-- `libmultifloats.a` — the C++ kernels (header-only API via
-  `include/multifloats.h`; this static archive holds the out-of-line math
-  bodies and the extern "C" `*dd` entry points declared in the same header).
+- `libmultifloats.a` (or `libmultifloats-<compiler>.a` when LTO is on —
+  see `MULTIFLOATS_USE_LTO` below) — the C++ kernels (header-only API via
+  `include/multifloats/float64x2.h`; this static archive holds the
+  out-of-line math bodies and the extern "C" `*dd` entry points declared
+  in the same header).
 - `libmultifloatsf-<compiler>.a` — the Fortran module library (the
   compiler tag comes from `cmake/FortranCompiler.cmake`; the generated
   `.mod` files live under `build/fmod/`).
+
+Both targets are exported as a CMake package; consumers should prefer
+`find_package(multifloats)` / `find_package(multifloatsf)` over hard-coded
+`-l` flags so the compiler-tagged archive name is resolved automatically.
 
 Everything else — tests, benchmarks, the `blas-multifloat` smoke
 target, MPFR / Boost comparison harnesses — is opt-in via CMake
@@ -439,6 +449,9 @@ options. None of them are pulled in by a default consumer build.
 | `-DMULTIFLOATS_BUILD_BENCH=ON`      | OFF     | `cpp_bench`, `fortran_bench`, `fortran_bench_abi` micro-benchmarks. |
 | `-DBUILD_MPFR_TESTS=ON`             | OFF     | `cpp_fuzz_mpfr` 3-way precision test (needs `libmpfr-dev`). Implies `BUILD_TESTING`. |
 | `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF  | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89 via FetchContent). |
+| `-DMULTIFLOATS_USE_LTO=ON/OFF`      | ON      | LTO + fat-LTO objects on the installed archives. When ON, the C++ archive is named `libmultifloats-<compiler>.a` so per-compiler LTO builds can coexist; when OFF, it is the portable untagged `libmultifloats.a`. The generated `multifloatsConfig.cmake` selects the best match at `find_package` time. |
+| `-DMULTIFLOATS_HIDDEN_VISIBILITY=ON/OFF` | ON | Apply `-fvisibility=hidden` + `-fvisibility-inlines-hidden` to the C++ kernels so only the `extern "C" dd_*` ABI is exported. Turn OFF if you need full C++ symbol visibility (debugging, profiling, or re-exporting through a downstream shared library). |
+| `-DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON` | OFF | Additionally install a compiler-tagged precompiled `.mod` + tagged Fortran archive. The default ships the fypp-expanded `.f90` source under `<prefix>/share/multifloatsf/src/` and lets consumers compile the module with their own Fortran compiler at `find_package` time, sidestepping `.mod` format incompatibilities. |
 
 To run the test suite:
 
@@ -489,12 +502,14 @@ build/cpp_fuzz_mpfr 10000 42   # iterations, seed
 ## Layout
 
 ```
-fsrc/multifloats.fypp     -- Fortran source (fypp template)
-include/multifloats.h     -- unified C / C++ public header
-src/                      -- C++ .cc sources and implementation-detail .inc fragments
-blas/                     -- BLAS shims for real64x2
-test/                     -- Fortran and C++ test suites
-external/                 -- vendored references (MultiFloats.jl, LAPACK)
+fsrc/multifloats.fypp                  -- Fortran source (fypp template)
+include/multifloats/float64x2.h        -- unified C / C++ public header
+include/multifloats.h                  -- compatibility shim (forwards to the header above)
+src/                                   -- C++ .cc sources and implementation-detail .inc fragments
+blas/                                  -- BLAS shims for real64x2
+bench/                                 -- microbenchmarks (opt-in via MULTIFLOATS_BUILD_BENCH)
+test/                                  -- Fortran and C++ test suites
+external/                              -- vendored references (MultiFloats.jl, LAPACK)
 ```
 
 The C++ kernels follow the algorithms in
