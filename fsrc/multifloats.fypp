@@ -202,26 +202,26 @@ module multifloats
     interface cmplx64x2
         module procedure cdd_from_cdd
         ! Two-argument (re, im) constructors — matching kinds.
-        module procedure cdd_from_dd_2
-        module procedure cdd_from_dp_2
-        module procedure cdd_from_sp_2
-        module procedure cdd_from_int_2
-        module procedure cdd_from_i8_2
-        module procedure cdd_from_i16_2
-        module procedure cdd_from_i64_2
+        module procedure cdd_from_dd_dd
+        module procedure cdd_from_dp_dp
+        module procedure cdd_from_sp_sp
+        module procedure cdd_from_int_int
+        module procedure cdd_from_i8_i8
+        module procedure cdd_from_i16_i16
+        module procedure cdd_from_i64_i64
         ! Two-argument (re, im) constructors — common mixed kinds.
-        module procedure cdd_from_dd_dp_2
-        module procedure cdd_from_dp_dd_2
+        module procedure cdd_from_dd_dp
+        module procedure cdd_from_dp_dd
         ! Single-argument constructors (imag = 0).
-        module procedure cdd_from_dd_1
-        module procedure cdd_from_dp_1
-        module procedure cdd_from_sp_1
-        module procedure cdd_from_int_1
-        module procedure cdd_from_i8_1
-        module procedure cdd_from_i16_1
-        module procedure cdd_from_i64_1
-        module procedure cdd_from_cdp_1
-        module procedure cdd_from_csp_1
+        module procedure cdd_from_dd
+        module procedure cdd_from_dp
+        module procedure cdd_from_sp
+        module procedure cdd_from_int
+        module procedure cdd_from_i8
+        module procedure cdd_from_i16
+        module procedure cdd_from_i64
+        module procedure cdd_from_cdp
+        module procedure cdd_from_csp
     end interface cmplx64x2
 
     ! ----------------------------------------------------------------
@@ -948,28 +948,28 @@ contains
         res = v
     end function
 
-    elemental function cdd_from_dd_2(r, i) result(res)
+    elemental function cdd_from_dd_dd(r, i) result(res)
         type(real64x2), intent(in) :: r, i
         type(cmplx64x2) :: res
         res%re = r
         res%im = i
     end function
 
-    elemental function cdd_from_dp_2(r, i) result(res)
+    elemental function cdd_from_dp_dp(r, i) result(res)
         real(dp), intent(in) :: r, i
         type(cmplx64x2) :: res
         res%re%limbs = [r, 0.0_dp]
         res%im%limbs = [i, 0.0_dp]
     end function
 
-    elemental function cdd_from_dd_1(r) result(res)
+    elemental function cdd_from_dd(r) result(res)
         type(real64x2), intent(in) :: r
         type(cmplx64x2) :: res
         res%re = r
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cdd_from_dp_1(r) result(res)
+    elemental function cdd_from_dp(r) result(res)
         real(dp), intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [r, 0.0_dp]
@@ -979,35 +979,35 @@ contains
     ! Two-argument matching-kind constructors for the remaining real /
     ! integer kinds. Each promotes both operands to dp before storing.
 
-    elemental function cdd_from_sp_2(r, i) result(res)
+    elemental function cdd_from_sp_sp(r, i) result(res)
         real(sp), intent(in) :: r, i
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cdd_from_int_2(r, i) result(res)
+    elemental function cdd_from_int_int(r, i) result(res)
         integer, intent(in) :: r, i
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cdd_from_i8_2(r, i) result(res)
+    elemental function cdd_from_i8_i8(r, i) result(res)
         integer(int8), intent(in) :: r, i
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cdd_from_i16_2(r, i) result(res)
+    elemental function cdd_from_i16_i16(r, i) result(res)
         integer(int16), intent(in) :: r, i
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [real(i, dp), 0.0_dp]
     end function
 
-    elemental function cdd_from_i64_2(r, i) result(res)
+    elemental function cdd_from_i64_i64(r, i) result(res)
         integer(int64), intent(in) :: r, i
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
@@ -1017,7 +1017,7 @@ contains
     ! Mixed (dd, dp) and (dp, dd) — common when one part has been
     ! computed in DD and the other is still a literal double.
 
-    elemental function cdd_from_dd_dp_2(r, i) result(res)
+    elemental function cdd_from_dd_dp(r, i) result(res)
         type(real64x2), intent(in) :: r
         real(dp), intent(in) :: i
         type(cmplx64x2) :: res
@@ -1025,7 +1025,7 @@ contains
         res%im%limbs = [i, 0.0_dp]
     end function
 
-    elemental function cdd_from_dp_dd_2(r, i) result(res)
+    elemental function cdd_from_dp_dd(r, i) result(res)
         real(dp), intent(in) :: r
         type(real64x2), intent(in) :: i
         type(cmplx64x2) :: res
@@ -1036,49 +1036,49 @@ contains
     ! Single-argument constructors for the remaining numeric kinds
     ! (imag set to 0).
 
-    elemental function cdd_from_sp_1(r) result(res)
+    elemental function cdd_from_sp(r) result(res)
         real(sp), intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cdd_from_int_1(r) result(res)
+    elemental function cdd_from_int(r) result(res)
         integer, intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cdd_from_i8_1(r) result(res)
+    elemental function cdd_from_i8(r) result(res)
         integer(int8), intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cdd_from_i16_1(r) result(res)
+    elemental function cdd_from_i16(r) result(res)
         integer(int16), intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cdd_from_i64_1(r) result(res)
+    elemental function cdd_from_i64(r) result(res)
         integer(int64), intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [0.0_dp, 0.0_dp]
     end function
 
-    elemental function cdd_from_cdp_1(r) result(res)
+    elemental function cdd_from_cdp(r) result(res)
         complex(dp), intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [real(r, dp), 0.0_dp]
         res%im%limbs = [aimag(r), 0.0_dp]
     end function
 
-    elemental function cdd_from_csp_1(r) result(res)
+    elemental function cdd_from_csp(r) result(res)
         complex(sp), intent(in) :: r
         type(cmplx64x2) :: res
         res%re%limbs = [real(real(r, sp), dp), 0.0_dp]
