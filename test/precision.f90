@@ -843,7 +843,7 @@ contains
     end do
 
     ! Fused vs separate: must be bit-equal since both go through the same
-    ! kernel (sincos_full / sinhcosh_full in multifloats_math.cc).
+    ! kernel (sincosdd / sinhcoshdd in multifloats_math.cc).
     call sincos(xs, ss, cs)
     sref = sin(xs); cref = cos(xs)
     do i = 1, 5

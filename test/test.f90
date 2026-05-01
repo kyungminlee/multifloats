@@ -450,13 +450,13 @@ contains
 
     inf = ieee_value(inf, ieee_positive_inf)
 
-    ! exp overflow → +inf (routes through dd_exp2_full's overflow arm)
+    ! exp overflow → +inf (routes through expdd's overflow arm)
     a = 2000.0d0
     r = exp(a)
     call assert(is_inf(r%limbs(1)) .and. r%limbs(1) > 0.0d0, &
                 "exp(2000) is +inf")
 
-    ! log(0) → -inf; log(+inf) → +inf (route through dd_log2_full)
+    ! log(0) → -inf; log(+inf) → +inf (route through logdd)
     a = 0.0d0
     r = log(a)
     call assert(is_inf(r%limbs(1)) .and. r%limbs(1) < 0.0d0, &
