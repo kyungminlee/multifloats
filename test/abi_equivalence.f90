@@ -86,7 +86,7 @@ program abi_equivalence
     pure integer(c_int) function c_dd_ge(a, b) bind(c, name='gedd')
       import :: dd_c, c_int; type(dd_c), value :: a, b
     end function
-    pure type(dd_c) function c_dd_powi(a, n) bind(c, name='powidd')
+    pure type(dd_c) function c_powidd(a, n) bind(c, name='powidd')
       import :: dd_c, c_int; type(dd_c), value :: a; integer(c_int), value :: n
     end function
     pure type(dd_c) function c_dd_modulo(a, b) bind(c, name='modulodd')
@@ -322,7 +322,7 @@ contains
       do j = 1, size(exps)
         n = exps(j)
         fr = fa ** n
-        dr = c_dd_powi(da, int(n, c_int))
+        dr = c_powidd(da, int(n, c_int))
         write(tag, '(a,i0,a)') 'powi(n=', n, ')'
         ! EBS multiplies can differ from a linear loop in the last-ulp
         ! residual on large |n|; tolerate 4 dp ULPs on lo.

@@ -492,38 +492,35 @@ module multifloats
     public :: storage_size
 
     ! ----------------------------------------------------------------
-    ! Complex-specific: cmplx, real, dd_real
+    ! Complex-specific: cmplx, real
     ! ----------------------------------------------------------------
 
+    ! cmplx(re[, im]) — defer to the explicitly typed cdd_from_dd_dd /
+    ! cdd_from_dd constructors (defined alongside the rest of the
+    ! cdd_from_* family) rather than carrying parallel dd_cmplx_* helpers.
     interface cmplx
-        module procedure dd_cmplx_2
-        module procedure dd_cmplx_1
+        module procedure cdd_from_dd_dd
+        module procedure cdd_from_dd
     end interface
     public :: cmplx
 
     interface real
-        module procedure cdd_real
-        module procedure dd_real_dd
+        module procedure cdd_to_dd
+        module procedure dd_to_dd
     end interface
     public :: real
 
-    interface dd_real
-        module procedure dd_real_dd
-        module procedure cdd_real_dd
-    end interface
-    public :: dd_real
-
     ! ----------------------------------------------------------------
-    ! Conversions: dble, int, nint, dd_to_double
+    ! Conversions: dble, int, nint
     ! ----------------------------------------------------------------
 
     interface dble
-        module procedure dd_dble
+        module procedure dd_to_dp
     end interface
     public :: dble
 
     interface int
-        module procedure dd_int
+        module procedure dd_to_int
     end interface
     public :: int
 
@@ -531,8 +528,6 @@ module multifloats
         module procedure dd_nint
     end interface
     public :: nint
-
-    public :: dd_to_double
 
     ! ----------------------------------------------------------------
     ! Fused sincos / sinhcosh
@@ -1250,7 +1245,7 @@ contains
     ! Conversions (elemental)
     ! ----------------------------------------------------------------
 
-    elemental function dd_dble(x) result(res)
+    elemental function dd_to_dp(x) result(res)
         type(real64x2), intent(in) :: x
         real(dp) :: res
         ! For a normalized DD, |lo| <= ulp(hi)/2, so the round-to-nearest
@@ -1258,7 +1253,7 @@ contains
         res = x%limbs(1)
     end function
 
-    elemental function dd_int(x) result(res)
+    elemental function dd_to_int(x) result(res)
         type(real64x2), intent(in) :: x
         integer :: res
         real(dp) :: hi
@@ -1303,12 +1298,6 @@ contains
         else if (diff == 0.5_dp .and. lo > 0.0_dp) then
             res = res + 1
         end if
-    end function
-
-    elemental function dd_to_double(x) result(res)
-        type(real64x2), intent(in) :: x
-        real(dp) :: res
-        res = x%limbs(1)
     end function
 
     elemental function dd_ceiling(x) result(res)
@@ -1584,39 +1573,20 @@ $:CALL_C_UNARY('y1dd')
 
 #:endfor
     ! ----------------------------------------------------------------
-    ! Complex-specific: cmplx, real, dd_real (elemental)
+    ! Complex-specific: real (elemental)
+    ! cmplx(re[, im]) is bound to cdd_from_dd_{dd,_} (see Constructors).
     ! ----------------------------------------------------------------
 
-    elemental function dd_cmplx_2(re, im) result(res)
-        type(real64x2), intent(in) :: re, im
-        type(cmplx64x2) :: res
-        res%re = re
-        res%im = im
-    end function
-
-    elemental function dd_cmplx_1(re) result(res)
-        type(real64x2), intent(in) :: re
-        type(cmplx64x2) :: res
-        res%re = re
-        res%im%limbs = [0.0_dp, 0.0_dp]
-    end function
-
-    elemental function cdd_real(x) result(res)
+    elemental function cdd_to_dd(x) result(res)
         type(cmplx64x2), intent(in) :: x
         type(real64x2) :: res
         res = x%re
     end function
 
-    elemental function dd_real_dd(x) result(res)
+    elemental function dd_to_dd(x) result(res)
         type(real64x2), intent(in) :: x
         type(real64x2) :: res
         res = x
-    end function
-
-    elemental function cdd_real_dd(x) result(res)
-        type(cmplx64x2), intent(in) :: x
-        type(real64x2) :: res
-        res = x%re
     end function
 
     ! ----------------------------------------------------------------
