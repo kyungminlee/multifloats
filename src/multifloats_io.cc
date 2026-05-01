@@ -181,6 +181,9 @@ extern "C" {
 char *to_charsdd(float64x2 x, int precision, char *first, char *last) {
   return format_scientific_chars(x, precision, first, last);
 }
+// C23-style alias — same translation unit so __attribute__((alias)) works.
+char *to_charsf64x2(float64x2 x, int precision, char *first, char *last)
+  __attribute__((alias("to_charsdd")));
 } // extern "C"
 
 } // namespace multifloats
