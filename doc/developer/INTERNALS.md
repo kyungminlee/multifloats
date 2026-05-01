@@ -4,18 +4,20 @@ Cross-cutting reference for contributors working on the DD kernels,
 build, and test surface. Distilled from the April-2026 source-tree
 audit and the precision-improvement tiers that followed; the
 item-by-item roadmap with resolutions, measurements, and commit
-hashes lives in git history as the prior `doc/developer/AUDIT_TODO.md`
-and `doc/developer/PROGRESS-PRECISION.md`.
+hashes lived in `doc/developer/AUDIT_TODO.md` and
+`doc/developer/PROGRESS-PRECISION.md`, both of which were removed
+from the tree post-audit and now exist only in git history.
 
 Companion: `doc/developer/TRIPLE_DOUBLE.md` covers the narrow TD path
 (`float64x3`, `exp_full_td`, `sincos_full_td`, `cexpm1dd` regime
 split). This file points into it wherever the TD infrastructure is
 the answer to a question raised here.
 
-Source anchors `C1`–`C6`, `P1`–`P11b`, `S1`–`S4`, `M1`–`M6` in code
-comments correspond to the historical roadmap — use
-`git log --follow doc/developer/INTERNALS.md` to retrieve the
-investigation behind any one of them.
+Anchors `C1`–`C6`, `P1`–`P11b`, `S1`–`S4`, `M1`–`M6` appear inline in
+source and test comments and refer to entries in the archived audit
+roadmap (above). They are not section headings in this file. To
+retrieve the investigation behind one, search commit messages:
+`git log --all --grep='\bP4\b'` (substitute the anchor of interest).
 
 ---
 

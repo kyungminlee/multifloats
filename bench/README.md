@@ -13,7 +13,6 @@ bench/
 ├── build_benchmark_md.py  # renders BENCHMARK.md from per-system JSON files
 └── results/
     ├── benchmark-m1-max.json
-    ├── benchmark-skylake.json
     └── benchmark-raptor-lake.json
 ```
 
