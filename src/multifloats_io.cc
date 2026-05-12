@@ -181,9 +181,12 @@ extern "C" {
 char *to_charsdd(float64x2 x, int precision, char *first, char *last) {
   return format_scientific_chars(x, precision, first, last);
 }
-// C23-style alias — same translation unit so __attribute__((alias)) works.
-char *to_charsf64x2(float64x2 x, int precision, char *first, char *last)
-  __attribute__((weak, alias("to_charsdd")));
+// C23-style forwarder — portable across ELF/Mach-O. See note in
+// float64x2_f64x2_aliases.inc on why we use wrappers instead of
+// __attribute__((alias)).
+char *to_charsf64x2(float64x2 x, int precision, char *first, char *last) {
+  return to_charsdd(x, precision, first, last);
+}
 } // extern "C"
 
 } // namespace multifloats
