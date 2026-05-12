@@ -185,7 +185,7 @@ endif()
 include(CMakePackageConfigHelpers)
 set(FC_DETECT_CODE "${_FC_DETECT_CODE}")
 configure_package_config_file(
-    ${CMAKE_SOURCE_DIR}/cmake/multifloatsfConfig.cmake.in
+    ${CMAKE_CURRENT_LIST_DIR}/../cmake/multifloatsfConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/multifloatsfConfig.cmake
     INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/multifloatsf
     PATH_VARS MULTIFLOATSF_SHARE_DIR)
