@@ -1,8 +1,10 @@
 name: CI
 
-# Runs on every PR and every push to main. Keeps a single Linux /
-# GCC-14 configuration so the signal is fast; the release workflow
-# (release.yml, gated on v* tags) covers the full compiler matrix.
+# Runs on every PR and every push to main. One Linux (GCC 14) and one
+# macOS (Homebrew GCC 14) job so the signal stays fast while still
+# catching Mach-O-specific regressions (e.g. __attribute__((alias))
+# behavior that differs from ELF). The release workflow (release.yml,
+# gated on v* tags) covers the full compiler matrix.
 
 on:
   pull_request:
@@ -13,7 +15,7 @@ permissions:
   contents: read
 
 jobs:
-  build-and-test:
+  build-and-test-linux:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -39,3 +41,37 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure -j$(nproc)
+
+  build-and-test-mac:
+    runs-on: macos-15
+    env:
+      CFLAGS: -mcpu=apple-m1
+      CXXFLAGS: -mcpu=apple-m1
+      FFLAGS: -mcpu=apple-m1
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install fypp + Homebrew GCC 14
+        run: |
+          brew install uv gcc@14
+          uv tool install fypp
+
+      - name: Configure
+        run: |
+          # MULTIFLOATS_USE_LTO=OFF / STRIP_SYMBOLS=OFF: keep parity
+          # with the release workflow's non-LTO mac job so CI fails
+          # on the same Mach-O surface (alias / weak-alias / etc).
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=gcc-14 \
+            -DCMAKE_CXX_COMPILER=g++-14 \
+            -DCMAKE_Fortran_COMPILER=gfortran-14 \
+            -DMULTIFLOATS_USE_LTO=OFF \
+            -DMULTIFLOATS_STRIP_SYMBOLS=OFF \
+            -DMULTIFLOATS_BUILD_BENCH=OFF
+
+      - name: Build
+        run: cmake --build build -j$(sysctl -n hw.ncpu)
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j$(sysctl -n hw.ncpu)
