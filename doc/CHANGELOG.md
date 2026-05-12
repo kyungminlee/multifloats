@@ -8,6 +8,25 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+### Added
+
+- C ABI: C99 classification and ordered/unordered comparison
+  predicates — `isnormaldd`, `fpclassifydd`, `isunordereddd`,
+  `isgreaterdd`, `isgreaterequaldd`, `islessdd`, `islessequaldd`,
+  `islessgreaterdd`. The C++ side already exposed these via ADL on
+  `float64x2`; this closes the `<math.h>` C99 gap on the C surface.
+  `nexttoward` is intentionally omitted: its sole distinction from
+  `nextafter` is the `long double` direction argument, which carries
+  less precision than DD on every supported platform.
+- C ABI: C23-style `f64x2`-suffixed aliases for every `*dd` entry
+  point (143 symbols — `sinf64x2`, `cabsf64x2`, `matmulf64x2_mm`, …).
+  Aliases are zero-overhead linker-level aliases of the strong `*dd`
+  symbol, so `sinf64x2(x)` and `sindd(x)` resolve to the same address.
+  Both spellings are permanent: `dd` matches libquadmath's `q` style
+  and the double-double literature; `f64x2` mirrors C23 / glibc's
+  `_Float128` → `f128` convention while truthfully naming the layout
+  (two binary64 limbs, not binary128).
+
 ## [0.4.1] — 2026-04-26
 
 ### Added

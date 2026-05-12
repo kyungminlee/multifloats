@@ -616,14 +616,28 @@ MULTIFLOATS_API long long llrounddd(float64x2 a);
 MULTIFLOATS_API long lrintdd(float64x2 a);
 MULTIFLOATS_API long long llrintdd(float64x2 a);
 
-/* Classification — C99 isnan/isinf/signbit/isfinite contract: non-zero
- * for true. `finitedd` mirrors libquadmath's legacy `finiteq` spelling
- * (alias for isfinitedd). */
+/* Classification — C99 isnan/isinf/signbit/isfinite/isnormal contract:
+ * non-zero for true. `finitedd` mirrors libquadmath's legacy `finiteq`
+ * spelling (alias for isfinitedd). `fpclassifydd` returns one of the
+ * C99 FP_* values from <math.h> applied to the leading limb. */
 MULTIFLOATS_API int isnandd(float64x2 a);
 MULTIFLOATS_API int isinfdd(float64x2 a);
 MULTIFLOATS_API int isfinitedd(float64x2 a);
 MULTIFLOATS_API int finitedd(float64x2 a);
+MULTIFLOATS_API int isnormaldd(float64x2 a);
 MULTIFLOATS_API int signbitdd(float64x2 a);
+MULTIFLOATS_API int fpclassifydd(float64x2 a);
+
+/* C99 ordered/unordered comparison predicates. `isunordereddd` returns
+ * non-zero iff either argument is NaN; the others return non-zero iff
+ * the named ordered relation holds (and silently return 0 for NaN
+ * operands, matching the C99 macros). */
+MULTIFLOATS_API int isunordereddd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int isgreaterdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int isgreaterequaldd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int islessdd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int islessequaldd(float64x2 a, float64x2 b);
+MULTIFLOATS_API int islessgreaterdd(float64x2 a, float64x2 b);
 /* Signaling-NaN test on the leading limb. Uses the compiler builtin
  * where available (gcc >= 13, clang with __has_builtin); otherwise
  * returns 0 — multifloats never constructs sNaNs internally, so the
@@ -637,6 +651,162 @@ MULTIFLOATS_API float64x2 nandd(const char *tagp);
 
 /* cis(x) = cos(x) + i sin(x). Mirrors libquadmath cexpiq. */
 MULTIFLOATS_API complex64x2 cexpidd(float64x2 a);
+
+/* ----------------------------------------------------------------------------
+ * C23-style `f64x2` aliases. Every libquadmath-style `*dd` entry point above
+ * has a strong-symbol alias spelled with the `f64x2` type tag (e.g.
+ * `sinf64x2`, `cabsf64x2`). The two names always refer to the same symbol;
+ * pick whichever convention you prefer.
+ *   - `dd`     — short, matches double-double literature and libquadmath's
+ *                `q` style (e.g. `sindd`, `cabsdd`).
+ *   - `f64x2`  — mirrors C23 / glibc's `_Float128` → `f128` suffix
+ *                convention but truthfully says "two binary64 limbs"
+ *                rather than (mis)labelling DD as quad precision.
+ * -------------------------------------------------------------------------- */
+
+MULTIFLOATS_API float64x2 addf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 subf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 mulf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 divf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 negf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 fabsf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 sqrtf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 truncf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 roundf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 fminf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 fmaxf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 hypotf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 powf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 powif64x2(float64x2 a, int n);
+MULTIFLOATS_API float64x2 fmodf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 modulof64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 fdimf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 copysignf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 fmaf64x2(float64x2 a, float64x2 b, float64x2 c);
+MULTIFLOATS_API float64x2 expf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 exp2f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 exp10f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 expm1f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 exp2m1f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 exp10m1f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 logf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 log2f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 log10f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 log1pf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 log2p1f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 log10p1f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 sinf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 cosf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 tanf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 asinf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 acosf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 atanf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 atan2f64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 sinpif64x2(float64x2 a);
+MULTIFLOATS_API float64x2 cospif64x2(float64x2 a);
+MULTIFLOATS_API float64x2 tanpif64x2(float64x2 a);
+MULTIFLOATS_API float64x2 asinpif64x2(float64x2 a);
+MULTIFLOATS_API float64x2 acospif64x2(float64x2 a);
+MULTIFLOATS_API float64x2 atanpif64x2(float64x2 a);
+MULTIFLOATS_API float64x2 atan2pif64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 sinhf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 coshf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 tanhf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 asinhf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 acoshf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 atanhf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 erff64x2(float64x2 a);
+MULTIFLOATS_API float64x2 erfcf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 erfcxf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 tgammaf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 lgammaf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 j0f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 j1f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 y0f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 y1f64x2(float64x2 a);
+MULTIFLOATS_API float64x2 jnf64x2(int n, float64x2 a);
+MULTIFLOATS_API float64x2 ynf64x2(int n, float64x2 a);
+MULTIFLOATS_API void jnf64x2_range(int n1, int n2, float64x2 a, float64x2 *out);
+MULTIFLOATS_API void ynf64x2_range(int n1, int n2, float64x2 a, float64x2 *out);
+MULTIFLOATS_API void sincosf64x2(float64x2 a, float64x2 *s, float64x2 *c);
+MULTIFLOATS_API void sinhcoshf64x2(float64x2 a, float64x2 *s, float64x2 *c);
+MULTIFLOATS_API complex64x2 caddf64x2(complex64x2 a, complex64x2 b);
+MULTIFLOATS_API complex64x2 csubf64x2(complex64x2 a, complex64x2 b);
+MULTIFLOATS_API complex64x2 cmulf64x2(complex64x2 a, complex64x2 b);
+MULTIFLOATS_API complex64x2 cdivf64x2(complex64x2 a, complex64x2 b);
+MULTIFLOATS_API complex64x2 cexpf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 cexpm1f64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 clogf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 clog2f64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 clog10f64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 clog1pf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 cpowf64x2(complex64x2 z, complex64x2 w);
+MULTIFLOATS_API complex64x2 csqrtf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 csinf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 csinpif64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 ccosf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 ccospif64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 ctanf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 casinf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 cacosf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 catanf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 csinhf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 ccoshf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 ctanhf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 casinhf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 cacoshf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 catanhf64x2(complex64x2 z);
+MULTIFLOATS_API float64x2 cabsf64x2(complex64x2 z);
+MULTIFLOATS_API float64x2 cargf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 cprojf64x2(complex64x2 z);
+MULTIFLOATS_API complex64x2 conjf64x2(complex64x2 z);
+MULTIFLOATS_API float64x2 crealf64x2(complex64x2 z);
+MULTIFLOATS_API float64x2 cimagf64x2(complex64x2 z);
+MULTIFLOATS_API void matmulf64x2_mm(const float64x2 *a, const float64x2 *b, float64x2 *c, int64_t m, int64_t k, int64_t n, int64_t renorm_interval);
+MULTIFLOATS_API void matmulf64x2_mv(const float64x2 *a, const float64x2 *x, float64x2 *y, int64_t m, int64_t k, int64_t renorm_interval);
+MULTIFLOATS_API void matmulf64x2_vm(const float64x2 *x, const float64x2 *b, float64x2 *y, int64_t k, int64_t n, int64_t renorm_interval);
+MULTIFLOATS_API char *to_charsf64x2(float64x2 x, int precision, char *first, char *last);
+MULTIFLOATS_API int eqf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int nef64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int ltf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int lef64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int gtf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int gef64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 cbrtf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 ceilf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 floorf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 nearbyintf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 rintf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 logbf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 frexpf64x2(float64x2 a, int *exp);
+MULTIFLOATS_API float64x2 modff64x2(float64x2 a, float64x2 *iptr);
+MULTIFLOATS_API float64x2 ldexpf64x2(float64x2 a, int n);
+MULTIFLOATS_API float64x2 scalbnf64x2(float64x2 a, int n);
+MULTIFLOATS_API float64x2 scalblnf64x2(float64x2 a, long n);
+MULTIFLOATS_API float64x2 nextafterf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 remainderf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API float64x2 remquof64x2(float64x2 a, float64x2 b, int *quo);
+MULTIFLOATS_API int ilogbf64x2(float64x2 a);
+MULTIFLOATS_API long lroundf64x2(float64x2 a);
+MULTIFLOATS_API long long llroundf64x2(float64x2 a);
+MULTIFLOATS_API long lrintf64x2(float64x2 a);
+MULTIFLOATS_API long long llrintf64x2(float64x2 a);
+MULTIFLOATS_API int isnanf64x2(float64x2 a);
+MULTIFLOATS_API int isinff64x2(float64x2 a);
+MULTIFLOATS_API int isfinitef64x2(float64x2 a);
+MULTIFLOATS_API int finitef64x2(float64x2 a);
+MULTIFLOATS_API int isnormalf64x2(float64x2 a);
+MULTIFLOATS_API int signbitf64x2(float64x2 a);
+MULTIFLOATS_API int fpclassifyf64x2(float64x2 a);
+MULTIFLOATS_API int isunorderedf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int isgreaterf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int isgreaterequalf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int islessf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int islessequalf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int islessgreaterf64x2(float64x2 a, float64x2 b);
+MULTIFLOATS_API int issignalingf64x2(float64x2 a);
+MULTIFLOATS_API float64x2 nanf64x2(const char *tagp);
+MULTIFLOATS_API complex64x2 cexpif64x2(float64x2 a);
 
 #ifdef __cplusplus
 }  /* extern "C" */

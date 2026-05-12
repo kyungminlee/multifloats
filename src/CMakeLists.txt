@@ -2,7 +2,7 @@ project(multifloats LANGUAGES CXX)
 
 include(GNUInstallDirs)
 
-set(MULTIFLOATS_PUBLIC_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include)
+set(MULTIFLOATS_PUBLIC_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/../include)
 
 add_library(multifloats STATIC multifloats_math.cc multifloats_io.cc)
 target_compile_features(multifloats PUBLIC cxx_std_17)

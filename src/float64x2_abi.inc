@@ -193,7 +193,17 @@ int isnandd   (float64x2 a) { return multifloats::isnan   (a) ? 1 : 0; }
 int isinfdd   (float64x2 a) { return multifloats::isinf   (a) ? 1 : 0; }
 int isfinitedd(float64x2 a) { return multifloats::isfinite(a) ? 1 : 0; }
 int finitedd  (float64x2 a) { return multifloats::isfinite(a) ? 1 : 0; }
+int isnormaldd(float64x2 a) { return multifloats::isnormal(a) ? 1 : 0; }
 int signbitdd (float64x2 a) { return multifloats::signbit (a) ? 1 : 0; }
+int fpclassifydd(float64x2 a) { return multifloats::fpclassify(a); }
+
+// C99 ordered/unordered comparison predicates
+int isunordereddd   (float64x2 a, float64x2 b) { return multifloats::isunordered   (a, b) ? 1 : 0; }
+int isgreaterdd     (float64x2 a, float64x2 b) { return multifloats::isgreater     (a, b) ? 1 : 0; }
+int isgreaterequaldd(float64x2 a, float64x2 b) { return multifloats::isgreaterequal(a, b) ? 1 : 0; }
+int islessdd        (float64x2 a, float64x2 b) { return multifloats::isless        (a, b) ? 1 : 0; }
+int islessequaldd   (float64x2 a, float64x2 b) { return multifloats::islessequal   (a, b) ? 1 : 0; }
+int islessgreaterdd (float64x2 a, float64x2 b) { return multifloats::islessgreater (a, b) ? 1 : 0; }
 
 int issignalingdd(float64x2 a) {
 #if defined(__has_builtin)

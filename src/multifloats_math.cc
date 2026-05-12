@@ -268,5 +268,6 @@ namespace multifloats {
 extern "C" {
 #include "float64x2_abi.inc"
 #include "complex64x2_abi.inc"
+#include "float64x2_f64x2_aliases.inc"
 } // extern "C"
 } // namespace multifloats
