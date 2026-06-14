@@ -81,210 +81,97 @@ is only used by the test harness as a high-precision reference.
 
 ## Precision
 
-The `cpp_fuzz` / `fortran_fuzz` drivers run every operation listed below
-through 1M random input pairs (using adversarial input strategies that
-include subnormals, near-cancellation pairs, near-overflow pairs, and
-non-finite leading limbs) and report the per-op `(max_rel_err, mean_rel_err)`
-against a quad-precision (`real(16)`) reference. The numbers in the tables
-below are representative samples from a recent fuzz run (seed = 0, 1M
-iterations); your build will land in the same orders of magnitude.
+The `cpp_fuzz` / `fortran_fuzz` drivers run every operation through 1M random
+inputs (adversarial strategies: subnormals, near-cancellation, near-overflow,
+non-finite leading limbs) and report the per-op `(max_rel_err, mean_rel_err)`.
+The C++ driver references `__float128`; the Fortran driver references
+`real(16)`; and the optional `cpp_fuzz_mpfr` driver references a 200-bit
+[MPFR](https://www.mpfr.org/) oracle, which separates the DD kernel's own error
+from the ~113-bit float128 floor. A relative error of `0` means *exactly
+bit-equal* to the reference for every input drawn.
 
-A relative error reported as `0` means *exactly bit-equal* to the qp
-reference for every input the fuzz drew. Operations are organized by their
-precision class.
+One **DD ulp** is `2⁻¹⁰⁴ ≈ 5e-32`. "Full double-double" means a worst-case
+relative error within a small constant of one DD ulp (mean error roughly
+1/100 ulp). The numbers below are from a 1M-iteration run (seed 0); your build
+lands in the same orders of magnitude.
 
-### Full double-double (~1e-30 — 1e-32 max — close to one DD ulp)
+### Full double-double (~1e-32, ≈ one DD ulp)
 
-The arithmetic kernels, the kernels whose result is a bit-exact rearrangement
-of the input limbs, and the polynomial-based `exp` / `log` / `log10`
-families ported from MultiFloats.jl. Worst-case error is a small constant
-multiple of one DD ulp, mean error around 1/100 of a DD ulp.
+Nearly the whole surface — arithmetic, the polynomial `exp` / `log` families
+ported from [MultiFloats.jl](https://github.com/dzhang314/MultiFloats.jl), and
+every elementary transcendental.
 
 | Op | max_rel | mean_rel |
 | --- | --- | --- |
-| `+` (dd±dd, dd±dp, etc.) | 1.5e-32 | 3.0e-34 |
-| `-` | 6.2e-33 | 1.8e-34 |
-| `*` | 3.5e-32 | 6.5e-34 |
-| `/` | 5.3e-32 | 1.8e-33 |
-| `sqrt` (Karp/Markstein iteration) | 5.0e-32 | 5.3e-33 |
-| `mod`, `modulo` | 2.2e-32 | 9e-36 |
-| `dim` | 6.2e-33 | 9.4e-35 |
-| `min`, `max`, `min(a..h)`, `max(a..h)` | 6.2e-33 | 9.5e-35 |
-| `hypot` (with overflow-safe scaling) | 7.8e-32 | 5.2e-33 |
-| `exp` (14-term polynomial in 1/8th-reduced range, cubed) | 3.2e-30 | 2.2e-32 |
-| `log`, `log10` (32-entry table + narrow polynomial) | 3.5e-32 | 3.3e-33 |
-| `pow` (dd**dd, dd**dp, dp**dd via `exp(b·log(a))`) | 2.1e-30 | 5.3e-32 |
-| `pow` (integer exponent, repeated multiplication) | 2.2e-32 | 1.3e-33 |
-| `sinh` (Taylor for `|x|<0.1`, otherwise `(eˣ-e⁻ˣ)/2`) | 4.7e-30 | 4.1e-32 |
-| `cosh` (`(eˣ+e⁻ˣ)/2`, well-conditioned) | 4.7e-30 | 4.8e-32 |
-| `asin`, `acos` (one Newton step on full-DD `sin`/`cos`) | 3.7e-32 | 6.4e-33 |
-| `acosh` (`log(x + sqrt(x²-1))` with large-`x` asymptotic) | 3.2e-32 | 2.0e-33 |
-| `asinh` (Taylor for `|x|<0.01`, otherwise `log(x + sqrt(1+x²))`) | 4.3e-30 | 1.4e-32 |
-| `atanh` (Taylor for `|x|<0.01`, otherwise `½ log((1+x)/(1-x))`) | 1.5e-30 | 1.1e-32 |
-| `atan2` (full-DD `atan(y/x)` with quadrant correction) | 3.8e-32 | 1.5e-33 |
-| Complex `+`, `-` (real and imag parts) | 1.4e-32 | 3.2e-34 |
-| Complex `*` real part | 0 | 0 |
-| Complex `*` imag part | 1.9e-32 | 1.5e-33 |
-| Complex `/` real part | 4.5e-32 | 2.5e-33 |
-| `cdd_sin`, `cdd_cos`, `cdd_sinh`, `cdd_cosh` (real and imag parts) | 1.0e-29 | 7e-32 |
-| `cdd_tan`, `cdd_tanh` real / imag parts | 4e-30 | 3e-32 |
-| `cdd_log` real and imag (overflow-safe formula) | 1.6e-31 | 2.7e-33 |
-| `cdd_sqrt` real and imag (Kahan-style algorithm) | 6.6e-32 | 5.5e-33 |
-| `cdd_atan`, `cdd_acos`, `cdd_acosh` (real and imag) | 4.3e-32 | 1.0e-32 |
-| `cdd_asin_im`, `cdd_asinh_im` | 7.4e-32 | 1.8e-32 |
-| `cdd_conjg`, `cdd_abs`, `cdd_aimag` | 6.7e-32 | 5.4e-33 |
+| `+`, `-` | 1.8e-32 | 1.2e-33 |
+| `*`, `/` | 4.8e-32, 8.1e-32 | ~2.5e-33 |
+| `sqrt`, `rsqrt`, `hypot` | 3.4e-32 – 9.2e-32 | ~4e-33 |
+| `cbrt` | 4.3e-31 | 1.5e-32 |
+| `exp`, `exp2`, `exp10`, `expm1`, … | 3.2e-32 – 5.5e-32 | ~3e-33 |
+| `log`, `log2`, `log10`, `log1p`, … | 2.2e-32 – 6.7e-32 | ~4e-33 |
+| `pow` (dd\*\*dd / dp), `powr`, `rootn` | ~5e-32 | ~5e-33 |
+| `pow` (integer exponent) | 2.4e-31 | 8.4e-33 |
+| `sin`, `cos`, `tan` | 3.7e-32 – 6.5e-32 | ~2e-33 |
+| `asin`, `acos`, `atan`, `atan2` | 1.4e-32 – 3.6e-32 | ~1.5e-33 |
+| `sinh`, `cosh`, `tanh` | 3.2e-32 – 6.1e-32 | ~3e-33 |
+| `asinh`, `acosh`, `atanh` | 3.1e-32 – 5.7e-32 | ~2e-33 |
+| `erf`, `erfc`, `erfc_scaled` | 1.7e-32 – 5.5e-32 | ~2e-33 |
+| `log_gamma` | 4.7e-32 | 6.4e-33 |
+| Complex `+ − × ÷`, `cdd_*` transcendentals | ~5e-32 – 3e-31 | ~1e-32 |
+| `sum`, `dot_product`, `norm2`, `matmul` (n=8) | 2e-31 – 7e-30 | ~1e-32 |
+| `product` (n=8) | 4.0e-50 | 4.0e-53 |
 
-### Near-DD precision (~1e-22 max, ~1e-25 mean)
+The three-argument `fma` is full DD on average (mean 2.9e-33) with a ~1.8e-30
+worst case. Reduction error grows ~linearly with the element count `n`.
 
-| Op | max_rel | mean_rel | Why not full DD |
+### Bit-exact (always 0)
+
+`abs`, `neg`, `sign`, `aint`, `anint`, `trunc`, `round`, `floor`, `ceil`,
+`nearbyint`, `rint`, `roundeven`, `lround`/`llround`/`lrint`/`llrint`,
+`logb`/`ilogb`/`llogb`, `fraction`, `scale`, `set_exponent`, `fmin`/`fmax`
+and the C23 `fmaximum*`/`fminimum*` family, `copysign`,
+`scalbn`/`ldexp`/`scalbln`, `frexp`, `modf`, `min`/`max` (3..8 args), every
+constructor and assignment, and the complex `conjg` / `proj` / `*`-real-part.
+
+### Reduced precision
+
+A handful of kernels fall short of full DD. None is near the single-double
+floor — the worst case is ~1e-27.
+
+| Op | max_rel | mean_rel | Why |
 | --- | --- | --- | --- |
-| `sin` | 9.2e-26 | 2.1e-28 | range reduction `x · 1/π` loses bits ∝ log₂|x| |
-| `cos` | 2.3e-25 | 3.0e-28 | same |
-| `tan` | 2.3e-25 | 5.2e-28 | same |
-| `atan` | 1.1e-22 | 1.6e-25 | Newton step uses full-DD `sin`/`cos` but inherits their reduction precision |
-| `tanh` | 4.0e-18 | 2.8e-21 | `1 - 2/(e²ˣ + 1)` near `|x| → ∞` rounds to 1 |
+| `bessel_y0`, `yn_range` | 7.9e-27 | ~5e-31 | libm-seeded; relative error peaks near the zeros of `y0` |
+| `bessel_jn` | 1.4e-28 | 1.8e-32 | integer-order recurrence on the libm-seeded `j0`/`j1` |
+| `bessel_j0/j1`, `bessel_y1`, `bessel_yn` | 1.1e-29 – 3.6e-29 | ~3e-32 | same |
+| `sinpi`, `cospi`, `tanpi` | 1.7e-26 – 6.6e-26 | ~3e-29 | the `π·x` reduction loses bits ∝ log₂\|x\| |
+| `gamma` | 2.6e-31 | 1.0e-32 | a few DD ulp at large arguments (`log_gamma` is full DD) |
+| `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | cancellation when the remainder is near zero; full DD otherwise |
+| `cdd_pow` | 2.4e-27 | 4.5e-31 | cancellation in `exp(w·log(z))` |
+| `cdd_expm1`, `cdd_log1p`, complex `sinpi`/`cospi` | 3e-29 – 1.9e-28 | ~1e-31 | cancellation in the complex `…−1` / near-axis formulas |
 
-### Bit-exact (always 0 error)
+### What makes the full-DD kernels exact
 
-Operations that are pure limb manipulation, sign flips, or trivial
-promotions / truncations. The fuzz reports `max_rel = mean_rel = 0` over
-1M iterations for every operation in this group.
+- **Arithmetic** — error-free transformations: Knuth `two_sum`, Dekker
+  `two_prod` + FMA, Karp/Markstein for `sqrt`.
+- **`exp`** — 14-term DD polynomial in the 1/8th-reduced argument, cubed via
+  three squarings (MultiFloats.jl).
+- **`log` / `log10`** — 32-entry table indexed by the top 5 mantissa bits plus
+  a narrow polynomial.
+- **`pow`** — `exp(b·log(a))`; full DD because both halves are.
+- **`atan2`** — full-DD `atan(y/x)` with a quadrant correction from
+  high-precision DD `π` / `π/2`.
+- **`erf` / `erfc`** — piecewise rational fits with DD coefficients (ported
+  from libquadmath `erfq.c`), with an overflow-safe asymptotic split
+  `exp(−x²) = exp(−s²−0.5625)·exp((s−x)(s+x)+R)` where `s` is `x` truncated to
+  35 mantissa bits so `s²` is exact.
+- **`erfc_scaled`** — avoids forming `exp(x²)` for `|x| ≥ 1.25`; the
+  large-negative reflection `2·exp(x²) − erfc_scaled(|x|)` squares `x` to
+  triple-double and folds the residual limb into the exponent, since a DD `x²`
+  cannot hold the argument to the precision `exp` needs at large `|x|`.
 
-- **Unary**: `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`,
-  `scale`, `set_exponent`
-- **Mixed-mode arithmetic where one side is dp**: `dd + dp` (`add_fd`)
-  reports 0 because the lo-limb error is in the dp ulp range
-- **Every constructor**: `real64x2(...)` and `cmplx64x2(...)` for
-  every supported numeric kind
-- **Every assignment**: `dd ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
-  and `cdd ↔ {dp, sp, int, int8, int16, int64, cdp, csp}`
-- **Complex `*` real part**: bit-exact because the real part is computed
-  as a single fma-style chain with no cancellation between terms
-
-### Single-double, first-order derivative corrected (~1e-16 max)
-
-`gamma` / `log_gamma` and the Bessel family are still computed as
-`f(hi) + f'(hi) · lo` combined via `fast_two_sum`, which gives
-roughly one double ulp of relative error — single-double precision.
-There is no Julia polynomial port to crib from for these; getting
-them to full DD would need dedicated polynomial / continued-fraction
-approximations. `erfc_scaled` is in the same bucket.
-
-`erf` and `erfc` have been upgraded to a hybrid kernel:
-
-- **`|x| < 2`** — 50-term Taylor series with DD coefficients (full DD).
-- **`|x| ≥ 2`** — `erf(x) = sign(x) · (1 − erfc_dp(|x|))` with the DD
-  subtraction preserving the low limb down to the precision of libm's
-  dp `erfc`. At `|x| = 2` that's ~5e-19; at `|x| ≥ 6` the low limb is
-  below the DD ulp floor and the result is full DD.
-
-Mean error across the fuzz drivers' random input distribution is
-now ~2e-21 for `erf` (5 orders better than the previous
-derivative-corrected version). Worst case is still ~2e-18 because
-the `|x| ∈ [2, 6]` band inherits libm's dp precision for `erfc`.
-Reaching full DD across the whole range would need a full-DD
-asymptotic expansion (for `|x| > 6`, already trivial) and either a
-many-term positive-series `e^(-x²) · Σ (2x²)^n / (2n+1)!!` for the
-intermediate range or a much larger Taylor table.
-
-| Op | max_rel | mean_rel |
-| --- | --- | --- |
-| `erf` | 2.2e-18 | 1.9e-21 |
-| `erfc` | 5.0e-16 | 2.1e-18 |
-| `erfc_scaled` | 4.8e-16 | 4.9e-17 |
-
-### Compound — chained derivative corrections (~1e-12 to 1e-14 max)
-
-Functions that internally chain two or more single-double-precision
-transcendentals (`sin`, `cos`, `atan`, ...) or have cancellation in
-their construction. Mean precision is still ~1e-15 but worst-case can
-be a few orders looser.
-
-| Op | max_rel | mean_rel | Notes |
-| --- | --- | --- | --- |
-| `gamma` | 1.2e-16 | 4.0e-17 | derivative correction unavailable; uses libm directly |
-| `log_gamma` | 3.3e-16 | 5.0e-17 | likewise |
-| `bessel_j0` | 3.9e-16 | 2.4e-17 | libm Bessel precision |
-| `bessel_j1` | 2.5e-15 | 3.1e-17 | |
-| `bessel_jn` (n=3 sample) | 5.0e-15 | 4.4e-17 | |
-| `bessel_y0` | 2.3e-15 | 8.3e-17 | |
-| `bessel_y1` | 7.9e-16 | 8.3e-17 | |
-| `bessel_yn` (n=3 sample) | 1.4e-13 | 2.1e-16 | |
-| `cdd_exp`, `cdd_sin`, `cdd_cos`, `cdd_sinh`, `cdd_cosh` (real and imag) | ~5e-29 max | ~1e-31 mean | full DD on average; near full DD worst-case (limited by `sin`/`cos` reduction) |
-| `cdd_tan`, `cdd_tanh` (real and imag) | full DD | full DD | derived from `cdd_sin`/`cdd_cos` ratios |
-| `cdd_div` imag part | 1.3e-16 | 5.0e-19 | fundamental cancellation in complex division (no fix) |
-| `cdd_asin_re`, `cdd_asinh_re` | ~2e-24 max | ~3e-26 mean | bottlenecked by `atan2`'s precision floor (≈1e-22) |
-
-### Array reductions (small-array fuzz, n = 8)
-
-| Op | max_rel | mean_rel |
-| --- | --- | --- |
-| `sum`     | 4.0e-30 | 1.3e-32 |
-| `product` | 1.1e-49 | 2.6e-52 |
-| `maxval`  | 5.9e-33 | 1.5e-33 |
-| `minval`  | 6.1e-33 | 1.4e-33 |
-| `dot_product` | 1.2e-31 | 7.0e-33 |
-| `norm2`   | 6.0e-32 | 1.0e-32 |
-| `matmul` (mv, n=8) | 5.0e-31 | 6.6e-33 |
-
-The reductions accumulate over `n` elements, so worst-case error grows
-linearly with `n` while staying inside the full-DD regime.
-
-### What's full DD vs not, and why
-
-The full-DD kernels (~1e-32) are:
-
-- **Arithmetic**: `+`, `-`, `*`, `/`, `sqrt`, `min`, `max`, `mod`, `modulo`,
-  `dim`, `hypot`, `pow_int`. These use error-free transformations
-  (Knuth's `two_sum`, Dekker's `two_prod` + FMA, Karp/Markstein for sqrt).
-- **Bit-exact**: `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`,
-  `scale`, `set_exponent`, every constructor and assignment.
-- **`exp`** — 14-term DD polynomial in the 1/8th-reduced argument,
-  cubed via three squarings, ported from
-  [Julia's MultiFloats.jl](https://github.com/dzhang314/MultiFloats.jl).
-- **`log`, `log10`** — 32-entry lookup table indexed by the top 5
-  mantissa bits, plus a polynomial in `t = (m - center)/(m + center)`.
-  For `x ∈ [15/16, 17/16]` the kernel falls back to a direct polynomial
-  in `t = (x - 1)/(x + 1)` with no table lookup. Ported from the same
-  source.
-- **`pow`** — `exp(b · log(a))`, full DD because both `exp` and `log`
-  are full DD.
-- **`sinh`, `cosh`** — derived from the new full-DD `exp`. `sinh` uses a
-  9-term Taylor series with DD coefficients for `|x| < 0.1` (otherwise
-  the `(eˣ - e⁻ˣ)/2` formula has cancellation), `cosh` uses
-  `(eˣ + e⁻ˣ)/2` everywhere.
-- **`asin`, `acos`** — one Newton step on the now-full-DD `sin`/`cos`,
-  seeded by the libm leading-limb call. Quadratic convergence makes
-  one step enough to reach DD precision.
-- **`acosh`** — `log(x + sqrt(x² - 1))` directly, with a `log(2x)`
-  asymptotic for huge `x` to avoid `x²` overflow.
-- **`atan2`** — uses full-DD `atan(y/x)` with a quadrant correction
-  using high-precision DD `π` and `π/2` constants. Picks the
-  `atan(y/x)` or `±π/2 - atan(x/y)` form to keep `|argument| ≤ 1`.
-- **Complex `+`, `-`, `*`, `/`, `conjg`, `abs`, `aimag`** — built from
-  real DD ops directly, no transcendental dependencies.
-- **`cdd_log`** real part — uses the overflow-safe formula
-  `log(max(|a|,|b|)) + ½ log(1 + (min/max)²)` so that `|z| > huge`
-  inputs don't overflow the intermediate `hypot`.
-- **`cdd_sin`, `cdd_cos`, `cdd_sinh`, `cdd_cosh`, `cdd_tan`, `cdd_tanh`** —
-  built from the new full-DD `sinh`/`cosh` and the near-DD
-  `sin`/`cos`, so the leading-limb error of each component is
-  ~1e-30.
-
-The "near-DD" group (~1e-22 max, ~1e-25 mean): `sin`, `cos`, `tan`,
-`atan`, `asinh`, `atanh`, `tanh`. These reach full DD on average but
-have isolated worst-case inputs that drop toward single-double due to
-range-reduction precision loss or formula cancellation. See the
-near-DD precision table for the per-op explanations.
-
-The single-double group (~1e-16): `erf`, `erfc`, `erfc_scaled`,
-`gamma`, `log_gamma`, `bessel_*`. There is no Julia polynomial port
-for these; getting them to full DD would need dedicated polynomial /
-continued-fraction approximations.
-
-The infrastructure (operators, reductions, complex / array support,
-constructors, assignments) is already at full DD; only the per-function
-kernels for the items above remain.
+Only the Bessel family and the inherently cancellation-bound cases above remain
+short of full DD; closing the Bessel gap would need dedicated DD polynomial /
+asymptotic kernels rather than the current libm-seeded refinement.
 
 ## Matmul API and GEMM relationship
 

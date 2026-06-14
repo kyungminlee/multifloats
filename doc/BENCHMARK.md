@@ -151,7 +151,7 @@ pointers rather than FP registers. **Bold** marks ≥ 2×.
 | mod | Fortran | full DD | 1.0 ulp | exact | — / 1.4× | sample: floor-multiple reduction loop; fallback to div chain |
 | modulo | Fortran | full DD | 1.0 ulp | exact | — / 1.7× | original: mod + sign adjustment |
 | pow\_int | Fortran | full DD | 10 ulp | 0.5 qp ulp | — / **3.3×** | original: repeated squaring via DD mul |
-| erfc\_scaled | Fortran | full DD | 290 ulp | 256 qp ulp | — / **7.3×** | exp(x^2)·erfc(x) with asymptotic cancellation |
+| erfc\_scaled | Fortran | full DD | 1.1 ulp | 1.3 qp ulp | — / **7.3×** | asymptotic erfc + triple-double exp(x²) reflection for large \|x\| |
 | gamma | Fortran | full DD | 12 ulp | 1.6 qp ulp | — / **8.6×** | piecewise rational approx + Stirling + reflection |
 | log\_gamma | Fortran | full DD | 1.9 ulp | 1.3 qp ulp | — / **4.7×** | piecewise rational approx + Stirling asymptotic |
 | bessel\_j0 | Fortran | full DD | 0.2 ulp | 0.3 qp ulp | — / **6.1×** | piecewise rational + Hankel asymptotic (j0q.c) via C++ |
