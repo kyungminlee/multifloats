@@ -1,15 +1,20 @@
 # Precision
 
 The `cpp_fuzz` / `fortran_fuzz` drivers run every operation through 1M random
-input pairs — using adversarial strategies (subnormals, near-cancellation,
+inputs — using adversarial strategies (subnormals, near-cancellation,
 near-overflow, non-finite leading limbs) — and report the per-op
-`(max_rel_err, mean_rel_err)` against a quad-precision (`real(16)`) reference.
-A relative error reported as `0` means *exactly bit-equal* to the qp reference
-for every input drawn.
+`(max_rel_err, mean_rel_err)`. The C++ driver references `__float128`
+(libquadmath); the Fortran driver references `real(16)`; and the optional
+`cpp_fuzz_mpfr` driver references a 200-bit [MPFR](https://www.mpfr.org/)
+oracle, which separates the DD kernel's own error from the ~113-bit float128
+floor. A relative error reported as `0` means *exactly bit-equal* to the
+reference for every input drawn.
 
-This page summarises which kernels reach **full double-double** precision and
-which do not, and why. For the complete per-op tables see the
-[benchmark report](../BENCHMARK.md) and the project README.
+One **DD ulp** is `2⁻¹⁰⁴ ≈ 5e-32`, so "full double-double" means a worst-case
+relative error that is a small constant multiple of `5e-32`.
+
+The numbers below are from a representative 1M-iteration run (seed 0). Your
+build will land in the same orders of magnitude.
 
 ## Precision classes at a glance
 
@@ -20,38 +25,55 @@ which do not, and why. For the complete per-op tables see the
   - Typical max rel err
   - Members
 * - **Full double-double**
-  - ~1e-30 – 1e-32
-  - `+ - * /`, `sqrt`, `min`/`max`, `mod`, `dim`, `hypot`, `pow_int`, `exp`,
-    `log`, `log10`, `pow`, `sinh`, `cosh`, `asin`, `acos`, `acosh`, `atan2`,
-    complex `+ - * /`, and the `cdd_*` transcendentals.
+  - ~1e-32 (≈ 1 DD ulp)
+  - `+ - * /`, `sqrt`, `cbrt`, `min`/`max`, `mod`, `dim`, `hypot`, `pow`,
+    `exp`/`exp2`/`expm1`, `log`/`log2`/`log10`/`log1p`, the full trig set
+    (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`), the full
+    hyperbolic set (`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`),
+    `erf`, `erfc`, `erfc_scaled`, `lgamma`, complex `+ - * /`, and the
+    `cdd_*` transcendentals.
 * - **Bit-exact (always 0)**
   - 0
   - `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`, `scale`,
     `set_exponent`, every constructor and assignment, complex `*` real part.
-* - **Near-DD**
-  - ~1e-22 max, ~1e-25 mean
-  - `sin`, `cos`, `tan`, `atan`, `asinh`, `atanh`, `tanh`.
-* - **Single-double, derivative-corrected**
-  - ~1e-16
-  - `erf`, `erfc`, `erfc_scaled`, `gamma`, `log_gamma`, `bessel_*`.
+* - **Near full DD**
+  - ~1e-31
+  - `gamma` (a few DD ulp worst-case).
+* - **Reduced — Bessel family**
+  - ~1e-29 – 1e-27
+  - `bessel_j0/j1/jn`, `bessel_y0/y1/yn`. libm-seeded; far better than one
+    double ulp, but not full DD.
 ```
 
-## Why some kernels are not full DD
+## Measured worst / mean relative error (1M, seed 0)
 
-**Near-DD group** (`sin`, `cos`, `tan`, `atan`, `asinh`, `atanh`, `tanh`).
-These reach full DD on average but have isolated worst-case inputs that drop
-toward single-double — range reduction `x · 1/π` loses bits ∝ log₂|x|, and
-formulas like `1 − 2/(e²ˣ+1)` round to 1 as `|x| → ∞`.
+The transcendentals and special functions — the historically interesting
+cases — all reach full DD except the Bessel family:
 
-**Single-double group** (`erf`, `erfc`, `erfc_scaled`, `gamma`, `log_gamma`,
-`bessel_*`). These are computed as `f(hi) + f'(hi)·lo` combined via
-`fast_two_sum`, giving roughly one double ulp. There is no Julia polynomial
-port to crib from for these; reaching full DD would need dedicated polynomial
-or continued-fraction approximations.
+| Op | max_rel | mean_rel |
+| --- | --- | --- |
+| `sin` / `cos` / `tan` | 3.7e-32 / 4.1e-32 / 6.5e-32 | ~2e-33 |
+| `atan` / `atan2` | 2.5e-32 | 1.3e-33 |
+| `sinh` / `cosh` / `tanh` | ~6e-32 | ~3e-33 |
+| `asinh` / `acosh` / `atanh` | ~5e-32 | ~2e-33 |
+| `erf` | 1.7e-32 | 2.4e-33 |
+| `erfc` | 2.5e-32 | 8.9e-34 |
+| `erfc_scaled` (`erfcx`) | 5.5e-32 | 2.5e-33 |
+| `lgamma` | 4.7e-32 | 6.4e-33 |
+| `gamma` | 2.6e-31 | 1.0e-32 |
+| `bessel_j0` / `j1` / `jn` | 1.1e-29 / 1.4e-29 / 1.4e-28 | ~1.5e-32 |
+| `bessel_y0` / `y1` / `yn` | 7.9e-27 / 2.6e-29 / 3.6e-29 | ~3e-31 |
 
-`erf`/`erfc` use a hybrid kernel — a 50-term DD Taylor series for `|x| < 2`
-(full DD) and `sign(x)·(1 − erfc_dp(|x|))` for `|x| ≥ 2`, which is full DD once
-`|x| ≥ 6` and inherits libm's dp precision in the `[2, 6]` band.
+## Why the Bessel family is not full DD
+
+`bessel_*` is seeded from libm's double-precision result and refined, with
+`jn`/`yn` built on integer-order recurrences from `j0`/`j1`/`y0`/`y1`. The
+worst case is `bessel_y0` near its zeros (~8e-27), where the function passes
+through zero and the relative error is dominated by the libm seed. Reaching
+full DD here would need dedicated DD polynomial / asymptotic kernels rather
+than a libm-seeded refinement. `gamma` is a touch above the DD floor
+(~2.6e-31) for the same reason at large arguments, while `lgamma` — computed
+from a native DD Stirling series — is full DD.
 
 ## What makes the full-DD kernels exact
 
@@ -65,6 +87,15 @@ or continued-fraction approximations.
 - **`pow`** — `exp(b · log(a))`, full DD because both halves are.
 - **`atan2`** — full-DD `atan(y/x)` with a quadrant correction using
   high-precision DD `π` / `π/2` constants.
+- **`erf` / `erfc`** — piecewise rational fits with DD coefficients (ported
+  from libquadmath `erfq.c`), plus an overflow-safe asymptotic split
+  `exp(-x²) = exp(-s²-0.5625)·exp((s-x)(s+x)+R)` where `s` is `x` truncated to
+  35 mantissa bits, so `s²` is exact in a double.
+- **`erfc_scaled`** — the asymptotic branch avoids forming `exp(x²)` for
+  `|x| ≥ 1.25`. The large-negative reflection `2·exp(x²) − erfc_scaled(|x|)`
+  squares `x` to **triple-double** and folds the residual limb back into the
+  exponent (`exp(x²) = exp(x²_dd)·(1 + resid)`), since a DD `x²` cannot hold
+  the argument to the absolute precision `exp` needs at large `|x|`.
 
 ```{important}
 Every error-free transformation depends on `std::fma` being IEEE-compliant
