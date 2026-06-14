@@ -19,10 +19,9 @@ The two public types are:
 - **`multifloats::complex64x2`** — the double-double complex type, an identical
   POD in C and C++.
 
-Below is the complete header surface as extracted by Doxygen — both structs,
-the `extern "C"` `*dd` entry points (`muldd`, `sindd`, `logdd`,
-`matmuldd_mm`, …), the `<cmath>`-style free functions, and the macros
-(`MULTIFLOATS_ABI_VERSION`):
+Below is the public header surface as extracted by Doxygen — both structs,
+the `extern "C"` `*dd` entry points (`muldd`, `sindd`, `logdd`, …), the
+`<cmath>`-style free functions, and the macros (`MULTIFLOATS_ABI_VERSION`):
 
 ```{eval-rst}
 .. doxygenfile:: float64x2.h
