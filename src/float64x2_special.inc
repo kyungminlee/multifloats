@@ -170,7 +170,17 @@ float64x2 erfcx(float64x2 const &x) {
   }
   float64x2 res = exp(p - float64x2(0.5625)) / ax;
   if (neg) {
-    float64x2 exp_x2 = exp(x2);
+    // erfc_scaled(-|x|) = 2·exp(x²) - erfc_scaled(|x|). The result is
+    // dominated by 2·exp(x²), so its accuracy is bounded by how well the
+    // argument x² is known: a DD x² carries only ~104 bits, leaving an
+    // absolute error ~x²·2⁻¹⁰⁴ that exp turns into relative error (~3e-29
+    // near the |x|<26 fuzz edge). Recover those bits by squaring |x| to
+    // triple-double and folding the third limb back in:
+    //   exp(x²) = exp(x²_dd)·exp(resid) ≈ exp(x²_dd)·(1 + resid)
+    // (resid ≲ 3e-29, so the dropped resid²/2 term is ~1e-57 — invisible).
+    float64x3 ax2_td = td_mul_td(td_from_dd(ax), td_from_dd(ax));
+    float64x2 exp_x2 = exp(float64x2(ax2_td.limbs[0], ax2_td.limbs[1])) *
+                       (float64x2(1.0) + float64x2(ax2_td.limbs[2]));
     if (!std::isfinite(exp_x2.limbs[0])) {
       float64x2 r;
       r.limbs[0] = std::numeric_limits<double>::infinity();
