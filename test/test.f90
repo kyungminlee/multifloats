@@ -85,9 +85,9 @@ contains
     character(*), intent(in) :: msg
     real(16) :: qa
     qa = real(a%limbs(1), 16) + real(a%limbs(2), 16)
-    ! Transcendentals are computed via a first-order derivative-corrected
-    ! DD evaluation (no qp temporaries), giving roughly single-double
-    ! precision. Allow a relative error around 1e-15.
+    ! Most transcendentals are now full DD (~1e-32); only a few cases
+    ! (Bessel, gamma, and cancellation-bound formulas) are looser. 1e-15 is
+    ! a deliberately conservative blanket tolerance for this smoke suite.
     if (abs(qa - b) > abs(b)*1e-15_16 .and. abs(qa - b) > 1e-300_16) then
        print *, "ASSERT_APPROX_QP FAILED: ", msg
        print *, "  Expected: ", b

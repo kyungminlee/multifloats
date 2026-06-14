@@ -499,10 +499,10 @@ contains
     end select
   end function
 
-  ! Compound transcendentals like pow = exp(b*log(a)) and complex
-  ! transcendentals chain two derivative-corrected steps and accumulate
-  ! ~10× more error than a single transcendental. Bessel intrinsics in
-  ! libm are also typically less than full single-double accurate.
+  ! Looser tolerance for the complex DD transcendentals (cdd_*) and the
+  ! n-element product reduction. The complex formulas chain several real
+  ! transcendentals, and some components (e.g. cdd_div_im, or cdd_exp near
+  ! the cancellation surface) carry more error than a single real op.
   logical function is_compound(op)
     character(*), intent(in) :: op
     select case (op)

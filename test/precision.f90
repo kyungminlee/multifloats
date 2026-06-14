@@ -129,8 +129,8 @@ contains
     end if
   end subroutine
 
-  ! Looser tolerance (~ulp(double)) for complex transcendentals, which
-  ! are derived from the first-order derivative-corrected real DD kernels.
+  ! Conservative tolerance (~ulp(double)) for complex transcendentals.
+  ! Most are full DD; a few (cdd_pow, cdd_expm1/log1p) are cancellation-bound.
   subroutine check_complex_approx(label, got, expect, failures)
     character(*), intent(in) :: label
     type(cmplx64x2), intent(in) :: got
@@ -238,9 +238,9 @@ contains
     call check_complex_close('cdd sub mixed', z1 - cmplx(0.5_dp, -0.125_dp, dp), q1 - cmplx(0.5_qp, -0.125_qp, qp), failures)
     call check_complex_close('cdd mul', z1 * z2, q1 * q2, failures)
     call check_complex_close('cdd div', z1 / z2, q1 / q2, failures)
-    ! sqrt is full DD precision; exp / log / trig / hyperbolic are
-    ! built from the first-order derivative-corrected real kernels and
-    ! only carry single-double precision.
+    ! sqrt, exp, log, trig, and hyperbolic are all full DD now; the looser
+    ! check_complex_approx below is kept as a conservative guard for the
+    ! cancellation-bound complex cases.
     call check_complex_close('cdd sqrt', sqrt(z1), sqrt(q1), failures)
     call check_complex_approx('cdd exp', exp(z1), exp(q1), failures)
 
