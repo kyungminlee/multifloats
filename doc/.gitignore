@@ -1,0 +1,6 @@
+# Sphinx build output
+_build/
+# Doxygen XML consumed by Breathe
+_doxygen/
+# Local uv virtualenv for the docs toolchain
+.venv/

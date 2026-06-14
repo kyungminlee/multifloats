@@ -120,7 +120,11 @@ constexpr void two_prod(T a, T b, T &prod, T &err) {
  * Layout is identical under C and C++; the Fortran `bind(c)` interop layer
  * assumes two back-to-back doubles (four for complex64x2).
  * ============================================================================= */
+/// @brief Double-double value: two IEEE-754 binary64 limbs (~104-bit
+///        significand). A plain POD in C; carries the full class API in C++.
 struct float64x2 {
+  /// High and low limbs; `limbs[0]` is the leading binary64, `limbs[1]` the
+  /// correction term with `|limbs[1]| <= ulp(limbs[0])/2` when canonical.
   // The `= {}` member initializer (C++ only) is load-bearing: operator+,
   // operator-, operator*, and operator/ all have non-finite short-circuit
   // branches that write only `out.limbs[0]` and rely on `limbs[1]` being
@@ -145,9 +149,12 @@ struct float64x2 {
   // the scalar form is used implicitly throughout (e.g. `float64x2(1)` in
   // hypot/cbrt), and the two-arg form is the natural DD-literal spelling
   // `float64x2{hi, lo}` used inside class-method bodies.
+  /// @brief Construct from a double (low limb zero). Implicit on purpose.
   constexpr float64x2(double arg) : limbs{arg, 0.0} {}
+  /// @brief Construct from explicit high and low limbs, `{hi, lo}`.
   constexpr float64x2(double hi, double lo) : limbs{hi, lo} {}
 
+  /// @brief Truncate to the leading limb as a plain `double`.
   constexpr explicit operator double() const { return limbs[0]; }
 
   // Lexicographic comparison. NaN is unordered: IEEE `<` is false on either
@@ -155,6 +162,7 @@ struct float64x2 {
   // yielding `operator<` = false — same as the previous _lex_compare loop.
   // For +0 vs -0 the leading comparisons are both false (IEEE +0 == -0), so
   // we correctly fall through to the next limb.
+  /// @brief Lexicographic ordering by limb; NaN is unordered, +0 equals -0.
   constexpr bool operator==(float64x2 const &r) const {
     return limbs[0] == r.limbs[0] && limbs[1] == r.limbs[1];
   }
@@ -168,7 +176,9 @@ struct float64x2 {
   constexpr bool operator<=(float64x2 const &r) const { return !(r < *this); }
   constexpr bool operator>=(float64x2 const &r) const { return !(*this < r); }
 
+  /// @brief Unary plus (identity).
   constexpr float64x2 operator+() const { return *this; }
+  /// @brief Unary negation, `-a`.
   constexpr float64x2 operator-() const { return {-limbs[0], -limbs[1]}; }
 
   // ---------------------------------------------------------------------------
@@ -176,6 +186,7 @@ struct float64x2 {
   // MultiFloats.jl (mfadd / mfmul) and the Float64x2 division kernel.
   // ---------------------------------------------------------------------------
 
+  /// @brief Double-double sum (compensated, error-free transformation).
   constexpr float64x2 operator+(float64x2 const &rhs) const {
     float64x2 out;
     double s = limbs[0] + rhs.limbs[0];
@@ -202,6 +213,7 @@ struct float64x2 {
     return out;
   }
 
+  /// @brief Double-double difference (compensated, error-free transformation).
   constexpr float64x2 operator-(float64x2 const &rhs) const {
     float64x2 out;
     double s = limbs[0] - rhs.limbs[0];
@@ -224,6 +236,7 @@ struct float64x2 {
     return out;
   }
 
+  /// @brief Double-double product (Dekker `two_prod` + FMA).
   constexpr float64x2 operator*(float64x2 const &rhs) const {
     float64x2 out;
     double p00 = 0.0, e00 = 0.0;
@@ -244,6 +257,7 @@ struct float64x2 {
     return out;
   }
 
+  /// @brief Double-double quotient (Dekker-style divide with one refinement).
   constexpr float64x2 operator/(float64x2 const &rhs) const {
     // Dekker-style: q1 = hi/rhs.hi, refine once.
     double q1 = limbs[0] / rhs.limbs[0];
@@ -283,15 +297,19 @@ struct float64x2 {
     return out;
   }
 
+  /// @brief Compound add-assign, `*this = *this + rhs`.
   constexpr float64x2 &operator+=(float64x2 const &rhs) {
     return *this = *this + rhs;
   }
+  /// @brief Compound subtract-assign, `*this = *this - rhs`.
   constexpr float64x2 &operator-=(float64x2 const &rhs) {
     return *this = *this - rhs;
   }
+  /// @brief Compound multiply-assign, `*this = *this * rhs`.
   constexpr float64x2 &operator*=(float64x2 const &rhs) {
     return *this = *this * rhs;
   }
+  /// @brief Compound divide-assign, `*this = *this / rhs`.
   constexpr float64x2 &operator/=(float64x2 const &rhs) {
     return *this = *this / rhs;
   }
@@ -311,8 +329,12 @@ struct float64x2 {
  * overloads (declared after the extern "C" block) marshal between the two
  * representations. Layout compatibility is pinned by the static_asserts
  * below; the overloads forward by value and inline away cleanly. */
+/// @brief Double-double complex value: a `float64x2` real and imaginary part.
+///        A distinct POD (not `std::complex<float64x2>`) for a single ABI
+///        type identity across C, C++, and Fortran `bind(c)`.
 struct complex64x2 {
-  struct float64x2 re, im;
+  struct float64x2 re;   ///< Real part.
+  struct float64x2 im;   ///< Imaginary part.
 };
 
 #ifndef __cplusplus
@@ -357,94 +379,150 @@ extern "C" {
 #endif
 
 /* Arithmetic */
+/// @brief Sum of two double-doubles, `a + b`.
 MULTIFLOATS_API float64x2 adddd(float64x2 a, float64x2 b);
+/// @brief Difference of two double-doubles, `a - b`.
 MULTIFLOATS_API float64x2 subdd(float64x2 a, float64x2 b);
+/// @brief Product of two double-doubles, `a * b`.
 MULTIFLOATS_API float64x2 muldd(float64x2 a, float64x2 b);
+/// @brief Quotient of two double-doubles, `a / b`.
 MULTIFLOATS_API float64x2 divdd(float64x2 a, float64x2 b);
 
 /* Unary */
+/// @brief Negation, `-a`.
 MULTIFLOATS_API float64x2 negdd(float64x2 a);
+/// @brief Absolute value, `|a|`.
 MULTIFLOATS_API float64x2 fabsdd(float64x2 a);
+/// @brief Square root.
 MULTIFLOATS_API float64x2 sqrtdd(float64x2 a);
 
 /* Rounding. truncdd matches C trunc / Fortran AINT (toward zero).
  * rounddd matches C round / Fortran ANINT (to nearest, halfway away). */
+/// @brief Round toward zero (C `trunc` / Fortran `AINT`).
 MULTIFLOATS_API float64x2 truncdd(float64x2 a);
+/// @brief Round to nearest, halfway away from zero (C `round` / Fortran `ANINT`).
 MULTIFLOATS_API float64x2 rounddd(float64x2 a);
 
 /* Binary */
+/// @brief Minimum of two double-doubles.
 MULTIFLOATS_API float64x2 fmindd(float64x2 a, float64x2 b);
+/// @brief Maximum of two double-doubles.
 MULTIFLOATS_API float64x2 fmaxdd(float64x2 a, float64x2 b);
+/// @brief Euclidean distance `sqrt(a^2 + b^2)`, with overflow-safe scaling.
 MULTIFLOATS_API float64x2 hypotdd(float64x2 a, float64x2 b);
+/// @brief Power `a**b`, via `exp(b * log(a))`.
 MULTIFLOATS_API float64x2 powdd(float64x2 a, float64x2 b);
 /* Integer-exponent power via exponentiation-by-squaring: ⌈log2|n|⌉
  * squarings plus popcount(|n|) multiplies, exact up to DD precision
  * per step. One DD division at the end when n < 0. */
+/// @brief Integer power `a**n` by exponentiation-by-squaring.
 MULTIFLOATS_API float64x2 powidd(float64x2 a, int n);
+/// @brief Floating-point remainder of `a / b` (sign of `a`; C `fmod`).
 MULTIFLOATS_API float64x2 fmoddd(float64x2 a, float64x2 b);
 /* Floored modulo (Fortran `modulo` semantics): same sign as y.
  * modulodd(x, y) = fmod(x, y), plus y if the remainder and y have
  * opposite signs. Uses DD signbit (first-nonzero-limb), so
  * non-canonical DDs with hi==0 still get the right sign. */
+/// @brief Floored remainder of `a / b` (sign of `b`; Fortran `modulo`).
 MULTIFLOATS_API float64x2 modulodd(float64x2 a, float64x2 b);
+/// @brief Positive difference, `max(a - b, 0)`.
 MULTIFLOATS_API float64x2 fdimdd(float64x2 a, float64x2 b);
+/// @brief Magnitude of `a` with the sign of `b`.
 MULTIFLOATS_API float64x2 copysigndd(float64x2 a, float64x2 b);
+/// @brief Fused multiply-add `a * b + c` with a single rounding.
 MULTIFLOATS_API float64x2 fmadd(float64x2 a, float64x2 b, float64x2 c);
 
 /* Exponential / logarithmic. `expm1dd` / `log1pdd` are the
  * cancellation-safe variants for arguments near zero — direct Taylor
  * / atanh-narrow kernels cover |x| below a threshold, larger |x|
  * falls through to the standard `exp` / `log` paths. */
+/// @brief Base-e exponential, `e**a`.
 MULTIFLOATS_API float64x2 expdd(float64x2 a);
+/// @brief Base-2 exponential, `2**a`.
 MULTIFLOATS_API float64x2 exp2dd(float64x2 a);
+/// @brief Base-10 exponential, `10**a`.
 MULTIFLOATS_API float64x2 exp10dd(float64x2 a);
+/// @brief `e**a - 1`, accurate for small `a`.
 MULTIFLOATS_API float64x2 expm1dd(float64x2 a);
+/// @brief `2**a - 1`, accurate for small `a`.
 MULTIFLOATS_API float64x2 exp2m1dd(float64x2 a);
+/// @brief `10**a - 1`, accurate for small `a`.
 MULTIFLOATS_API float64x2 exp10m1dd(float64x2 a);
+/// @brief Natural (base-e) logarithm.
 MULTIFLOATS_API float64x2 logdd(float64x2 a);
+/// @brief Base-2 logarithm.
 MULTIFLOATS_API float64x2 log2dd(float64x2 a);
+/// @brief Base-10 logarithm.
 MULTIFLOATS_API float64x2 log10dd(float64x2 a);
+/// @brief `log(1 + a)`, accurate for small `a`.
 MULTIFLOATS_API float64x2 log1pdd(float64x2 a);
+/// @brief `log2(1 + a)`, accurate for small `a`.
 MULTIFLOATS_API float64x2 log2p1dd(float64x2 a);
+/// @brief `log10(1 + a)`, accurate for small `a`.
 MULTIFLOATS_API float64x2 log10p1dd(float64x2 a);
 
 /* Trigonometric */
+/// @brief Sine.
 MULTIFLOATS_API float64x2 sindd(float64x2 a);
+/// @brief Cosine.
 MULTIFLOATS_API float64x2 cosdd(float64x2 a);
+/// @brief Tangent.
 MULTIFLOATS_API float64x2 tandd(float64x2 a);
+/// @brief Arc sine.
 MULTIFLOATS_API float64x2 asindd(float64x2 a);
+/// @brief Arc cosine.
 MULTIFLOATS_API float64x2 acosdd(float64x2 a);
+/// @brief Arc tangent.
 MULTIFLOATS_API float64x2 atandd(float64x2 a);
+/// @brief Arc tangent of `a/b`, using the signs of both to pick the quadrant.
 MULTIFLOATS_API float64x2 atan2dd(float64x2 a, float64x2 b);
 
 /* π-scaled trig: {sin,cos,tan}pidd(x) = fn(π·x),
  *                {asin,acos,atan}pidd(x) = fn(x)/π,
  *                atan2pidd(y,x) = atan2(y,x)/π. */
+/// @brief `sin(pi * a)`.
 MULTIFLOATS_API float64x2 sinpidd(float64x2 a);
+/// @brief `cos(pi * a)`.
 MULTIFLOATS_API float64x2 cospidd(float64x2 a);
+/// @brief `tan(pi * a)`.
 MULTIFLOATS_API float64x2 tanpidd(float64x2 a);
+/// @brief `asin(a) / pi`.
 MULTIFLOATS_API float64x2 asinpidd(float64x2 a);
+/// @brief `acos(a) / pi`.
 MULTIFLOATS_API float64x2 acospidd(float64x2 a);
+/// @brief `atan(a) / pi`.
 MULTIFLOATS_API float64x2 atanpidd(float64x2 a);
+/// @brief `atan2(a, b) / pi`.
 MULTIFLOATS_API float64x2 atan2pidd(float64x2 a, float64x2 b);
 
 /* Hyperbolic */
+/// @brief Hyperbolic sine.
 MULTIFLOATS_API float64x2 sinhdd(float64x2 a);
+/// @brief Hyperbolic cosine.
 MULTIFLOATS_API float64x2 coshdd(float64x2 a);
+/// @brief Hyperbolic tangent.
 MULTIFLOATS_API float64x2 tanhdd(float64x2 a);
+/// @brief Inverse hyperbolic sine.
 MULTIFLOATS_API float64x2 asinhdd(float64x2 a);
+/// @brief Inverse hyperbolic cosine.
 MULTIFLOATS_API float64x2 acoshdd(float64x2 a);
+/// @brief Inverse hyperbolic tangent.
 MULTIFLOATS_API float64x2 atanhdd(float64x2 a);
 
 /* Error functions. erfcxdd is the scaled complementary error function
  *   erfcxdd(x) = exp(x^2) * erfcdd(x)
  * (standard name in Faddeeva/Julia/SciPy; Fortran calls it erfc_scaled). */
+/// @brief Error function.
 MULTIFLOATS_API float64x2 erfdd(float64x2 a);
+/// @brief Complementary error function, `1 - erf(a)`.
 MULTIFLOATS_API float64x2 erfcdd(float64x2 a);
+/// @brief Scaled complementary error function `exp(a^2) * erfc(a)` (Fortran `erfc_scaled`).
 MULTIFLOATS_API float64x2 erfcxdd(float64x2 a);
 
 /* Gamma functions */
+/// @brief Gamma function, `Gamma(a)`.
 MULTIFLOATS_API float64x2 tgammadd(float64x2 a);
+/// @brief Natural log of `|Gamma(a)|`.
 MULTIFLOATS_API float64x2 lgammadd(float64x2 a);
 
 /* Bessel functions (POSIX naming). jndd / yndd: integer-order recurrence
@@ -453,27 +531,41 @@ MULTIFLOATS_API float64x2 lgammadd(float64x2 a);
  * values; yndd_range uses a single stable forward-recurrence sweep (cheaper
  * than n2−n1+1 independent yndd calls), while jndd_range loops over jndd
  * because Jn's forward recurrence is unstable for n > x. */
+/// @brief Bessel function of the first kind, order 0.
 MULTIFLOATS_API float64x2 j0dd(float64x2 a);
+/// @brief Bessel function of the first kind, order 1.
 MULTIFLOATS_API float64x2 j1dd(float64x2 a);
+/// @brief Bessel function of the second kind, order 0.
 MULTIFLOATS_API float64x2 y0dd(float64x2 a);
+/// @brief Bessel function of the second kind, order 1.
 MULTIFLOATS_API float64x2 y1dd(float64x2 a);
+/// @brief Bessel function of the first kind, integer order `n`.
 MULTIFLOATS_API float64x2 jndd(int n, float64x2 a);
+/// @brief Bessel function of the second kind, integer order `n`.
 MULTIFLOATS_API float64x2 yndd(int n, float64x2 a);
+/// @brief Fill `out` with first-kind Bessel values for orders `n1..n2`.
 MULTIFLOATS_API void jndd_range(int n1, int n2, float64x2 a, float64x2 *out);
+/// @brief Fill `out` with second-kind Bessel values for orders `n1..n2` (stable forward recurrence).
 MULTIFLOATS_API void yndd_range(int n1, int n2, float64x2 a, float64x2 *out);
 
 /* Fused sincos / sinhcosh. One range-reduction + Taylor pair produces
  * both outputs, roughly halving the transcendental cost for call sites
  * that need both. Out-pointer style since C has no multi-value return. */
+/// @brief Compute `sin(a)` and `cos(a)` together into `*s` and `*c`.
 MULTIFLOATS_API void sincosdd(float64x2 a, float64x2 *s, float64x2 *c);
+/// @brief Compute `sinh(a)` and `cosh(a)` together into `*s` and `*c`.
 MULTIFLOATS_API void sinhcoshdd(float64x2 a, float64x2 *s, float64x2 *c);
 
 /* Complex DD arithmetic. These are the canonical implementations; the
  * Fortran elemental `cdd + cdd`, `cdd * dp`, etc. routines wrap these via
  * bind(c). */
+/// @brief Complex sum of two double-double complex values.
 MULTIFLOATS_API complex64x2 cadddd(complex64x2 a, complex64x2 b);
+/// @brief Complex difference of two double-double complex values.
 MULTIFLOATS_API complex64x2 csubdd(complex64x2 a, complex64x2 b);
+/// @brief Complex product of two double-double complex values.
 MULTIFLOATS_API complex64x2 cmuldd(complex64x2 a, complex64x2 b);
+/// @brief Complex quotient of two double-double complex values.
 MULTIFLOATS_API complex64x2 cdivdd(complex64x2 a, complex64x2 b);
 
 /* Complex DD transcendentals. Branch cuts match C99 Annex G (matching
@@ -483,27 +575,49 @@ MULTIFLOATS_API complex64x2 cdivdd(complex64x2 a, complex64x2 b);
  * Precision and speed have been measured; the std::complex<float64x2>
  * specializations below delegate here where specialization wins (exp, sin,
  * cos, tan, sinh, cosh, tanh, atanh, acos). */
+/// @brief Complex base-e exponential.
 MULTIFLOATS_API complex64x2 cexpdd(complex64x2 z);
+/// @brief Complex `exp(z) - 1`, accurate for small `z`.
 MULTIFLOATS_API complex64x2 cexpm1dd(complex64x2 z);
+/// @brief Complex natural logarithm (principal branch).
 MULTIFLOATS_API complex64x2 clogdd(complex64x2 z);
+/// @brief Complex base-2 logarithm.
 MULTIFLOATS_API complex64x2 clog2dd(complex64x2 z);
+/// @brief Complex base-10 logarithm.
 MULTIFLOATS_API complex64x2 clog10dd(complex64x2 z);
+/// @brief Complex `log(1 + z)`, accurate for small `z`.
 MULTIFLOATS_API complex64x2 clog1pdd(complex64x2 z);
+/// @brief Complex power, `z**w`.
 MULTIFLOATS_API complex64x2 cpowdd(complex64x2 z, complex64x2 w);
+/// @brief Complex square root (principal branch).
 MULTIFLOATS_API complex64x2 csqrtdd(complex64x2 z);
+/// @brief Complex sine.
 MULTIFLOATS_API complex64x2 csindd(complex64x2 z);
+/// @brief Complex `sin(pi * z)`.
 MULTIFLOATS_API complex64x2 csinpidd(complex64x2 z);
+/// @brief Complex cosine.
 MULTIFLOATS_API complex64x2 ccosdd(complex64x2 z);
+/// @brief Complex `cos(pi * z)`.
 MULTIFLOATS_API complex64x2 ccospidd(complex64x2 z);
+/// @brief Complex tangent.
 MULTIFLOATS_API complex64x2 ctandd(complex64x2 z);
+/// @brief Complex arc sine.
 MULTIFLOATS_API complex64x2 casindd(complex64x2 z);
+/// @brief Complex arc cosine.
 MULTIFLOATS_API complex64x2 cacosdd(complex64x2 z);
+/// @brief Complex arc tangent.
 MULTIFLOATS_API complex64x2 catandd(complex64x2 z);
+/// @brief Complex hyperbolic sine.
 MULTIFLOATS_API complex64x2 csinhdd(complex64x2 z);
+/// @brief Complex hyperbolic cosine.
 MULTIFLOATS_API complex64x2 ccoshdd(complex64x2 z);
+/// @brief Complex hyperbolic tangent.
 MULTIFLOATS_API complex64x2 ctanhdd(complex64x2 z);
+/// @brief Complex inverse hyperbolic sine.
 MULTIFLOATS_API complex64x2 casinhdd(complex64x2 z);
+/// @brief Complex inverse hyperbolic cosine.
 MULTIFLOATS_API complex64x2 cacoshdd(complex64x2 z);
+/// @brief Complex inverse hyperbolic tangent.
 MULTIFLOATS_API complex64x2 catanhdd(complex64x2 z);
 
 /* Complex magnitude / argument / projection / conjugate / accessors.
@@ -511,11 +625,17 @@ MULTIFLOATS_API complex64x2 catanhdd(complex64x2 z);
  * cargdd = arg(z) in (-pi, pi].
  * cprojdd = projection onto the Riemann sphere (C99 7.3.9.4):
  *   infinities collapse to (+inf, copysign(0, imag)), else identity. */
+/// @brief Complex magnitude `|z|` (overflow-safe).
 MULTIFLOATS_API float64x2   cabsdd(complex64x2 z);
+/// @brief Complex argument `arg(z)` in (-pi, pi].
 MULTIFLOATS_API float64x2   cargdd(complex64x2 z);
+/// @brief Projection of `z` onto the Riemann sphere (C99 `cproj`).
 MULTIFLOATS_API complex64x2 cprojdd(complex64x2 z);
+/// @brief Complex conjugate.
 MULTIFLOATS_API complex64x2 conjdd(complex64x2 z);
+/// @brief Real part.
 MULTIFLOATS_API float64x2   crealdd(complex64x2 z);
+/// @brief Imaginary part.
 MULTIFLOATS_API float64x2   cimagdd(complex64x2 z);
 
 /* Matrix multiply (column-major, Fortran layout).
@@ -545,14 +665,17 @@ MULTIFLOATS_API float64x2   cimagdd(complex64x2 z);
  * renorm_interval: if > 0, renormalize accumulators every N reductions
  * (matches DD_FMA_RENORM_INTERVAL in the Fortran layer — keeps s_lo
  * bounded for large k). Pass 0 to renormalize only at the end. */
+/// @brief Column-major matrix product `C(m,n) = A(m,k) * B(k,n)`. `renorm_interval` bounds low-limb growth (0 renormalizes only at the end).
 MULTIFLOATS_API void matmuldd_mm(const float64x2 *a, const float64x2 *b,
                          float64x2 *c,
                          int64_t m, int64_t k, int64_t n,
                          int64_t renorm_interval);
+/// @brief Column-major matrix-vector product `y(m) = A(m,k) * x(k)`. See `renorm_interval`.
 MULTIFLOATS_API void matmuldd_mv(const float64x2 *a, const float64x2 *x,
                          float64x2 *y,
                          int64_t m, int64_t k,
                          int64_t renorm_interval);
+/// @brief Column-major vector-matrix product `y(n) = x(k) * B(k,n)`. See `renorm_interval`.
 MULTIFLOATS_API void matmuldd_vm(const float64x2 *x, const float64x2 *b,
                          float64x2 *y,
                          int64_t k, int64_t n,
@@ -575,15 +698,22 @@ MULTIFLOATS_API void matmuldd_vm(const float64x2 *x, const float64x2 *b,
  * the consumer's TU — keeping the library free of `std::string` in its
  * ABI surface (libstdc++ `_GLIBCXX_USE_CXX11_ABI` dual-ABI safe). */
 #define MULTIFLOATS_DD_CHARS_BUFSIZE 48
+/// @brief Write the scientific-notation decimal form of `x` into `[first, last)` (no NUL), `std::to_chars`-style; returns one past the last byte, or NULL if the buffer is too small.
 MULTIFLOATS_API char *to_charsdd(float64x2 x, int precision,
                                  char *first, char *last);
 
 /* Comparison (return int: 1 = true, 0 = false) */
+/// @brief Nonzero if `a == b`.
 MULTIFLOATS_API int eqdd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a != b`.
 MULTIFLOATS_API int nedd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a < b`.
 MULTIFLOATS_API int ltdd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a <= b`.
 MULTIFLOATS_API int ledd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a > b`.
 MULTIFLOATS_API int gtdd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a >= b`.
 MULTIFLOATS_API int gedd(float64x2 a, float64x2 b);
 
 /* libquadmath parity — every NAMEq in <quadmath.h> has a NAMEdd entry
@@ -593,63 +723,98 @@ MULTIFLOATS_API int gedd(float64x2 a, float64x2 b);
 
 /* Cube root, integer rounding (toward ±inf, nearest-current-mode), exponent
  * split / rescale, integer/fractional split, ulp-step, IEEE remainder. */
+/// @brief Cube root.
 MULTIFLOATS_API float64x2 cbrtdd(float64x2 a);
+/// @brief Round toward +infinity.
 MULTIFLOATS_API float64x2 ceildd(float64x2 a);
+/// @brief Round toward -infinity.
 MULTIFLOATS_API float64x2 floordd(float64x2 a);
+/// @brief Round to integer in the current rounding mode, without raising inexact.
 MULTIFLOATS_API float64x2 nearbyintdd(float64x2 a);
+/// @brief Round to integer in the current rounding mode.
 MULTIFLOATS_API float64x2 rintdd(float64x2 a);
+/// @brief Unbiased radix-2 exponent of `a`, as a floating-point value.
 MULTIFLOATS_API float64x2 logbdd(float64x2 a);
+/// @brief Split `a` into a fraction in [0.5, 1) and an exponent stored in `*exp`.
 MULTIFLOATS_API float64x2 frexpdd(float64x2 a, int *exp);
+/// @brief Split `a` into integer part (stored in `*iptr`) and fractional part.
 MULTIFLOATS_API float64x2 modfdd(float64x2 a, float64x2 *iptr);
+/// @brief Scale by a power of two, `a * 2**n`.
 MULTIFLOATS_API float64x2 ldexpdd(float64x2 a, int n);
+/// @brief Scale by a power of two, `a * 2**n`.
 MULTIFLOATS_API float64x2 scalbndd(float64x2 a, int n);
+/// @brief Scale by a power of two, `a * 2**n` (`long` exponent).
 MULTIFLOATS_API float64x2 scalblndd(float64x2 a, long n);
+/// @brief Next representable double-double after `a` toward `b`.
 MULTIFLOATS_API float64x2 nextafterdd(float64x2 a, float64x2 b);
+/// @brief IEEE 754 remainder of `a / b` (round-to-nearest quotient).
 MULTIFLOATS_API float64x2 remainderdd(float64x2 a, float64x2 b);
+/// @brief IEEE 754 remainder of `a / b`; low quotient bits stored in `*quo`.
 MULTIFLOATS_API float64x2 remquodd(float64x2 a, float64x2 b, int *quo);
+/// @brief Unbiased radix-2 exponent of `a`, as an `int`.
 MULTIFLOATS_API int ilogbdd(float64x2 a);
 
 /* Integer rounding — leading-limb's libm result with a half-integer
  * fixup that consults the lo limb (so e.g. lround((0.5, -ε)) = 0). */
+/// @brief Round to nearest, halfway away from zero, returning `long`.
 MULTIFLOATS_API long lrounddd(float64x2 a);
+/// @brief Round to nearest, halfway away from zero, returning `long long`.
 MULTIFLOATS_API long long llrounddd(float64x2 a);
+/// @brief Round to integer in the current rounding mode, returning `long`.
 MULTIFLOATS_API long lrintdd(float64x2 a);
+/// @brief Round to integer in the current rounding mode, returning `long long`.
 MULTIFLOATS_API long long llrintdd(float64x2 a);
 
 /* Classification — C99 isnan/isinf/signbit/isfinite/isnormal contract:
  * non-zero for true. `finitedd` mirrors libquadmath's legacy `finiteq`
  * spelling (alias for isfinitedd). `fpclassifydd` returns one of the
  * C99 FP_* values from <math.h> applied to the leading limb. */
+/// @brief Nonzero if `a` is NaN.
 MULTIFLOATS_API int isnandd(float64x2 a);
+/// @brief Nonzero if `a` is infinite.
 MULTIFLOATS_API int isinfdd(float64x2 a);
+/// @brief Nonzero if `a` is finite.
 MULTIFLOATS_API int isfinitedd(float64x2 a);
+/// @brief Nonzero if `a` is finite (libquadmath `finiteq` spelling).
 MULTIFLOATS_API int finitedd(float64x2 a);
+/// @brief Nonzero if `a` is normal (finite, nonzero, not subnormal).
 MULTIFLOATS_API int isnormaldd(float64x2 a);
+/// @brief Nonzero if the sign bit of `a` is set.
 MULTIFLOATS_API int signbitdd(float64x2 a);
+/// @brief C99 floating-point classification of `a` (`FP_NAN`, `FP_INFINITE`, ...).
 MULTIFLOATS_API int fpclassifydd(float64x2 a);
 
 /* C99 ordered/unordered comparison predicates. `isunordereddd` returns
  * non-zero iff either argument is NaN; the others return non-zero iff
  * the named ordered relation holds (and silently return 0 for NaN
  * operands, matching the C99 macros). */
+/// @brief Nonzero if `a` or `b` is NaN.
 MULTIFLOATS_API int isunordereddd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a > b` (quiet for NaN operands).
 MULTIFLOATS_API int isgreaterdd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a >= b` (quiet for NaN operands).
 MULTIFLOATS_API int isgreaterequaldd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a < b` (quiet for NaN operands).
 MULTIFLOATS_API int islessdd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a <= b` (quiet for NaN operands).
 MULTIFLOATS_API int islessequaldd(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a < b` or `a > b` (quiet for NaN operands).
 MULTIFLOATS_API int islessgreaterdd(float64x2 a, float64x2 b);
 /* Signaling-NaN test on the leading limb. Uses the compiler builtin
  * where available (gcc >= 13, clang with __has_builtin); otherwise
  * returns 0 — multifloats never constructs sNaNs internally, so the
  * fallback only loses signal when the caller explicitly passed an
  * sNaN through the C ABI. */
+/// @brief Nonzero if `a` is a signaling NaN.
 MULTIFLOATS_API int issignalingdd(float64x2 a);
 
 /* NaN with payload tag (libquadmath nanq parity). Calls std::nan(tagp)
  * for the leading limb; lo is set to 0. */
+/// @brief Quiet NaN with the payload parsed from `tagp` (libquadmath `nanq`).
 MULTIFLOATS_API float64x2 nandd(const char *tagp);
 
 /* cis(x) = cos(x) + i sin(x). Mirrors libquadmath cexpiq. */
+/// @brief `cos(a) + i*sin(a)` (libquadmath `cexpiq`).
 MULTIFLOATS_API complex64x2 cexpidd(float64x2 a);
 
 /* ----------------------------------------------------------------------------
@@ -664,148 +829,291 @@ MULTIFLOATS_API complex64x2 cexpidd(float64x2 a);
  *                rather than (mis)labelling DD as quad precision.
  * -------------------------------------------------------------------------- */
 
+/// @brief Sum of two double-doubles, `a + b`. (`f64x2`-tagged spelling of `adddd`)
 MULTIFLOATS_API float64x2 addf64x2(float64x2 a, float64x2 b);
+/// @brief Difference of two double-doubles, `a - b`. (`f64x2`-tagged spelling of `subdd`)
 MULTIFLOATS_API float64x2 subf64x2(float64x2 a, float64x2 b);
+/// @brief Product of two double-doubles, `a * b`. (`f64x2`-tagged spelling of `muldd`)
 MULTIFLOATS_API float64x2 mulf64x2(float64x2 a, float64x2 b);
+/// @brief Quotient of two double-doubles, `a / b`. (`f64x2`-tagged spelling of `divdd`)
 MULTIFLOATS_API float64x2 divf64x2(float64x2 a, float64x2 b);
+/// @brief Negation, `-a`. (`f64x2`-tagged spelling of `negdd`)
 MULTIFLOATS_API float64x2 negf64x2(float64x2 a);
+/// @brief Absolute value, `|a|`. (`f64x2`-tagged spelling of `fabsdd`)
 MULTIFLOATS_API float64x2 fabsf64x2(float64x2 a);
+/// @brief Square root. (`f64x2`-tagged spelling of `sqrtdd`)
 MULTIFLOATS_API float64x2 sqrtf64x2(float64x2 a);
+/// @brief Round toward zero (C `trunc` / Fortran `AINT`). (`f64x2`-tagged spelling of `truncdd`)
 MULTIFLOATS_API float64x2 truncf64x2(float64x2 a);
+/// @brief Round to nearest, halfway away from zero (C `round` / Fortran `ANINT`). (`f64x2`-tagged spelling of `rounddd`)
 MULTIFLOATS_API float64x2 roundf64x2(float64x2 a);
+/// @brief Minimum of two double-doubles. (`f64x2`-tagged spelling of `fmindd`)
 MULTIFLOATS_API float64x2 fminf64x2(float64x2 a, float64x2 b);
+/// @brief Maximum of two double-doubles. (`f64x2`-tagged spelling of `fmaxdd`)
 MULTIFLOATS_API float64x2 fmaxf64x2(float64x2 a, float64x2 b);
+/// @brief Euclidean distance `sqrt(a^2 + b^2)`, with overflow-safe scaling. (`f64x2`-tagged spelling of `hypotdd`)
 MULTIFLOATS_API float64x2 hypotf64x2(float64x2 a, float64x2 b);
+/// @brief Power `a**b`, via `exp(b * log(a))`. (`f64x2`-tagged spelling of `powdd`)
 MULTIFLOATS_API float64x2 powf64x2(float64x2 a, float64x2 b);
+/// @brief Integer power `a**n` by exponentiation-by-squaring. (`f64x2`-tagged spelling of `powidd`)
 MULTIFLOATS_API float64x2 powif64x2(float64x2 a, int n);
+/// @brief Floating-point remainder of `a / b` (sign of `a`; C `fmod`). (`f64x2`-tagged spelling of `fmoddd`)
 MULTIFLOATS_API float64x2 fmodf64x2(float64x2 a, float64x2 b);
+/// @brief Floored remainder of `a / b` (sign of `b`; Fortran `modulo`). (`f64x2`-tagged spelling of `modulodd`)
 MULTIFLOATS_API float64x2 modulof64x2(float64x2 a, float64x2 b);
+/// @brief Positive difference, `max(a - b, 0)`. (`f64x2`-tagged spelling of `fdimdd`)
 MULTIFLOATS_API float64x2 fdimf64x2(float64x2 a, float64x2 b);
+/// @brief Magnitude of `a` with the sign of `b`. (`f64x2`-tagged spelling of `copysigndd`)
 MULTIFLOATS_API float64x2 copysignf64x2(float64x2 a, float64x2 b);
+/// @brief Fused multiply-add `a * b + c` with a single rounding. (`f64x2`-tagged spelling of `fmadd`)
 MULTIFLOATS_API float64x2 fmaf64x2(float64x2 a, float64x2 b, float64x2 c);
+/// @brief Base-e exponential, `e**a`. (`f64x2`-tagged spelling of `expdd`)
 MULTIFLOATS_API float64x2 expf64x2(float64x2 a);
+/// @brief Base-2 exponential, `2**a`. (`f64x2`-tagged spelling of `exp2dd`)
 MULTIFLOATS_API float64x2 exp2f64x2(float64x2 a);
+/// @brief Base-10 exponential, `10**a`. (`f64x2`-tagged spelling of `exp10dd`)
 MULTIFLOATS_API float64x2 exp10f64x2(float64x2 a);
+/// @brief `e**a - 1`, accurate for small `a`. (`f64x2`-tagged spelling of `expm1dd`)
 MULTIFLOATS_API float64x2 expm1f64x2(float64x2 a);
+/// @brief `2**a - 1`, accurate for small `a`. (`f64x2`-tagged spelling of `exp2m1dd`)
 MULTIFLOATS_API float64x2 exp2m1f64x2(float64x2 a);
+/// @brief `10**a - 1`, accurate for small `a`. (`f64x2`-tagged spelling of `exp10m1dd`)
 MULTIFLOATS_API float64x2 exp10m1f64x2(float64x2 a);
+/// @brief Natural (base-e) logarithm. (`f64x2`-tagged spelling of `logdd`)
 MULTIFLOATS_API float64x2 logf64x2(float64x2 a);
+/// @brief Base-2 logarithm. (`f64x2`-tagged spelling of `log2dd`)
 MULTIFLOATS_API float64x2 log2f64x2(float64x2 a);
+/// @brief Base-10 logarithm. (`f64x2`-tagged spelling of `log10dd`)
 MULTIFLOATS_API float64x2 log10f64x2(float64x2 a);
+/// @brief `log(1 + a)`, accurate for small `a`. (`f64x2`-tagged spelling of `log1pdd`)
 MULTIFLOATS_API float64x2 log1pf64x2(float64x2 a);
+/// @brief `log2(1 + a)`, accurate for small `a`. (`f64x2`-tagged spelling of `log2p1dd`)
 MULTIFLOATS_API float64x2 log2p1f64x2(float64x2 a);
+/// @brief `log10(1 + a)`, accurate for small `a`. (`f64x2`-tagged spelling of `log10p1dd`)
 MULTIFLOATS_API float64x2 log10p1f64x2(float64x2 a);
+/// @brief Sine. (`f64x2`-tagged spelling of `sindd`)
 MULTIFLOATS_API float64x2 sinf64x2(float64x2 a);
+/// @brief Cosine. (`f64x2`-tagged spelling of `cosdd`)
 MULTIFLOATS_API float64x2 cosf64x2(float64x2 a);
+/// @brief Tangent. (`f64x2`-tagged spelling of `tandd`)
 MULTIFLOATS_API float64x2 tanf64x2(float64x2 a);
+/// @brief Arc sine. (`f64x2`-tagged spelling of `asindd`)
 MULTIFLOATS_API float64x2 asinf64x2(float64x2 a);
+/// @brief Arc cosine. (`f64x2`-tagged spelling of `acosdd`)
 MULTIFLOATS_API float64x2 acosf64x2(float64x2 a);
+/// @brief Arc tangent. (`f64x2`-tagged spelling of `atandd`)
 MULTIFLOATS_API float64x2 atanf64x2(float64x2 a);
+/// @brief Arc tangent of `a/b`, using the signs of both to pick the quadrant. (`f64x2`-tagged spelling of `atan2dd`)
 MULTIFLOATS_API float64x2 atan2f64x2(float64x2 a, float64x2 b);
+/// @brief `sin(pi * a)`. (`f64x2`-tagged spelling of `sinpidd`)
 MULTIFLOATS_API float64x2 sinpif64x2(float64x2 a);
+/// @brief `cos(pi * a)`. (`f64x2`-tagged spelling of `cospidd`)
 MULTIFLOATS_API float64x2 cospif64x2(float64x2 a);
+/// @brief `tan(pi * a)`. (`f64x2`-tagged spelling of `tanpidd`)
 MULTIFLOATS_API float64x2 tanpif64x2(float64x2 a);
+/// @brief `asin(a) / pi`. (`f64x2`-tagged spelling of `asinpidd`)
 MULTIFLOATS_API float64x2 asinpif64x2(float64x2 a);
+/// @brief `acos(a) / pi`. (`f64x2`-tagged spelling of `acospidd`)
 MULTIFLOATS_API float64x2 acospif64x2(float64x2 a);
+/// @brief `atan(a) / pi`. (`f64x2`-tagged spelling of `atanpidd`)
 MULTIFLOATS_API float64x2 atanpif64x2(float64x2 a);
+/// @brief `atan2(a, b) / pi`. (`f64x2`-tagged spelling of `atan2pidd`)
 MULTIFLOATS_API float64x2 atan2pif64x2(float64x2 a, float64x2 b);
+/// @brief Hyperbolic sine. (`f64x2`-tagged spelling of `sinhdd`)
 MULTIFLOATS_API float64x2 sinhf64x2(float64x2 a);
+/// @brief Hyperbolic cosine. (`f64x2`-tagged spelling of `coshdd`)
 MULTIFLOATS_API float64x2 coshf64x2(float64x2 a);
+/// @brief Hyperbolic tangent. (`f64x2`-tagged spelling of `tanhdd`)
 MULTIFLOATS_API float64x2 tanhf64x2(float64x2 a);
+/// @brief Inverse hyperbolic sine. (`f64x2`-tagged spelling of `asinhdd`)
 MULTIFLOATS_API float64x2 asinhf64x2(float64x2 a);
+/// @brief Inverse hyperbolic cosine. (`f64x2`-tagged spelling of `acoshdd`)
 MULTIFLOATS_API float64x2 acoshf64x2(float64x2 a);
+/// @brief Inverse hyperbolic tangent. (`f64x2`-tagged spelling of `atanhdd`)
 MULTIFLOATS_API float64x2 atanhf64x2(float64x2 a);
+/// @brief Error function. (`f64x2`-tagged spelling of `erfdd`)
 MULTIFLOATS_API float64x2 erff64x2(float64x2 a);
+/// @brief Complementary error function, `1 - erf(a)`. (`f64x2`-tagged spelling of `erfcdd`)
 MULTIFLOATS_API float64x2 erfcf64x2(float64x2 a);
+/// @brief Scaled complementary error function `exp(a^2) * erfc(a)` (Fortran `erfc_scaled`). (`f64x2`-tagged spelling of `erfcxdd`)
 MULTIFLOATS_API float64x2 erfcxf64x2(float64x2 a);
+/// @brief Gamma function, `Gamma(a)`. (`f64x2`-tagged spelling of `tgammadd`)
 MULTIFLOATS_API float64x2 tgammaf64x2(float64x2 a);
+/// @brief Natural log of `|Gamma(a)|`. (`f64x2`-tagged spelling of `lgammadd`)
 MULTIFLOATS_API float64x2 lgammaf64x2(float64x2 a);
+/// @brief Bessel function of the first kind, order 0. (`f64x2`-tagged spelling of `j0dd`)
 MULTIFLOATS_API float64x2 j0f64x2(float64x2 a);
+/// @brief Bessel function of the first kind, order 1. (`f64x2`-tagged spelling of `j1dd`)
 MULTIFLOATS_API float64x2 j1f64x2(float64x2 a);
+/// @brief Bessel function of the second kind, order 0. (`f64x2`-tagged spelling of `y0dd`)
 MULTIFLOATS_API float64x2 y0f64x2(float64x2 a);
+/// @brief Bessel function of the second kind, order 1. (`f64x2`-tagged spelling of `y1dd`)
 MULTIFLOATS_API float64x2 y1f64x2(float64x2 a);
+/// @brief Bessel function of the first kind, integer order `n`. (`f64x2`-tagged spelling of `jndd`)
 MULTIFLOATS_API float64x2 jnf64x2(int n, float64x2 a);
+/// @brief Bessel function of the second kind, integer order `n`. (`f64x2`-tagged spelling of `yndd`)
 MULTIFLOATS_API float64x2 ynf64x2(int n, float64x2 a);
+/// @brief Fill `out` with first-kind Bessel values for orders `n1..n2`. (`f64x2`-tagged spelling of `jndd_range`)
 MULTIFLOATS_API void jnf64x2_range(int n1, int n2, float64x2 a, float64x2 *out);
+/// @brief Fill `out` with second-kind Bessel values for orders `n1..n2` (stable forward recurrence). (`f64x2`-tagged spelling of `yndd_range`)
 MULTIFLOATS_API void ynf64x2_range(int n1, int n2, float64x2 a, float64x2 *out);
+/// @brief Compute `sin(a)` and `cos(a)` together into `*s` and `*c`. (`f64x2`-tagged spelling of `sincosdd`)
 MULTIFLOATS_API void sincosf64x2(float64x2 a, float64x2 *s, float64x2 *c);
+/// @brief Compute `sinh(a)` and `cosh(a)` together into `*s` and `*c`. (`f64x2`-tagged spelling of `sinhcoshdd`)
 MULTIFLOATS_API void sinhcoshf64x2(float64x2 a, float64x2 *s, float64x2 *c);
+/// @brief Complex sum of two double-double complex values. (`f64x2`-tagged spelling of `cadddd`)
 MULTIFLOATS_API complex64x2 caddf64x2(complex64x2 a, complex64x2 b);
+/// @brief Complex difference of two double-double complex values. (`f64x2`-tagged spelling of `csubdd`)
 MULTIFLOATS_API complex64x2 csubf64x2(complex64x2 a, complex64x2 b);
+/// @brief Complex product of two double-double complex values. (`f64x2`-tagged spelling of `cmuldd`)
 MULTIFLOATS_API complex64x2 cmulf64x2(complex64x2 a, complex64x2 b);
+/// @brief Complex quotient of two double-double complex values. (`f64x2`-tagged spelling of `cdivdd`)
 MULTIFLOATS_API complex64x2 cdivf64x2(complex64x2 a, complex64x2 b);
+/// @brief Complex base-e exponential. (`f64x2`-tagged spelling of `cexpdd`)
 MULTIFLOATS_API complex64x2 cexpf64x2(complex64x2 z);
+/// @brief Complex `exp(z) - 1`, accurate for small `z`. (`f64x2`-tagged spelling of `cexpm1dd`)
 MULTIFLOATS_API complex64x2 cexpm1f64x2(complex64x2 z);
+/// @brief Complex natural logarithm (principal branch). (`f64x2`-tagged spelling of `clogdd`)
 MULTIFLOATS_API complex64x2 clogf64x2(complex64x2 z);
+/// @brief Complex base-2 logarithm. (`f64x2`-tagged spelling of `clog2dd`)
 MULTIFLOATS_API complex64x2 clog2f64x2(complex64x2 z);
+/// @brief Complex base-10 logarithm. (`f64x2`-tagged spelling of `clog10dd`)
 MULTIFLOATS_API complex64x2 clog10f64x2(complex64x2 z);
+/// @brief Complex `log(1 + z)`, accurate for small `z`. (`f64x2`-tagged spelling of `clog1pdd`)
 MULTIFLOATS_API complex64x2 clog1pf64x2(complex64x2 z);
+/// @brief Complex power, `z**w`. (`f64x2`-tagged spelling of `cpowdd`)
 MULTIFLOATS_API complex64x2 cpowf64x2(complex64x2 z, complex64x2 w);
+/// @brief Complex square root (principal branch). (`f64x2`-tagged spelling of `csqrtdd`)
 MULTIFLOATS_API complex64x2 csqrtf64x2(complex64x2 z);
+/// @brief Complex sine. (`f64x2`-tagged spelling of `csindd`)
 MULTIFLOATS_API complex64x2 csinf64x2(complex64x2 z);
+/// @brief Complex `sin(pi * z)`. (`f64x2`-tagged spelling of `csinpidd`)
 MULTIFLOATS_API complex64x2 csinpif64x2(complex64x2 z);
+/// @brief Complex cosine. (`f64x2`-tagged spelling of `ccosdd`)
 MULTIFLOATS_API complex64x2 ccosf64x2(complex64x2 z);
+/// @brief Complex `cos(pi * z)`. (`f64x2`-tagged spelling of `ccospidd`)
 MULTIFLOATS_API complex64x2 ccospif64x2(complex64x2 z);
+/// @brief Complex tangent. (`f64x2`-tagged spelling of `ctandd`)
 MULTIFLOATS_API complex64x2 ctanf64x2(complex64x2 z);
+/// @brief Complex arc sine. (`f64x2`-tagged spelling of `casindd`)
 MULTIFLOATS_API complex64x2 casinf64x2(complex64x2 z);
+/// @brief Complex arc cosine. (`f64x2`-tagged spelling of `cacosdd`)
 MULTIFLOATS_API complex64x2 cacosf64x2(complex64x2 z);
+/// @brief Complex arc tangent. (`f64x2`-tagged spelling of `catandd`)
 MULTIFLOATS_API complex64x2 catanf64x2(complex64x2 z);
+/// @brief Complex hyperbolic sine. (`f64x2`-tagged spelling of `csinhdd`)
 MULTIFLOATS_API complex64x2 csinhf64x2(complex64x2 z);
+/// @brief Complex hyperbolic cosine. (`f64x2`-tagged spelling of `ccoshdd`)
 MULTIFLOATS_API complex64x2 ccoshf64x2(complex64x2 z);
+/// @brief Complex hyperbolic tangent. (`f64x2`-tagged spelling of `ctanhdd`)
 MULTIFLOATS_API complex64x2 ctanhf64x2(complex64x2 z);
+/// @brief Complex inverse hyperbolic sine. (`f64x2`-tagged spelling of `casinhdd`)
 MULTIFLOATS_API complex64x2 casinhf64x2(complex64x2 z);
+/// @brief Complex inverse hyperbolic cosine. (`f64x2`-tagged spelling of `cacoshdd`)
 MULTIFLOATS_API complex64x2 cacoshf64x2(complex64x2 z);
+/// @brief Complex inverse hyperbolic tangent. (`f64x2`-tagged spelling of `catanhdd`)
 MULTIFLOATS_API complex64x2 catanhf64x2(complex64x2 z);
+/// @brief Complex magnitude `|z|` (overflow-safe). (`f64x2`-tagged spelling of `cabsdd`)
 MULTIFLOATS_API float64x2 cabsf64x2(complex64x2 z);
+/// @brief Complex argument `arg(z)` in (-pi, pi]. (`f64x2`-tagged spelling of `cargdd`)
 MULTIFLOATS_API float64x2 cargf64x2(complex64x2 z);
+/// @brief Projection of `z` onto the Riemann sphere (C99 `cproj`). (`f64x2`-tagged spelling of `cprojdd`)
 MULTIFLOATS_API complex64x2 cprojf64x2(complex64x2 z);
+/// @brief Complex conjugate. (`f64x2`-tagged spelling of `conjdd`)
 MULTIFLOATS_API complex64x2 conjf64x2(complex64x2 z);
+/// @brief Real part. (`f64x2`-tagged spelling of `crealdd`)
 MULTIFLOATS_API float64x2 crealf64x2(complex64x2 z);
+/// @brief Imaginary part. (`f64x2`-tagged spelling of `cimagdd`)
 MULTIFLOATS_API float64x2 cimagf64x2(complex64x2 z);
+/// @brief Column-major matrix product `C(m,n) = A(m,k) * B(k,n)`. `renorm_interval` bounds low-limb growth (0 renormalizes only at the end). (`f64x2`-tagged spelling of `matmuldd_mm`)
 MULTIFLOATS_API void matmulf64x2_mm(const float64x2 *a, const float64x2 *b, float64x2 *c, int64_t m, int64_t k, int64_t n, int64_t renorm_interval);
+/// @brief Column-major matrix-vector product `y(m) = A(m,k) * x(k)`. See `renorm_interval`. (`f64x2`-tagged spelling of `matmuldd_mv`)
 MULTIFLOATS_API void matmulf64x2_mv(const float64x2 *a, const float64x2 *x, float64x2 *y, int64_t m, int64_t k, int64_t renorm_interval);
+/// @brief Column-major vector-matrix product `y(n) = x(k) * B(k,n)`. See `renorm_interval`. (`f64x2`-tagged spelling of `matmuldd_vm`)
 MULTIFLOATS_API void matmulf64x2_vm(const float64x2 *x, const float64x2 *b, float64x2 *y, int64_t k, int64_t n, int64_t renorm_interval);
+/// @brief Write the scientific-notation decimal form of `x` into `[first, last)` (no NUL), `std::to_chars`-style; returns one past the last byte, or NULL if the buffer is too small. (`f64x2`-tagged spelling of `to_charsdd`)
 MULTIFLOATS_API char *to_charsf64x2(float64x2 x, int precision, char *first, char *last);
+/// @brief Nonzero if `a == b`. (`f64x2`-tagged spelling of `eqdd`)
 MULTIFLOATS_API int eqf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a != b`. (`f64x2`-tagged spelling of `nedd`)
 MULTIFLOATS_API int nef64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a < b`. (`f64x2`-tagged spelling of `ltdd`)
 MULTIFLOATS_API int ltf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a <= b`. (`f64x2`-tagged spelling of `ledd`)
 MULTIFLOATS_API int lef64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a > b`. (`f64x2`-tagged spelling of `gtdd`)
 MULTIFLOATS_API int gtf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a >= b`. (`f64x2`-tagged spelling of `gedd`)
 MULTIFLOATS_API int gef64x2(float64x2 a, float64x2 b);
+/// @brief Cube root. (`f64x2`-tagged spelling of `cbrtdd`)
 MULTIFLOATS_API float64x2 cbrtf64x2(float64x2 a);
+/// @brief Round toward +infinity. (`f64x2`-tagged spelling of `ceildd`)
 MULTIFLOATS_API float64x2 ceilf64x2(float64x2 a);
+/// @brief Round toward -infinity. (`f64x2`-tagged spelling of `floordd`)
 MULTIFLOATS_API float64x2 floorf64x2(float64x2 a);
+/// @brief Round to integer in the current rounding mode, without raising inexact. (`f64x2`-tagged spelling of `nearbyintdd`)
 MULTIFLOATS_API float64x2 nearbyintf64x2(float64x2 a);
+/// @brief Round to integer in the current rounding mode. (`f64x2`-tagged spelling of `rintdd`)
 MULTIFLOATS_API float64x2 rintf64x2(float64x2 a);
+/// @brief Unbiased radix-2 exponent of `a`, as a floating-point value. (`f64x2`-tagged spelling of `logbdd`)
 MULTIFLOATS_API float64x2 logbf64x2(float64x2 a);
+/// @brief Split `a` into a fraction in [0.5, 1) and an exponent stored in `*exp`. (`f64x2`-tagged spelling of `frexpdd`)
 MULTIFLOATS_API float64x2 frexpf64x2(float64x2 a, int *exp);
+/// @brief Split `a` into integer part (stored in `*iptr`) and fractional part. (`f64x2`-tagged spelling of `modfdd`)
 MULTIFLOATS_API float64x2 modff64x2(float64x2 a, float64x2 *iptr);
+/// @brief Scale by a power of two, `a * 2**n`. (`f64x2`-tagged spelling of `ldexpdd`)
 MULTIFLOATS_API float64x2 ldexpf64x2(float64x2 a, int n);
+/// @brief Scale by a power of two, `a * 2**n`. (`f64x2`-tagged spelling of `scalbndd`)
 MULTIFLOATS_API float64x2 scalbnf64x2(float64x2 a, int n);
+/// @brief Scale by a power of two, `a * 2**n` (`long` exponent). (`f64x2`-tagged spelling of `scalblndd`)
 MULTIFLOATS_API float64x2 scalblnf64x2(float64x2 a, long n);
+/// @brief Next representable double-double after `a` toward `b`. (`f64x2`-tagged spelling of `nextafterdd`)
 MULTIFLOATS_API float64x2 nextafterf64x2(float64x2 a, float64x2 b);
+/// @brief IEEE 754 remainder of `a / b` (round-to-nearest quotient). (`f64x2`-tagged spelling of `remainderdd`)
 MULTIFLOATS_API float64x2 remainderf64x2(float64x2 a, float64x2 b);
+/// @brief IEEE 754 remainder of `a / b`; low quotient bits stored in `*quo`. (`f64x2`-tagged spelling of `remquodd`)
 MULTIFLOATS_API float64x2 remquof64x2(float64x2 a, float64x2 b, int *quo);
+/// @brief Unbiased radix-2 exponent of `a`, as an `int`. (`f64x2`-tagged spelling of `ilogbdd`)
 MULTIFLOATS_API int ilogbf64x2(float64x2 a);
+/// @brief Round to nearest, halfway away from zero, returning `long`. (`f64x2`-tagged spelling of `lrounddd`)
 MULTIFLOATS_API long lroundf64x2(float64x2 a);
+/// @brief Round to nearest, halfway away from zero, returning `long long`. (`f64x2`-tagged spelling of `llrounddd`)
 MULTIFLOATS_API long long llroundf64x2(float64x2 a);
+/// @brief Round to integer in the current rounding mode, returning `long`. (`f64x2`-tagged spelling of `lrintdd`)
 MULTIFLOATS_API long lrintf64x2(float64x2 a);
+/// @brief Round to integer in the current rounding mode, returning `long long`. (`f64x2`-tagged spelling of `llrintdd`)
 MULTIFLOATS_API long long llrintf64x2(float64x2 a);
+/// @brief Nonzero if `a` is NaN. (`f64x2`-tagged spelling of `isnandd`)
 MULTIFLOATS_API int isnanf64x2(float64x2 a);
+/// @brief Nonzero if `a` is infinite. (`f64x2`-tagged spelling of `isinfdd`)
 MULTIFLOATS_API int isinff64x2(float64x2 a);
+/// @brief Nonzero if `a` is finite. (`f64x2`-tagged spelling of `isfinitedd`)
 MULTIFLOATS_API int isfinitef64x2(float64x2 a);
+/// @brief Nonzero if `a` is finite (libquadmath `finiteq` spelling). (`f64x2`-tagged spelling of `finitedd`)
 MULTIFLOATS_API int finitef64x2(float64x2 a);
+/// @brief Nonzero if `a` is normal (finite, nonzero, not subnormal). (`f64x2`-tagged spelling of `isnormaldd`)
 MULTIFLOATS_API int isnormalf64x2(float64x2 a);
+/// @brief Nonzero if the sign bit of `a` is set. (`f64x2`-tagged spelling of `signbitdd`)
 MULTIFLOATS_API int signbitf64x2(float64x2 a);
+/// @brief C99 floating-point classification of `a` (`FP_NAN`, `FP_INFINITE`, ...). (`f64x2`-tagged spelling of `fpclassifydd`)
 MULTIFLOATS_API int fpclassifyf64x2(float64x2 a);
+/// @brief Nonzero if `a` or `b` is NaN. (`f64x2`-tagged spelling of `isunordereddd`)
 MULTIFLOATS_API int isunorderedf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a > b` (quiet for NaN operands). (`f64x2`-tagged spelling of `isgreaterdd`)
 MULTIFLOATS_API int isgreaterf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a >= b` (quiet for NaN operands). (`f64x2`-tagged spelling of `isgreaterequaldd`)
 MULTIFLOATS_API int isgreaterequalf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a < b` (quiet for NaN operands). (`f64x2`-tagged spelling of `islessdd`)
 MULTIFLOATS_API int islessf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a <= b` (quiet for NaN operands). (`f64x2`-tagged spelling of `islessequaldd`)
 MULTIFLOATS_API int islessequalf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a < b` or `a > b` (quiet for NaN operands). (`f64x2`-tagged spelling of `islessgreaterdd`)
 MULTIFLOATS_API int islessgreaterf64x2(float64x2 a, float64x2 b);
+/// @brief Nonzero if `a` is a signaling NaN. (`f64x2`-tagged spelling of `issignalingdd`)
 MULTIFLOATS_API int issignalingf64x2(float64x2 a);
+/// @brief Quiet NaN with the payload parsed from `tagp` (libquadmath `nanq`). (`f64x2`-tagged spelling of `nandd`)
 MULTIFLOATS_API float64x2 nanf64x2(const char *tagp);
+/// @brief `cos(a) + i*sin(a)` (libquadmath `cexpiq`). (`f64x2`-tagged spelling of `cexpidd`)
 MULTIFLOATS_API complex64x2 cexpif64x2(float64x2 a);
 
 #ifdef __cplusplus
@@ -833,18 +1141,22 @@ inline std::complex<float64x2> cx_from_pod(complex64x2 const &z) {
 }
 } // namespace detail
 
+/// @brief Complex sum (`std::complex<float64x2>` overload).
 inline std::complex<float64x2> cadddd(std::complex<float64x2> const &a,
                                       std::complex<float64x2> const &b) {
   return detail::cx_from_pod(cadddd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
 }
+/// @brief Complex difference (`std::complex<float64x2>` overload).
 inline std::complex<float64x2> csubdd(std::complex<float64x2> const &a,
                                       std::complex<float64x2> const &b) {
   return detail::cx_from_pod(csubdd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
 }
+/// @brief Complex product (`std::complex<float64x2>` overload).
 inline std::complex<float64x2> cmuldd(std::complex<float64x2> const &a,
                                       std::complex<float64x2> const &b) {
   return detail::cx_from_pod(cmuldd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
 }
+/// @brief Complex quotient (`std::complex<float64x2>` overload).
 inline std::complex<float64x2> cdivdd(std::complex<float64x2> const &a,
                                       std::complex<float64x2> const &b) {
   return detail::cx_from_pod(cdivdd(detail::cx_to_pod(a), detail::cx_to_pod(b)));
@@ -854,39 +1166,67 @@ inline std::complex<float64x2> cdivdd(std::complex<float64x2> const &a,
   inline std::complex<float64x2> name(std::complex<float64x2> const &z) {    \
     return detail::cx_from_pod(name(detail::cx_to_pod(z)));                  \
   }
+/// @brief Complex base-e exponential (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(cexpdd)
+/// @brief Complex `exp(z) - 1` (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(cexpm1dd)
+/// @brief Complex natural logarithm (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(clogdd)
+/// @brief Complex base-2 logarithm (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(clog2dd)
+/// @brief Complex base-10 logarithm (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(clog10dd)
+/// @brief Complex `log(1 + z)` (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(clog1pdd)
+/// @brief Complex square root (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(csqrtdd)
+/// @brief Complex sine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(csindd)
+/// @brief Complex `sin(pi*z)` (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(csinpidd)
+/// @brief Complex cosine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(ccosdd)
+/// @brief Complex `cos(pi*z)` (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(ccospidd)
+/// @brief Complex tangent (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(ctandd)
+/// @brief Complex arc sine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(casindd)
+/// @brief Complex arc cosine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(cacosdd)
+/// @brief Complex arc tangent (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(catandd)
+/// @brief Complex hyperbolic sine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(csinhdd)
+/// @brief Complex hyperbolic cosine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(ccoshdd)
+/// @brief Complex hyperbolic tangent (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(ctanhdd)
+/// @brief Complex inverse hyperbolic sine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(casinhdd)
+/// @brief Complex inverse hyperbolic cosine (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(cacoshdd)
+/// @brief Complex inverse hyperbolic tangent (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(catanhdd)
+/// @brief Complex projection onto the Riemann sphere (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(cprojdd)
+/// @brief Complex conjugate (`std::complex<float64x2>` overload).
 MULTIFLOATS_CDD_UNARY_OVERLOAD(conjdd)
 #undef MULTIFLOATS_CDD_UNARY_OVERLOAD
 
+/// @brief Complex power `z**w` (`std::complex<float64x2>` overload).
 inline std::complex<float64x2> cpowdd(std::complex<float64x2> const &z,
                                       std::complex<float64x2> const &w) {
   return detail::cx_from_pod(cpowdd(detail::cx_to_pod(z), detail::cx_to_pod(w)));
 }
 
+/// @brief Complex magnitude `|z|` (`std::complex<float64x2>` overload).
 inline float64x2 cabsdd (std::complex<float64x2> const &z) { return cabsdd (detail::cx_to_pod(z)); }
+/// @brief Complex argument `arg(z)` (`std::complex<float64x2>` overload).
 inline float64x2 cargdd (std::complex<float64x2> const &z) { return cargdd (detail::cx_to_pod(z)); }
+/// @brief Real part (`std::complex<float64x2>` overload).
 inline float64x2 crealdd(std::complex<float64x2> const &z) { return z.real(); }
+/// @brief Imaginary part (`std::complex<float64x2>` overload).
 inline float64x2 cimagdd(std::complex<float64x2> const &z) { return z.imag(); }
 
 // `cexpidd` takes a real `float64x2` so its overload set doesn't need a
@@ -933,6 +1273,7 @@ constexpr std::size_t first_nonzero_limb_index(float64x2 const &x) {
 
 } // namespace detail
 
+/// @brief Absolute value, `|x|`.
 inline constexpr float64x2 fabs(float64x2 const &x) {
   std::size_t i = detail::first_nonzero_limb_index(x);
   // All limbs are a (possibly signed) zero: return canonical +0 so
@@ -941,10 +1282,12 @@ inline constexpr float64x2 fabs(float64x2 const &x) {
   return std::signbit(x.limbs[i]) ? -x : x;
 }
 
+/// @brief Minimum of two double-doubles.
 inline constexpr float64x2 fmin(float64x2 const &a, float64x2 const &b) {
   return (a < b) ? a : b;
 }
 
+/// @brief Maximum of two double-doubles.
 inline constexpr float64x2 fmax(float64x2 const &a, float64x2 const &b) {
   return (a < b) ? b : a;
 }
@@ -973,6 +1316,7 @@ inline constexpr float64x2 _negzero_dd() {
   return r;
 }
 
+/// @brief Maximum, propagating NaN and treating +0 as greater than -0 (C23).
 inline constexpr float64x2 fmaximum(float64x2 const &a, float64x2 const &b) {
   if (std::isnan(a.limbs[0]) || std::isnan(b.limbs[0])) return _nan_dd();
   if (a.limbs[0] == 0.0 && b.limbs[0] == 0.0) {
@@ -983,6 +1327,7 @@ inline constexpr float64x2 fmaximum(float64x2 const &a, float64x2 const &b) {
   return (a < b) ? b : a;
 }
 
+/// @brief Minimum, propagating NaN and treating -0 as less than +0 (C23).
 inline constexpr float64x2 fminimum(float64x2 const &a, float64x2 const &b) {
   if (std::isnan(a.limbs[0]) || std::isnan(b.limbs[0])) return _nan_dd();
   if (a.limbs[0] == 0.0 && b.limbs[0] == 0.0) {
@@ -993,6 +1338,7 @@ inline constexpr float64x2 fminimum(float64x2 const &a, float64x2 const &b) {
   return (a < b) ? a : b;
 }
 
+/// @brief Maximum, ignoring NaN and treating +0 as greater than -0 (C23).
 inline constexpr float64x2 fmaximum_num(float64x2 const &a,
                                          float64x2 const &b) {
   bool an = std::isnan(a.limbs[0]), bn = std::isnan(b.limbs[0]);
@@ -1007,6 +1353,7 @@ inline constexpr float64x2 fmaximum_num(float64x2 const &a,
   return (a < b) ? b : a;
 }
 
+/// @brief Minimum, ignoring NaN and treating -0 as less than +0 (C23).
 inline constexpr float64x2 fminimum_num(float64x2 const &a,
                                          float64x2 const &b) {
   bool an = std::isnan(a.limbs[0]), bn = std::isnan(b.limbs[0]);
@@ -1028,6 +1375,7 @@ inline constexpr float64x2 fminimum_num(float64x2 const &a,
 // limbs flip the magnitude ordering (e.g. a = (-x, +eps), b = (+x, -eps)
 // → |a| > |b| but |a.hi| == |b.hi|).
 
+/// @brief Value with the larger magnitude (C23 `fmaximum_mag`).
 inline constexpr float64x2 fmaximum_mag(float64x2 const &a,
                                          float64x2 const &b) {
   if (std::isnan(a.limbs[0]) || std::isnan(b.limbs[0])) return _nan_dd();
@@ -1037,6 +1385,7 @@ inline constexpr float64x2 fmaximum_mag(float64x2 const &a,
   return fmaximum(a, b);
 }
 
+/// @brief Value with the smaller magnitude (C23 `fminimum_mag`).
 inline constexpr float64x2 fminimum_mag(float64x2 const &a,
                                          float64x2 const &b) {
   if (std::isnan(a.limbs[0]) || std::isnan(b.limbs[0])) return _nan_dd();
@@ -1046,6 +1395,7 @@ inline constexpr float64x2 fminimum_mag(float64x2 const &a,
   return fminimum(a, b);
 }
 
+/// @brief Larger-magnitude value, ignoring NaN (C23).
 inline constexpr float64x2 fmaximum_mag_num(float64x2 const &a,
                                              float64x2 const &b) {
   bool an = std::isnan(a.limbs[0]), bn = std::isnan(b.limbs[0]);
@@ -1058,6 +1408,7 @@ inline constexpr float64x2 fmaximum_mag_num(float64x2 const &a,
   return fmaximum(a, b);
 }
 
+/// @brief Smaller-magnitude value, ignoring NaN (C23).
 inline constexpr float64x2 fminimum_mag_num(float64x2 const &a,
                                              float64x2 const &b) {
   bool an = std::isnan(a.limbs[0]), bn = std::isnan(b.limbs[0]);
@@ -1071,10 +1422,14 @@ inline constexpr float64x2 fminimum_mag_num(float64x2 const &a,
 }
 
 
+/// @brief Absolute value, `|x|`.
 inline constexpr float64x2 abs(float64x2 const &x) { return fabs(x); }
+/// @brief Minimum of two double-doubles.
 inline constexpr float64x2 min(float64x2 const &x, float64x2 const &y) { return fmin(x, y); }
+/// @brief Maximum of two double-doubles.
 inline constexpr float64x2 max(float64x2 const &x, float64x2 const &y) { return fmax(x, y); }
 
+/// @brief True if the sign bit of `x` is set.
 inline constexpr bool signbit(float64x2 const &x) {
   // For non-canonical zero-hi DDs (e.g. (+0, -eps)), the sign lives in
   // the first nonzero limb. Fall through to signbit(hi) when every limb
@@ -1083,6 +1438,7 @@ inline constexpr bool signbit(float64x2 const &x) {
   return std::signbit(x.limbs[i == 2 ? 0 : i]);
 }
 
+/// @brief True if `x` is finite.
 inline constexpr bool isfinite(float64x2 const &x) {
   // A DD with finite hi and non-finite lo is classified non-finite — this
   // matters for the operator+ short-circuit.
@@ -1092,6 +1448,7 @@ inline constexpr bool isfinite(float64x2 const &x) {
   return true;
 }
 
+/// @brief True if `x` is infinite.
 inline constexpr bool isinf(float64x2 const &x) {
   // Scan both limbs for symmetry with isnan / isfinite: a DD with a finite
   // hi and an inf lo (non-canonical but constructible via the C ABI) should
@@ -1102,6 +1459,7 @@ inline constexpr bool isinf(float64x2 const &x) {
   return false;
 }
 
+/// @brief True if `x` is NaN.
 inline constexpr bool isnan(float64x2 const &x) {
   for (std::size_t i = 0; i < 2; ++i) {
     if (std::isnan(x.limbs[i])) return true;
@@ -1109,10 +1467,12 @@ inline constexpr bool isnan(float64x2 const &x) {
   return false;
 }
 
+/// @brief C99 floating-point classification of `x` (`FP_NAN`, `FP_INFINITE`, ...).
 inline constexpr int fpclassify(float64x2 const &x) {
   return std::fpclassify(x.limbs[0]);
 }
 
+/// @brief Scale by a power of two, `x * 2**n`.
 inline constexpr float64x2 ldexp(float64x2 const &x, int n) {
   // Build the power-of-two scale once; multiplication by an exact power of
   // two is exact for every limb (no rounding, no renorm), avoiding the
@@ -1121,20 +1481,24 @@ inline constexpr float64x2 ldexp(float64x2 const &x, int n) {
   return {x.limbs[0] * scale, x.limbs[1] * scale};
 }
 
+/// @brief Scale by a power of two, `x * 2**n`.
 inline constexpr float64x2 scalbn(float64x2 const &x, int n) {
   // POSIX alias of ldexp for FLT_RADIX == 2 (which is guaranteed by IEEE 754).
   return ldexp(x, n);
 }
 
+/// @brief Unbiased radix-2 exponent of `x`, as an `int`.
 inline constexpr int ilogb(float64x2 const &x) {
   return std::ilogb(x.limbs[0]);
 }
 
 // C23 llogb: same as ilogb but returns long.
+/// @brief Unbiased radix-2 exponent of `x`, as a `long`.
 inline constexpr long llogb(float64x2 const &x) {
   return static_cast<long>(std::ilogb(x.limbs[0]));
 }
 
+/// @brief Magnitude of `x` with the sign of `y`.
 inline constexpr float64x2 copysign(float64x2 const &x, float64x2 const &y) {
   return (signbit(x) == signbit(y)) ? x : -x;
 }
@@ -1157,6 +1521,7 @@ constexpr void renorm_fast(double &hi, double &lo) {
 // Rounding and integer-valued functions
 // =============================================================================
 
+/// @brief Round toward -infinity.
 inline constexpr float64x2 floor(float64x2 const &x) {
   float64x2 r;
   double fl_hi = std::floor(x.limbs[0]);
@@ -1172,6 +1537,7 @@ inline constexpr float64x2 floor(float64x2 const &x) {
   return r;
 }
 
+/// @brief Round toward +infinity.
 inline constexpr float64x2 ceil(float64x2 const &x) {
   float64x2 r;
   double cl_hi = std::ceil(x.limbs[0]);
@@ -1186,10 +1552,12 @@ inline constexpr float64x2 ceil(float64x2 const &x) {
   return r;
 }
 
+/// @brief Round toward zero.
 inline constexpr float64x2 trunc(float64x2 const &x) {
   return std::signbit(x.limbs[0]) ? -floor(-x) : floor(x);
 }
 
+/// @brief Round to nearest, halfway away from zero.
 inline constexpr float64x2 round(float64x2 const &x) {
   // Round half away from zero, matching std::round. Two half-integer
   // hazards handled here:
@@ -1220,6 +1588,7 @@ inline constexpr float64x2 round(float64x2 const &x) {
   return r;
 }
 
+/// @brief Round to integer in the current rounding mode, without raising inexact.
 inline constexpr float64x2 nearbyint(float64x2 const &x) {
   float64x2 r;
   double hi = std::nearbyint(x.limbs[0]);
@@ -1240,6 +1609,7 @@ inline constexpr float64x2 nearbyint(float64x2 const &x) {
   return r;
 }
 
+/// @brief Round to integer in the current rounding mode.
 inline constexpr float64x2 rint(float64x2 const &x) { return nearbyint(x); }
 
 // C23 fromfp / ufromfp / fromfpx / ufromfpx: round x to integer per
@@ -1281,6 +1651,7 @@ inline float64x2 round_for_fromfp(float64x2 const &x, int rnd) {
 
 }  // namespace detail
 
+/// @brief Round `x` to a signed integer of `width` bits using mode `rnd` (C23 `fromfp`).
 inline intmax_t fromfp(float64x2 const &x, int rnd, unsigned int width) {
   if (std::isnan(x.limbs[0]) || std::isinf(x.limbs[0])) {
     std::feraiseexcept(FE_INVALID);
@@ -1300,6 +1671,7 @@ inline intmax_t fromfp(float64x2 const &x, int rnd, unsigned int width) {
          static_cast<intmax_t>(r.limbs[1]);
 }
 
+/// @brief Round `x` to an unsigned integer of `width` bits using mode `rnd` (C23 `ufromfp`).
 inline uintmax_t ufromfp(float64x2 const &x, int rnd, unsigned int width) {
   if (std::isnan(x.limbs[0]) || std::isinf(x.limbs[0])) {
     std::feraiseexcept(FE_INVALID);
@@ -1321,6 +1693,7 @@ inline uintmax_t ufromfp(float64x2 const &x, int rnd, unsigned int width) {
          static_cast<uintmax_t>(r.limbs[1]);
 }
 
+/// @brief Like `fromfp`, also raising the inexact exception (C23 `fromfpx`).
 inline intmax_t fromfpx(float64x2 const &x, int rnd, unsigned int width) {
   intmax_t out = fromfp(x, rnd, width);
   // Raise FE_INEXACT if the rounding moved the value (i.e. x wasn't already
@@ -1330,6 +1703,7 @@ inline intmax_t fromfpx(float64x2 const &x, int rnd, unsigned int width) {
   return out;
 }
 
+/// @brief Like `ufromfp`, also raising the inexact exception (C23 `ufromfpx`).
 inline uintmax_t ufromfpx(float64x2 const &x, int rnd, unsigned int width) {
   uintmax_t out = ufromfp(x, rnd, width);
   float64x2 r = detail::round_for_fromfp(x, rnd);
@@ -1343,6 +1717,7 @@ inline uintmax_t ufromfpx(float64x2 const &x, int rnd, unsigned int width) {
 // hardware level when FE_TONEAREST is set, so we use it as the kernel
 // and explicitly clamp the rounding direction with a fenv guard so a
 // caller running under FE_DOWNWARD still gets ties-to-even.
+/// @brief Round to nearest integer, ties to even (C23 `roundeven`).
 inline float64x2 roundeven(float64x2 const &x) {
 #if defined(__cplusplus) && __cplusplus >= 201703L
   // Save / restore FE rounding mode around the kernel call. constexpr
@@ -1377,18 +1752,22 @@ constexpr Int lround_adjust(float64x2 const &x, Int i) {
 }
 } // namespace detail
 
+/// @brief Round to nearest, halfway away from zero, returning `long`.
 inline constexpr long lround(float64x2 const &x) {
   return detail::lround_adjust<long>(x, std::lround(x.limbs[0]));
 }
 
+/// @brief Round to nearest, halfway away from zero, returning `long long`.
 inline constexpr long long llround(float64x2 const &x) {
   return detail::lround_adjust<long long>(x, std::llround(x.limbs[0]));
 }
 
+/// @brief Round to integer in the current rounding mode, returning `long`.
 inline constexpr long lrint(float64x2 const &x) {
   return std::lrint(rint(x).limbs[0]);
 }
 
+/// @brief Round to integer in the current rounding mode, returning `long long`.
 inline constexpr long long llrint(float64x2 const &x) {
   return std::llrint(rint(x).limbs[0]);
 }
@@ -1397,6 +1776,7 @@ inline constexpr long long llrint(float64x2 const &x) {
 // Floating-point manipulation
 // =============================================================================
 
+/// @brief Split `x` into a fraction in [0.5, 1) and an exponent stored in `*exp`.
 inline constexpr float64x2 frexp(float64x2 const &x, int *exp) {
   float64x2 r;
   int e = 0;
@@ -1406,21 +1786,25 @@ inline constexpr float64x2 frexp(float64x2 const &x, int *exp) {
   return r;
 }
 
+/// @brief Split `x` into integer part (stored in `*iptr`) and fractional part.
 inline constexpr float64x2 modf(float64x2 const &x, float64x2 *iptr) {
   *iptr = trunc(x);
   return x - *iptr;
 }
 
+/// @brief Scale by a power of two, `x * 2**n` (`long` exponent).
 inline constexpr float64x2 scalbln(float64x2 const &x, long n) {
   return {std::scalbln(x.limbs[0], n), std::scalbln(x.limbs[1], n)};
 }
 
+/// @brief Unbiased radix-2 exponent of `x`, as a floating-point value.
 inline constexpr float64x2 logb(float64x2 const &x) {
   float64x2 r;
   r.limbs[0] = std::logb(x.limbs[0]);
   return r;
 }
 
+/// @brief Next representable double-double after `x` toward `y`.
 inline constexpr float64x2 nextafter(float64x2 const &x, float64x2 const &y) {
   if (x == y) return y;
   // One DD ulp ≈ ulp_up(|hi|) * 2^-53. Always use the upward ulp of |hi|;
@@ -1442,6 +1826,7 @@ inline constexpr float64x2 nextafter(float64x2 const &x, float64x2 const &y) {
   return (x < y) ? x + float64x2(eps) : x - float64x2(eps);
 }
 
+/// @brief Next representable double-double after `x` toward `y`.
 inline constexpr float64x2 nexttoward(float64x2 const &x, float64x2 const &y) {
   return nextafter(x, y);
 }
@@ -1456,6 +1841,7 @@ inline constexpr float64x2 nexttoward(float64x2 const &x, float64x2 const &y) {
 // finite values (the lo-limb invariant |lo| <= 0.5 ulp(hi) is always
 // maintained internally). NaN canonicalization is delegated to the
 // underlying double: a sNaN hi becomes a qNaN.
+/// @brief Canonicalize `x` to renormalized limbs (C23 `canonicalize`).
 inline constexpr float64x2 canonicalize(float64x2 const &x) {
   if (std::isnan(x.limbs[0])) {
     float64x2 r;
@@ -1469,6 +1855,7 @@ inline constexpr float64x2 canonicalize(float64x2 const &x) {
 // Signaling-equal predicate. multifloats does not distinguish sNaN /
 // qNaN at the public API level (every NaN we emit is qNaN), so this
 // is functionally `a == b`. Provided for C23 conformance.
+/// @brief Signaling equality `x == y`, raising invalid for NaN (C23 `iseqsig`).
 inline constexpr bool iseqsig(float64x2 const &a, float64x2 const &b) {
   return a == b;
 }
@@ -1478,6 +1865,7 @@ inline constexpr bool iseqsig(float64x2 const &a, float64x2 const &b) {
 // underlying double does. Captures the same monotonicity guarantees as
 // std::totalOrder<double> on the leading limb, with the lo limb as a
 // secondary key when hi limbs tie.
+/// @brief IEEE 754 total-ordering predicate: true if `x` precedes or equals `y`.
 inline bool totalorder(float64x2 const &a, float64x2 const &b) {
   // IEEE-754 totalOrder key transform:
   //   negative bit pattern → ~bits  (more-negative value → smaller key)
@@ -1497,6 +1885,7 @@ inline bool totalorder(float64x2 const &a, float64x2 const &b) {
   return ka <= kb;
 }
 
+/// @brief IEEE 754 total ordering on magnitudes, `totalorder(|x|, |y|)`.
 inline bool totalordermag(float64x2 const &a, float64x2 const &b) {
   return totalorder(fabs(a), fabs(b));
 }
@@ -1505,6 +1894,7 @@ inline bool totalordermag(float64x2 const &a, float64x2 const &b) {
 // leading limb's IEEE-754 NaN payload. setpayload returns 0 on
 // success (matching libm convention), 1 on failure (payload too
 // large to fit in the available NaN bits, or x not finite).
+/// @brief Extract the payload of the NaN `x` (C23 `getpayload`).
 inline float64x2 getpayload(float64x2 const &x) {
   if (!std::isnan(x.limbs[0])) return float64x2();
   unsigned long long bits;
@@ -1517,6 +1907,7 @@ inline float64x2 getpayload(float64x2 const &x) {
   return float64x2(static_cast<double>(bits));
 }
 
+/// @brief Make a quiet NaN with the given payload (C23 `setpayload`); nonzero on failure.
 inline int setpayload(float64x2 &x, float64x2 const &payload) {
   // Payload must be a non-negative integer < 2^51 to fit in the qNaN
   // mantissa bits. Anything else: leave x unchanged, return 1.
@@ -1534,6 +1925,7 @@ inline int setpayload(float64x2 &x, float64x2 const &payload) {
   return 0;
 }
 
+/// @brief Make a signaling NaN with the given payload (C23 `setpayloadsig`); nonzero on failure.
 inline int setpayloadsig(float64x2 &x, float64x2 const &payload) {
   // Signaling NaN encoding: exponent all-ones + quiet bit clear +
   // payload in low 51 bits with at least one nonzero bit (else it's
@@ -1553,15 +1945,18 @@ inline int setpayloadsig(float64x2 &x, float64x2 const &payload) {
 
 // C23 nextup / nextdown: IEEE 754 next-toward-+inf / -inf, regardless
 // of x. Forward to nextafter with a sentinel ±inf.
+/// @brief Least representable double-double greater than `x` (C23 `nextup`).
 inline constexpr float64x2 nextup(float64x2 const &x) {
   return nextafter(x, float64x2(std::numeric_limits<double>::infinity()));
 }
+/// @brief Greatest representable double-double less than `x` (C23 `nextdown`).
 inline constexpr float64x2 nextdown(float64x2 const &x) {
   return nextafter(x, float64x2(-std::numeric_limits<double>::infinity()));
 }
 
 // libquadmath nanq parity. The tag string encodes the NaN payload via
 // std::nan; lo is set to 0 so the result is a canonical DD NaN.
+/// @brief Quiet NaN with the payload parsed from `tagp`.
 inline float64x2 nan(const char *tagp) {
   return float64x2(std::nan(tagp ? tagp : ""), 0.0);
 }
@@ -1570,12 +1965,14 @@ inline float64x2 nan(const char *tagp) {
 // Basic arithmetic helpers
 // =============================================================================
 
+/// @brief Fused multiply-add `x*y + z` with a single rounding.
 inline constexpr float64x2 fma(float64x2 const &x, float64x2 const &y,
                                float64x2 const &z) {
   // Not a hardware fma, but provides the cmath interface.
   return x * y + z;
 }
 
+/// @brief Floating-point remainder of `x / y` (sign of `x`; C `fmod`).
 inline constexpr float64x2 fmod(float64x2 const &x, float64x2 const &y) {
   // Reduction step picks q from the ilogb gap between r and ay:
   // gap ≤ 53 — scalar q fits in one double (the earlier all-scalar form
@@ -1626,6 +2023,7 @@ inline constexpr float64x2 fmod(float64x2 const &x, float64x2 const &y) {
 // have opposite signs. signbit() resolves the sign via the first
 // nonzero limb, so non-canonical DDs (e.g. (+0, -eps)) get the correct
 // sign adjustment — a subtlety the naive hi-only check misses.
+/// @brief Floored remainder of `x / y` (sign of `y`; Fortran `modulo`).
 inline constexpr float64x2 modulo(float64x2 const &x, float64x2 const &y) {
   float64x2 r = fmod(x, y);
   if (r.limbs[0] == 0.0 && r.limbs[1] == 0.0) return r;
@@ -1638,8 +2036,10 @@ inline constexpr float64x2 modulo(float64x2 const &x, float64x2 const &y) {
 // C23 pown: integer-exponent power. Identical kernel to powi (defined
 // just below) — kept as a separate name so callers using the standard
 // C23 spelling do not need to know the multifloats-internal alias.
+/// @brief Integer power `x**n` (C23 `pown`).
 inline constexpr float64x2 pown(float64x2 base, int n);
 
+/// @brief Integer power `x**n` by exponentiation-by-squaring.
 inline constexpr float64x2 powi(float64x2 base, int n) {
   if (n == 0) return float64x2(1.0);
   bool neg = (n < 0);
@@ -1660,22 +2060,26 @@ inline constexpr float64x2 powi(float64x2 base, int n) {
 
 inline constexpr float64x2 pown(float64x2 base, int n) { return powi(base, n); }
 
+/// @brief IEEE 754 remainder of `x / y` (round-to-nearest quotient).
 inline constexpr float64x2 remainder(float64x2 const &x, float64x2 const &y) {
   return x - round(x / y) * y;
 }
 
+/// @brief IEEE 754 remainder of `x / y`; low quotient bits stored in `*quo`.
 inline constexpr float64x2 remquo(float64x2 const &x, float64x2 const &y, int *quo) {
   float64x2 q = round(x / y);
   *quo = static_cast<int>(q.limbs[0]);
   return x - q * y;
 }
 
+/// @brief Positive difference, `max(x - y, 0)`.
 inline constexpr float64x2 fdim(float64x2 const &x, float64x2 const &y) {
   return (x > y) ? (x - y) : float64x2();
 }
 
 // C++20 std::lerp: exact at the endpoints, monotonic in t, and does not
 // overshoot when a and b have the same sign and t is in [0, 1].
+/// @brief Linear interpolation `a + t*(b - a)` (`std::lerp`).
 inline constexpr float64x2 lerp(float64x2 const &a, float64x2 const &b,
                       float64x2 const &t) {
   if ((a.limbs[0] <= 0.0 && b.limbs[0] >= 0.0) ||
@@ -1703,6 +2107,7 @@ inline constexpr float64x2 lerp(float64x2 const &a, float64x2 const &b,
 // =============================================================================
 
 // Forward declaration so detail kernels below can use multifloats::sqrt via ADL.
+/// @brief Square root.
 inline constexpr float64x2 sqrt(float64x2 const &x);
 
 namespace detail {
@@ -1752,6 +2157,7 @@ inline constexpr float64x2 sqrt(float64x2 const &x) {
 // C23 rsqrt: 1/sqrt(x). Could be expressed as `1/sqrt(x)` but a direct
 // formulation saves one DD-divide and dodges the spurious overflow at
 // |x| just below DBL_MAX.
+/// @brief Reciprocal square root, `1/sqrt(x)`.
 inline constexpr float64x2 rsqrt(float64x2 const &x) {
   double c = 1.0 / std::sqrt(x.limbs[0]);
   // Bail on 0, -0, negative, NaN, +Inf for the same reasons sqrt does:
@@ -1785,6 +2191,7 @@ inline constexpr float64x2 rsqrt(float64x2 const &x) {
   return r;
 }
 
+/// @brief Cube root.
 inline constexpr float64x2 cbrt(float64x2 const &x) {
   const double s = std::cbrt(x.limbs[0]);
   // Bail on 0/-0/±Inf/NaN — the residual would compute `inf - inf` for ±Inf
@@ -1801,6 +2208,7 @@ inline constexpr float64x2 cbrt(float64x2 const &x) {
   return s_dd + correction;
 }
 
+/// @brief Euclidean distance `sqrt(x^2 + y^2)`, with overflow-safe scaling.
 inline constexpr float64x2 hypot(float64x2 const &x, float64x2 const &y) {
   // Defer to libm's hypot for non-finite so inf/NaN propagate correctly.
   if (!std::isfinite(x.limbs[0]) || !std::isfinite(y.limbs[0])) {
@@ -1843,41 +2251,71 @@ inline constexpr float64x2 hypot(float64x2 const &x, float64x2 const &y) {
 // =============================================================================
 
 // Power, exponential and logarithm
+/// @brief Base-e exponential, `e**x`.
 float64x2 exp   (float64x2 const &x);
+/// @brief Base-2 exponential, `2**x`.
 float64x2 exp2  (float64x2 const &x);
+/// @brief Base-10 exponential, `10**x`.
 float64x2 exp10 (float64x2 const &x);
+/// @brief `e**x - 1`, accurate for small `x`.
 float64x2 expm1 (float64x2 const &x);
+/// @brief `2**x - 1`, accurate for small `x`.
 float64x2 exp2m1 (float64x2 const &x);
+/// @brief `10**x - 1`, accurate for small `x`.
 float64x2 exp10m1(float64x2 const &x);
+/// @brief Natural (base-e) logarithm.
 float64x2 log   (float64x2 const &x);
+/// @brief Base-10 logarithm.
 float64x2 log10 (float64x2 const &x);
+/// @brief Base-2 logarithm.
 float64x2 log2  (float64x2 const &x);
+/// @brief `log(1 + x)`, accurate for small `x`.
 float64x2 log1p (float64x2 const &x);
+/// @brief `log2(1 + x)`, accurate for small `x`.
 float64x2 log2p1 (float64x2 const &x);
+/// @brief `log10(1 + x)`, accurate for small `x`.
 float64x2 log10p1(float64x2 const &x);
+/// @brief Power `x**y`, via `exp(y * log(x))`.
 float64x2 pow   (float64x2 const &x, float64x2 const &y);
+/// @brief Power `x**y` for `x >= 0`, via `exp(y * log(x))` (C23 `powr`).
 float64x2 powr  (float64x2 const &x, float64x2 const &y);
+/// @brief Real `n`-th root, `x**(1/n)` (C23 `rootn`).
 float64x2 rootn (float64x2 const &x, int n);
+/// @brief `(1 + x)**n` for integer `n`, accurate for small `x` (C23 `compoundn`).
 float64x2 compoundn(float64x2 const &x, int n);
 
 // Trigonometric
+/// @brief Sine.
 float64x2 sin   (float64x2 const &x);
+/// @brief Cosine.
 float64x2 cos   (float64x2 const &x);
+/// @brief Tangent.
 float64x2 tan   (float64x2 const &x);
+/// @brief Arc sine.
 float64x2 asin  (float64x2 const &x);
+/// @brief Arc cosine.
 float64x2 acos  (float64x2 const &x);
+/// @brief Arc tangent.
 float64x2 atan  (float64x2 const &x);
+/// @brief Arc tangent of `y/x`, using the signs of both to pick the quadrant.
 float64x2 atan2 (float64x2 const &y, float64x2 const &x);
 
 // π-scaled trig: {sin,cos,tan}pi(x) = {sin,cos,tan}(π·x),
 //                {asin,acos,atan}pi(x) = {asin,acos,atan}(x)/π,
 //                atan2pi(y, x) = atan2(y, x)/π.
+/// @brief `sin(pi * x)`.
 float64x2 sinpi   (float64x2 const &x);
+/// @brief `cos(pi * x)`.
 float64x2 cospi   (float64x2 const &x);
+/// @brief `tan(pi * x)`.
 float64x2 tanpi   (float64x2 const &x);
+/// @brief `asin(x) / pi`.
 float64x2 asinpi  (float64x2 const &x);
+/// @brief `acos(x) / pi`.
 float64x2 acospi  (float64x2 const &x);
+/// @brief `atan(x) / pi`.
 float64x2 atanpi  (float64x2 const &x);
+/// @brief `atan2(y, x) / pi`.
 float64x2 atan2pi (float64x2 const &y, float64x2 const &x);
 
 // Fused sincos / sinhcosh. One range-reduction + Taylor pair produces both
@@ -1886,19 +2324,30 @@ void sincos   (float64x2 const &x, float64x2 &s, float64x2 &c);
 void sinhcosh (float64x2 const &x, float64x2 &s, float64x2 &c);
 
 // Hyperbolic
+/// @brief Hyperbolic sine.
 float64x2 sinh  (float64x2 const &x);
+/// @brief Hyperbolic cosine.
 float64x2 cosh  (float64x2 const &x);
+/// @brief Hyperbolic tangent.
 float64x2 tanh  (float64x2 const &x);
+/// @brief Inverse hyperbolic sine.
 float64x2 asinh (float64x2 const &x);
+/// @brief Inverse hyperbolic cosine.
 float64x2 acosh (float64x2 const &x);
+/// @brief Inverse hyperbolic tangent.
 float64x2 atanh (float64x2 const &x);
 
 // Error and gamma. erfcx is the scaled complementary error function,
 // erfcx(x) = exp(x^2) * erfc(x).
+/// @brief Error function.
 float64x2 erf    (float64x2 const &x);
+/// @brief Complementary error function, `1 - erf(x)`.
 float64x2 erfc   (float64x2 const &x);
+/// @brief Scaled complementary error function `exp(x^2) * erfc(x)`.
 float64x2 erfcx  (float64x2 const &x);
+/// @brief Gamma function, `Gamma(x)`.
 float64x2 tgamma (float64x2 const &x);
+/// @brief Natural log of `|Gamma(x)|`.
 float64x2 lgamma (float64x2 const &x);
 
 // Bessel functions of the first (j) and second (y) kind. Names follow
@@ -1910,11 +2359,17 @@ float64x2 lgamma (float64x2 const &x);
 // forward-recurrence sweep of n2-n1+1 outputs (cheaper than n2-n1+1
 // independent 2-arg calls); the 4-arg jn overload loops the scalar
 // Miller kernel because Jn forward-recurrence is unstable for n > x.
+/// @brief Bessel function of the first kind, order 0.
 float64x2 j0 (float64x2 const &x);
+/// @brief Bessel function of the first kind, order 1.
 float64x2 j1 (float64x2 const &x);
+/// @brief Bessel function of the second kind, order 0.
 float64x2 y0 (float64x2 const &x);
+/// @brief Bessel function of the second kind, order 1.
 float64x2 y1 (float64x2 const &x);
+/// @brief Bessel function of the first kind, integer order `n`.
 float64x2 jn (int n, float64x2 const &x);
+/// @brief Bessel function of the second kind, integer order `n`.
 float64x2 yn (int n, float64x2 const &x);
 void      jn (int n1, int n2, float64x2 const &x, float64x2 *out);
 void      yn (int n1, int n2, float64x2 const &x, float64x2 *out);
@@ -1923,30 +2378,37 @@ void      yn (int n1, int n2, float64x2 const &x, float64x2 *out);
 // Additional classification and ordered comparison
 // =============================================================================
 
+/// @brief True if `x` is normal (finite, nonzero, not subnormal).
 inline constexpr bool isnormal(float64x2 const &x) {
   return std::isnormal(x.limbs[0]);
 }
 
+/// @brief True if `x > y` (quiet for NaN operands).
 inline constexpr bool isgreater(float64x2 const &x, float64x2 const &y) {
   return !isnan(x) && !isnan(y) && (x > y);
 }
 
+/// @brief True if `x >= y` (quiet for NaN operands).
 inline constexpr bool isgreaterequal(float64x2 const &x, float64x2 const &y) {
   return !isnan(x) && !isnan(y) && (x >= y);
 }
 
+/// @brief True if `x < y` (quiet for NaN operands).
 inline constexpr bool isless(float64x2 const &x, float64x2 const &y) {
   return !isnan(x) && !isnan(y) && (x < y);
 }
 
+/// @brief True if `x <= y` (quiet for NaN operands).
 inline constexpr bool islessequal(float64x2 const &x, float64x2 const &y) {
   return !isnan(x) && !isnan(y) && (x <= y);
 }
 
+/// @brief True if `x < y` or `x > y` (quiet for NaN operands).
 inline constexpr bool islessgreater(float64x2 const &x, float64x2 const &y) {
   return !isnan(x) && !isnan(y) && (x != y);
 }
 
+/// @brief True if `x` or `y` is NaN.
 inline constexpr bool isunordered(float64x2 const &x, float64x2 const &y) {
   return isnan(x) || isnan(y);
 }
@@ -2021,19 +2483,28 @@ void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
 // underlying formatter only implements scientific notation today. Precision
 // defaults to 32 (DD's natural round-trip width); values outside [1, 34]
 // are clamped by the core formatter.
+/// @brief `std::to_chars`-style formatter for `float64x2` (scientific format
+///        only). Writes into `[first, last)` without a NUL and returns
+///        `{ptr, errc{}}` on success, or `{last, value_too_large}` if the
+///        buffer is too small. `precision` is the number of significant digits
+///        (defaults to 32; clamped to [1, 34]).
 std::to_chars_result
 to_chars(char *first, char *last, float64x2 const &value,
          std::chars_format fmt, int precision) noexcept;
+/// @brief `to_chars` with the default precision of 32 digits.
 inline std::to_chars_result
 to_chars(char *first, char *last, float64x2 const &value,
          std::chars_format fmt) noexcept {
   return to_chars(first, last, value, fmt, 32);
 }
+/// @brief `to_chars` with scientific format and the default 32-digit precision.
 inline std::to_chars_result
 to_chars(char *first, char *last, float64x2 const &value) noexcept {
   return to_chars(first, last, value, std::chars_format::scientific, 32);
 }
 
+/// @brief Format `x` as a scientific-notation `std::string` (`precision`
+///        significant digits, default 32).
 inline std::string to_string(float64x2 const &x, int precision = 32) {
   char buf[MULTIFLOATS_DD_CHARS_BUFSIZE];
   auto res = to_chars(buf, buf + sizeof(buf), x,
@@ -2042,6 +2513,7 @@ inline std::string to_string(float64x2 const &x, int precision = 32) {
   // cannot happen here — `res.ec` is always `errc{}` in practice.
   return std::string(buf, static_cast<std::size_t>(res.ptr - buf));
 }
+/// @brief Stream `x` in scientific notation (honors the stream's precision).
 std::ostream &operator<<(std::ostream &os, float64x2 const &x);
 
 } // namespace multifloats
@@ -2066,26 +2538,45 @@ std::ostream &operator<<(std::ostream &os, float64x2 const &x);
 
 namespace std {
 
+/// @brief Complex base-e exponential (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> exp  (complex<multifloats::float64x2> const &z);
+/// @brief Complex natural logarithm (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> log  (complex<multifloats::float64x2> const &z);
+/// @brief Complex square root (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> sqrt (complex<multifloats::float64x2> const &z);
+/// @brief Complex power `z**w` (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> pow  (complex<multifloats::float64x2> const &z,
                                                   complex<multifloats::float64x2> const &w);
+/// @brief Complex sine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> sin  (complex<multifloats::float64x2> const &z);
+/// @brief Complex cosine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> cos  (complex<multifloats::float64x2> const &z);
+/// @brief Complex tangent (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> tan  (complex<multifloats::float64x2> const &z);
+/// @brief Complex arc sine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> asin (complex<multifloats::float64x2> const &z);
+/// @brief Complex arc cosine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> acos (complex<multifloats::float64x2> const &z);
+/// @brief Complex arc tangent (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> atan (complex<multifloats::float64x2> const &z);
+/// @brief Complex hyperbolic sine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> sinh (complex<multifloats::float64x2> const &z);
+/// @brief Complex hyperbolic cosine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> cosh (complex<multifloats::float64x2> const &z);
+/// @brief Complex hyperbolic tangent (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> tanh (complex<multifloats::float64x2> const &z);
+/// @brief Complex inverse hyperbolic sine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> asinh(complex<multifloats::float64x2> const &z);
+/// @brief Complex inverse hyperbolic cosine (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> acosh(complex<multifloats::float64x2> const &z);
+/// @brief Complex inverse hyperbolic tangent (`std::complex<float64x2>` specialization).
 template <> complex<multifloats::float64x2> atanh(complex<multifloats::float64x2> const &z);
 
+/// @brief Complex magnitude `|z|` (`std::complex<float64x2>` specialization).
 template <> multifloats::float64x2          abs  (complex<multifloats::float64x2> const &z);
+/// @brief Complex argument `arg(z)` in (-pi, pi] (`std::complex<float64x2>`).
 template <> multifloats::float64x2          arg  (complex<multifloats::float64x2> const &z);
+/// @brief Projection onto the Riemann sphere (`std::complex<float64x2>`).
 template <> complex<multifloats::float64x2> proj (complex<multifloats::float64x2> const &z);
 
 } // namespace std
@@ -2099,15 +2590,22 @@ template <> complex<multifloats::float64x2> proj (complex<multifloats::float64x2
 // doesn't have the corresponding free functions on std::complex to specialize.
 // Definitions live in multifloats_math.cc alongside the scalar overloads.
 namespace multifloats {
+/// @brief Complex `sin(pi*z)` (`std::complex<float64x2>` overload).
 std::complex<float64x2> sinpi (std::complex<float64x2> const &z);
+/// @brief Complex `cos(pi*z)` (`std::complex<float64x2>` overload).
 std::complex<float64x2> cospi (std::complex<float64x2> const &z);
+/// @brief Complex `exp(z) - 1`, accurate for small `z` (`std::complex<float64x2>` overload).
 std::complex<float64x2> expm1 (std::complex<float64x2> const &z);
+/// @brief Complex base-2 logarithm (`std::complex<float64x2>` overload).
 std::complex<float64x2> log2  (std::complex<float64x2> const &z);
+/// @brief Complex base-10 logarithm (`std::complex<float64x2>` overload).
 std::complex<float64x2> log10 (std::complex<float64x2> const &z);
+/// @brief Complex `log(1 + z)`, accurate for small `z` (`std::complex<float64x2>` overload).
 std::complex<float64x2> log1p (std::complex<float64x2> const &z);
 
 // cis(x) = cos(x) + i·sin(x). One fused sincos covers both components.
 // Mirrors libquadmath cexpiq.
+/// @brief `cos(x) + i*sin(x)`, as a `std::complex<float64x2>`.
 inline std::complex<float64x2> cexpi(float64x2 const &x) {
   float64x2 s, c;
   sincos(x, s, c);

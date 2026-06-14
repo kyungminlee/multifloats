@@ -1,0 +1,47 @@
+# Minimal Doxygen config for multifloats — XML only, consumed by Breathe.
+# Doxygen fills in defaults for every key not set here.
+#
+# Run from the doc/ directory:  doxygen Doxyfile
+# Produces XML under doc/_doxygen/xml/, which Sphinx/Breathe reads (see conf.py).
+
+PROJECT_NAME           = multifloats
+PROJECT_BRIEF          = "Double-double arithmetic for C, C++ and Fortran"
+
+# --- Inputs ----------------------------------------------------------------
+# The unified public header. (The multifloats.h shim just forwards here, so it
+# is intentionally excluded to avoid duplicate symbols.)
+INPUT                  = ../include/multifloats/float64x2.h
+RECURSIVE              = NO
+
+# --- What to emit ----------------------------------------------------------
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+GENERATE_XML           = YES
+OUTPUT_DIRECTORY       = _doxygen
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
+
+# The header has no \brief markup yet, so document every declaration we can
+# reach. Once Doxygen-style comments are added this can be tightened.
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = NO
+
+# Internal implementation helpers live in multifloats::detail — keep them out
+# of the public reference.
+EXCLUDE_SYMBOLS        = multifloats::detail multifloats::detail::* detail
+
+# --- Preprocessing ---------------------------------------------------------
+# Parse the C++-only section and strip the export/visibility macros so the
+# declarations come out clean.
+ENABLE_PREPROCESSING   = YES
+MACRO_EXPANSION        = YES
+EXPAND_ONLY_PREDEF     = YES
+PREDEFINED             = __cplusplus=202002L \
+                         MULTIFLOATS_API= \
+                         "__attribute__(x)="
+
+# --- Noise control ---------------------------------------------------------
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARNINGS               = YES

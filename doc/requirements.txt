@@ -1,0 +1,14 @@
+# Sphinx documentation toolchain for multifloats.
+# Install into a local venv with uv:
+#     uv venv doc/.venv
+#     uv pip install --python doc/.venv -r doc/requirements.txt
+#
+# Also requires the `doxygen` binary on PATH (system package), which parses
+# the C/C++ header into XML for Breathe. See doc/README.md.
+
+sphinx>=7.3
+breathe>=4.35          # bridges Doxygen XML into Sphinx
+myst-parser>=3.0       # Markdown (MyST) authoring
+furo>=2024.1           # HTML theme
+sphinx-copybutton>=0.5 # copy buttons on code blocks
+sphinx-design>=0.6     # grids/cards/tabs in MyST
