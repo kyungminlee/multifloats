@@ -28,10 +28,9 @@ EXTRACT_STATIC         = YES
 HIDE_UNDOC_MEMBERS     = NO
 
 # Internal implementation helpers live in multifloats::detail — keep them out
-# of the public reference. The matmul kernels and the two listed macros are
-# intentionally excluded from the published API docs.
+# of the public reference. The two listed macros are intentionally excluded
+# from the published API docs.
 EXCLUDE_SYMBOLS        = multifloats::detail multifloats::detail::* detail \
-                         matmul* \
                          MULTIFLOATS_DD_CHARS_BUFSIZE \
                          MULTIFLOATS_CDD_UNARY_OVERLOAD
 

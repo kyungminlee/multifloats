@@ -24,6 +24,7 @@ changes; and a stable C ABI (the `*dd` entry points) bridges both.
 guides/getting-started
 guides/building
 guides/precision
+guides/matmul
 guides/error-handling
 ```
 

@@ -83,4 +83,5 @@ mostly a matter of changing the type declaration.
 
 - [Building](building.md) — every CMake option, tests, optional comparison harnesses.
 - [Precision](precision.md) — what is full double-double and what is not, and why.
+- [Matmul & BLAS](matmul.md) — the `matmul` surface and its relationship to GEMM.
 - [Error handling](error-handling.md) — the NaN-in-NaN-out policy.
