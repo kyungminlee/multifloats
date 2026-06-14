@@ -1,4 +1,4 @@
-# Matmul & BLAS
+# Matmul
 
 The `matmul` surface provides three shape-dispatched operations, for both
 real (`real64x2`) and complex (`cmplx64x2`) operands, through the same Fortran
@@ -13,9 +13,9 @@ generic:
 The C ABI exposes the three kernels directly as `matmuldd_mm` / `matmuldd_mv`
 / `matmuldd_vm` (complex matmul is composed in Fortran from four real matmuls).
 
-## Scope vs BLAS GEMM
+## Scope vs GEMM
 
-`multifloats::matmul` is **not** a drop-in replacement for DGEMM / CGEMM:
+`multifloats::matmul` is **not** a drop-in replacement for a GEMM:
 
 - **No `transa` / `transb` flags.** Inputs are always interpreted in storage
   order. Materialize the transpose first (`matmul(transpose(A), B)`).
@@ -28,11 +28,6 @@ These constraints are deliberate: the compensated DD kernels use a
 register-blocked panel design that assumes contiguous column-major storage.
 Relaxing them (GEMM-style trans/alpha/beta/LDA) is tracked as deferred work in
 `doc/developer/INTERNALS.md`.
-
-**BLAS shims.** `blas/wgemm.f90` and `blas/wtrsm.f90` provide `real(qp)`-mangled
-DGEMM/DTRSM-style wrappers that route to the DD kernels for the
-non-transposed cases — for use with LAPACK routines that need quad-precision
-substitutes.
 
 ## Renormalization interval
 

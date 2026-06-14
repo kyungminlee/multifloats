@@ -17,15 +17,15 @@ cmake --build build
 ```
 
 A default build produces only the two installable libraries (`libmultifloats.a`
-and `libmultifloatsf-<compiler>.a`). Everything else — tests, benchmarks, the
-BLAS smoke target, MPFR / Boost comparison harnesses — is opt-in and is **not**
-pulled into a default consumer build.
+and `libmultifloatsf-<compiler>.a`). Everything else — tests, benchmarks,
+MPFR / Boost comparison harnesses — is opt-in and is **not** pulled into a
+default consumer build.
 
 ## CMake options
 
 | Option | Default | What it adds |
 | ------ | ------- | ------------ |
-| `-DBUILD_TESTING=ON` | OFF | C++ + Fortran test/fuzz executables, ctest registrations, and the `libblas-multifloat.a` smoke target. |
+| `-DBUILD_TESTING=ON` | OFF | C++ + Fortran test/fuzz executables and ctest registrations. |
 | `-DMULTIFLOATS_BUILD_BENCH=ON` | OFF | `cpp_bench`, `fortran_bench`, `fortran_bench_abi` micro-benchmarks. |
 | `-DBUILD_MPFR_TESTS=ON` | OFF | `cpp_fuzz_mpfr` 3-way precision test (needs `libmpfr-dev`). Implies `BUILD_TESTING`. |
 | `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89). |
