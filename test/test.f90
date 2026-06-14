@@ -85,10 +85,10 @@ contains
     character(*), intent(in) :: msg
     real(16) :: qa
     qa = real(a%limbs(1), 16) + real(a%limbs(2), 16)
-    ! Most transcendentals are now full DD (~1e-32); only a few cases
-    ! (Bessel, gamma, and cancellation-bound formulas) are looser. 1e-15 is
-    ! a deliberately conservative blanket tolerance for this smoke suite.
-    if (abs(qa - b) > abs(b)*1e-15_16 .and. abs(qa - b) > 1e-300_16) then
+    ! These guard exp/log/log10 at clean inputs, which are full DD (~1e-32).
+    ! 1e-28 leaves ample margin over the DD floor while still catching a
+    ! collapse to single-double.
+    if (abs(qa - b) > abs(b)*1e-28_16 .and. abs(qa - b) > 1e-300_16) then
        print *, "ASSERT_APPROX_QP FAILED: ", msg
        print *, "  Expected: ", b
        print *, "  Got:      ", qa, "(limbs:", a%limbs, ")"

@@ -472,6 +472,7 @@ contains
           "gamma", "lgamma", &
           "bj0", "bj1", "by0", "by1", "bjn", "byn", &
           "asin", "acos", "acosh", "asinh", "atanh", "atan2", &
+          "sin", "cos", "tan", "atan", "tanh", &
           "cdd_log_re", &
           "aint", "anint", "fraction", "scale", "set_exponent", &
           "floor", "ceiling", "nint", "exponent", &

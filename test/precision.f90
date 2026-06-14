@@ -129,15 +129,16 @@ contains
     end if
   end subroutine
 
-  ! Conservative tolerance (~ulp(double)) for complex transcendentals.
-  ! Most are full DD; a few (cdd_pow, cdd_expm1/log1p) are cancellation-bound.
+  ! Full-DD tolerance for complex transcendentals (e.g. cdd_exp, ~1e-32).
+  ! 1e-26 catches a regression toward single-double while staying clear of
+  ! the qp oracle floor; loosen per-call if a cancellation-bound case is added.
   subroutine check_complex_approx(label, got, expect, failures)
     character(*), intent(in) :: label
     type(cmplx64x2), intent(in) :: got
     complex(qp), intent(in) :: expect
     integer, intent(inout) :: failures
     real(qp) :: err, bound
-    bound = max(abs(expect), 1.0_qp) * 1.0e-14_qp
+    bound = max(abs(expect), 1.0_qp) * 1.0e-26_qp
     err = abs(cdd_to_cqp(got) - expect)
     write(*,'(a,1x,es24.16,1x,es24.16)') trim(label), err, bound
     if (err > bound) then
