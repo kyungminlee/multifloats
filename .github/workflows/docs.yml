@@ -1,0 +1,68 @@
+name: Docs
+
+# Build the Sphinx + Breathe + MyST documentation and publish it to GitHub
+# Pages (https://kyungminlee.github.io/multifloats/). Runs on pushes to main
+# that touch the docs or the public header, and on manual dispatch.
+#
+# One-time setup (repo Settings -> Pages): set "Build and deployment" source
+# to "GitHub Actions". No branch or gh-pages branch is needed.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'doc/**'
+      - 'include/**'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+# Permissions required by the Pages deployment action.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install Doxygen
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y doxygen
+
+      - name: Install uv + Sphinx toolchain
+        run: |
+          python -m pip install --upgrade uv
+          uv venv doc/.venv
+          uv pip install --python doc/.venv -r doc/requirements.txt
+
+      - name: Build docs (Doxygen XML -> Sphinx HTML)
+        run: ./doc/build.sh
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: doc/_build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
