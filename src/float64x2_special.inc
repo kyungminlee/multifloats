@@ -432,60 +432,53 @@ float64x2 lgamma(float64x2 const &x) {
 // Factor x = mant · 2^e with mant ∈ [√½, √2), split x = x_int + x_frac.
 // Then (x/e)^x = mant^x · 2^(e·x_int) · 2^(e·x_frac) · e^-x; the 2^(e·x_int)
 // is exact and factored out as exp2_adj so nothing overflows in stages.
-static inline float64x2 tgamma_stirling_direct(float64x2 const &x,
-                                               int &exp2_adj) {
-  int log2_e;
-  double mh = std::frexp(x.limbs[0], &log2_e);
-  float64x2 mant;
-  mant.limbs[0] = mh;
-  mant.limbs[1] = std::ldexp(x.limbs[1], -log2_e);
-  if (mant.limbs[0] < 0.7071067811865475) {
-    log2_e -= 1;
-    mant.limbs[0] *= 2.0;
-    mant.limbs[1] *= 2.0;
-  }
-  double x_int_d = std::round(x.limbs[0]);
-  int x_int = (int)x_int_d;
-  float64x2 x_frac = x - float64x2(x_int_d);
-  exp2_adj = log2_e * x_int;
-
-  float64x2 pm_x = pow(mant, x);
-  float64x2 e2f = exp2(float64x2((double)log2_e) * x_frac);
-  float64x2 neg_x;
-  neg_x.limbs[0] = -x.limbs[0];
-  neg_x.limbs[1] = -x.limbs[1];
-  float64x2 emx = exp(neg_x);
-  float64x2 two_pi(2.0 * pi_dd_hi, 2.0 * pi_dd_lo);
-  float64x2 sq = multifloats::sqrt(two_pi / x);
-  float64x2 ret = pm_x * e2f * emx * sq;
-
+// log Γ(x) for x in the Stirling-convergent range (x ≳ 28), to triple-double:
+//   log Γ(x) = (x − ½)·log x − x + ½·log(2π) + Σ_{k=1..13} c_k / x^(2k−1)
+// The dominant (x − ½)·log x − x is carried in TD (log via log_td); the small
+// asymptotic correction keeps DD coefficients — its DD error is ~corr·1e-32,
+// far below the result's scale.
+static inline float64x3 lgamma_stirling_td(float64x2 const &x) {
+  float64x3 lx = log_td(td_from_dd(x));                 // log x  (TD)
+  float64x3 t = td_mul_dd(lx, x - float64x2(0.5));      // (x − ½)·log x
+  t = td_add_dd(t, -x);                                 // − x
+  t = td_add_dd(t, float64x2(half_log_2pi_hi, half_log_2pi_lo));
   float64x2 inv_x = float64x2(1.0) / x;
   float64x2 inv_x2 = inv_x * inv_x;
-  float64x2 poly = horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13);
-  float64x2 S = poly * inv_x;
-  return ret + ret * expm1(S);
+  float64x2 corr =
+      horner(inv_x2, stirling_coefs_hi, stirling_coefs_lo, 13) * inv_x;
+  return td_add_dd(t, corr);
 }
 
-// Γ(x) for positive x ≥ 13.5 via shift-to-≥24 + direct Stirling.
-// Returns a value already multiplied back up through ldexp.
+// Γ(x) for positive x ≥ ½ via shift into the Stirling range + exp(log Γ). The
+// shift product x·(x+1)·…·(x+N−1) and the exp argument are carried in
+// triple-double so the large log Γ keeps its low bits through the exp (the
+// erfc_scaled residual trick); a DD log Γ would otherwise be amplified to
+// ~|log Γ|·1e-32 relative.
 static inline float64x2 tgamma_positive_direct(float64x2 const &x) {
   float64x2 x_adj = x;
-  float64x2 prod = float64x2(1.0);
-  if (x.limbs[0] < 24.0) {
-    int N = 24 - (int)x.limbs[0];
+  float64x3 prod = td_from_dd(float64x2(1.0));
+  bool shifted = false;
+  if (x.limbs[0] < 28.0) {
+    int N = 28 - (int)x.limbs[0];
     float64x2 xi = x;
-    prod = xi;
+    prod = td_from_dd(xi);
     for (int i = 1; i < N; ++i) {
       xi = xi + float64x2(1.0);
-      prod = prod * xi;
+      prod = td_mul_dd(prod, xi);
     }
     x_adj = x + float64x2((double)N);
+    shifted = true;
   }
-  int exp2_adj = 0;
-  float64x2 ret = tgamma_stirling_direct(x_adj, exp2_adj) / prod;
-  ret.limbs[0] = std::ldexp(ret.limbs[0], exp2_adj);
-  ret.limbs[1] = std::ldexp(ret.limbs[1], exp2_adj);
-  return ret;
+  float64x3 lg = lgamma_stirling_td(x_adj);
+  float64x2 lg_dd(lg.limbs[0], lg.limbs[1]);
+  float64x2 g = exp(lg_dd) * (float64x2(1.0) + float64x2(lg.limbs[2]));  // Γ(x_adj)
+  if (!shifted) return g;
+  // Γ(x) = g / prod, with prod in TD: one Newton step lifts 1/prod to TD so the
+  // (up to ~27-term) shift product doesn't reintroduce ~N ulp at the divide.
+  float64x2 r0 = float64x2(1.0) / td_to_dd(prod);
+  float64x3 cinv = td_add_double(td_negate(td_mul_dd(prod, r0)), 2.0);   // 2 − prod·r0
+  float64x3 inv = td_mul_dd(cinv, r0);                                   // ≈ 1/prod
+  return td_to_dd(td_mul_dd(inv, g));
 }
 
 float64x2 tgamma(float64x2 const &x) {
@@ -528,7 +521,9 @@ float64x2 tgamma(float64x2 const &x) {
     }
     float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
     // Γ(1-x): direct path when 1-x is in asymptotic range, else exp(lgamma).
-    float64x2 g1mx = (one_minus_x.limbs[0] >= 13.5)
+    // Γ(1-x): direct shift-Stirling once 1-x is large enough; for 1-x near 1
+    // (x near 0) exp(lgamma) is more accurate (lgamma ≈ 0, no amplification).
+    float64x2 g1mx = (one_minus_x.limbs[0] >= 4.0)
                        ? tgamma_positive_direct(one_minus_x)
                        : exp(lgamma_positive(one_minus_x));
     float64x2 out = pi_dd / (s * g1mx);
@@ -538,8 +533,9 @@ float64x2 tgamma(float64x2 const &x) {
     }
     return out;
   }
-  if (hi >= 13.5)
-    return tgamma_positive_direct(x);
-  return exp(lgamma_positive(x));
+  // Positive x ≥ ½: the direct shift-Stirling path is full DD across the whole
+  // range (its log Γ is carried in triple-double via log_td, so the exp no
+  // longer amplifies a DD-rounded argument).
+  return tgamma_positive_direct(x);
 }
 
