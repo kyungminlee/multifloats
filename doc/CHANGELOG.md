@@ -8,6 +8,60 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-06-15
+
+### Changed
+
+- **Precision: the entire real and complex transcendental surface is now
+  full double-double** (~1e-32, ≈ 1 DD ulp) against a 200-bit MPFR
+  reference. Kernels that were previously a few to many DD ulp short are
+  now closed:
+  - `erfc_scaled` (`erfcx`) — full DD via a triple-double `x²` in the
+    large-negative reflection (worst case was ~7e-30).
+  - Bessel `bessel_j0`/`j1`/`jn`/`y0`/`y1`/`yn` — full DD via a
+    triple-double Hankel asymptotic phase and a triple-double integer-order
+    recurrence with a corrected `2k/x` coefficient (were ~1e-29 to ~1e-27
+    near the zeros of `y0`/`Y_n`).
+  - `gamma` — full DD via a triple-double Stirling log-Γ (was ~1.4e-31).
+  - Complex `pow` — full DD via a triple-double complex `log z` (was ~1.9e-29).
+  - Complex `log1p` — full DD via a compensated `2a + a² + b²` (was ~3.5e-29).
+  - Complex division real part — full DD via the compensated `dd_cross_diff`
+    numerator (was ~2.6e-30).
+  Only `mod`/`modulo`/`remainder` remain short of full DD, and only at
+  extreme (~2⁶⁵) arguments where the integer-quotient reduction degrades.
+
+### Added
+
+- Internal triple-double `log` and `atan2` kernels (`detail::log_td`,
+  `detail::atan2_td`) — one Newton step from the DD result using the
+  existing TD `exp`/`sincos`. Not part of the public ABI.
+- Documentation site (Sphinx + Breathe + MyST, published to GitHub Pages):
+  a C/C++ API reference generated from the header via Doxygen, the
+  getting-started / building / precision / matmul / error-handling guides,
+  and a measured precision report. The public header now carries `///`
+  Doxygen comments across its surface.
+
+### Fixed
+
+- Test oracle: the 200-bit MPFR references for `exp2m1`/`exp10m1`/`log2p1`/
+  `log10p1` used the naive cancelling forms (`exp2(x) − 1`, `log2(1 + x)`),
+  mis-measuring those (full-DD) kernels at ~1e-28. Switched to the
+  cancellation-free `expm1`/`log1p` identities.
+- Documentation: corrected the precision classification across the README,
+  precision guide, and benchmark to measured (200-bit MPFR) values. Several
+  functions previously labelled "near-DD"/"single-double" (the trig and
+  hyperbolic families, `erf`/`erfc`, the Bessel family, the complex inverse
+  trig, `sinpi`/`cospi`/`tanpi`, `fma`, …) are full DD — the earlier figures
+  were float128-reference artifacts.
+
+### Internal
+
+- `complex64x2`: split the `struct float64x2 re, im;` member declaration into
+  two declarations (ABI-identical; the layout `static_assert`s are unchanged),
+  so standards-based C++ tooling parses the struct cleanly.
+
+## [0.6.0] — 2026-05-12
+
 ### Added
 
 - C ABI: C99 classification and ordered/unordered comparison
