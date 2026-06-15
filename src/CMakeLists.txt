@@ -68,6 +68,25 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
     target_compile_options(multifloats PRIVATE -fp-model=precise)
 endif()
 
+# Optional hardware-FMA baseline. Every DD multiply bottoms out in std::fma;
+# with no FMA-enabled target the compiler lowers it to a libm call (one call
+# per fused multiply-add). Turning this ON compiles the library for a CPU
+# baseline that has the FMA instruction — measured ~12% faster on the
+# transcendental kernels — at the cost of the resulting binary requiring such
+# a CPU (x86: Haswell / 2013+). OFF by default to keep the build fully
+# portable. This only changes how std::fma is lowered (a correctly-rounded
+# fused op either way); it does NOT enable -ffast-math or relax the IEEE
+# semantics the error-free transformations depend on. AArch64 already has FMA
+# in its base ISA, so the flag is a no-op there. For a different baseline
+# (e.g. -march=x86-64-v3) pass it via CMAKE_CXX_FLAGS instead.
+option(MULTIFLOATS_NATIVE_FMA
+       "Compile libmultifloats for a CPU baseline with hardware FMA (-mfma)" OFF)
+if(MULTIFLOATS_NATIVE_FMA AND
+   CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64" AND
+   CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|IntelLLVM")
+    target_compile_options(multifloats PRIVATE -mfma)
+endif()
+
 # LTO via CMake's standard abstraction, gated on the project-wide
 # MULTIFLOATS_USE_LTO option (defined in the top-level CMakeLists.txt).
 # Per-config so a Debug build leaves IPO off (LTO destroys debuggability
