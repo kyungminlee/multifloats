@@ -31,16 +31,13 @@ build will land in the same orders of magnitude.
     (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, and the π-scaled
     `sinpi`/`cospi`/`tanpi`), the full
     hyperbolic set (`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`),
-    `erf`, `erfc`, `erfc_scaled`, `lgamma`, the full Bessel family
+    `erf`, `erfc`, `erfc_scaled`, `gamma`, `lgamma`, the full Bessel family
     (`bessel_j0/j1/jn`, `bessel_y0/y1/yn`), complex `+ - * /`, and the
     `cdd_*` transcendentals.
 * - **Bit-exact (always 0)**
   - 0
   - `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`, `scale`,
     `set_exponent`, every constructor and assignment, complex `*` real part.
-* - **Near full DD**
-  - ~1e-31
-  - `gamma` — a few DD ulp at large arguments (`exp(lgamma)` amplification).
 * - **Reduced**
   - ~1e-23
   - `mod`/`modulo`/`remainder` only — full DD normally (~2e-32), but ~1e-23 at
@@ -68,7 +65,7 @@ of these kernels — `fma` itself is full DD (~4e-32).
 | `erfc` | 2.5e-32 | 8.9e-34 |
 | `erfc_scaled` (`erfcx`) | 5.5e-32 | 2.5e-33 |
 | `lgamma` | 4.7e-32 | 6.4e-33 |
-| `gamma` | 2.6e-31 | 1.0e-32 |
+| `gamma` | 4.6e-32 | 8.4e-33 |
 | `bessel_j0` / `j1` / `jn` (MPFR) | 5.9e-33 / 7.4e-33 / 1.1e-32 | ~3e-34 |
 | `bessel_y0` / `y1` / `yn` (MPFR) | 4.9e-32 / 5.8e-32 / 5.9e-32 | ~8e-33 |
 
@@ -85,9 +82,8 @@ identity `sin(x − π/4) = (sin x − cos x)/√2`. With this, all the kernels 
 full DD (verified against the 200-bit MPFR oracle). `jn`/`yn` carry their
 integer-order recurrence in triple-double — including a corrected `2k/x`
 coefficient, whose plain-DD rounding would otherwise dominate near the zeros
-of `Y_n` — so the recurrence does not accumulate above the DD floor. `gamma`
-remains ~2.6e-31 at large arguments, while `lgamma` — a native DD Stirling
-series — is full DD.
+of `Y_n` — so the recurrence does not accumulate above the DD floor. Both
+`gamma` and `lgamma` are full DD (a native DD/TD Stirling series).
 
 ## What makes the full-DD kernels exact
 
@@ -119,6 +115,9 @@ series — is full DD.
   terms cancel.
 - **complex `÷`** — both numerator parts use a compensated `a·b ± c·d` kernel
   (`dd_cross_diff`), so the real part stays full DD even when `ar·br ≈ −ai·bi`.
+- **`gamma`** — the Stirling `log Γ` is carried in **triple-double** (`log x`
+  via `log_td`), then `Γ = exp(logΓ)` uses the `erfc_scaled` residual trick, so
+  `exp` no longer amplifies a DD-rounded `log Γ`.
 
 ```{important}
 Every error-free transformation depends on `std::fma` being IEEE-compliant

@@ -117,7 +117,7 @@ every elementary transcendental.
 | `sinh`, `cosh`, `tanh` | 3.2e-32 – 6.1e-32 | ~3e-33 |
 | `asinh`, `acosh`, `atanh` | 3.1e-32 – 5.7e-32 | ~2e-33 |
 | `erf`, `erfc`, `erfc_scaled` | 1.7e-32 – 5.5e-32 | ~2e-33 |
-| `log_gamma` | 4.7e-32 | 6.4e-33 |
+| `gamma`, `log_gamma` | 4.6e-32 / 4.7e-32 | ~7e-33 |
 | `bessel_*` (`j0/j1/jn`, `y0/y1/yn`; vs 200-bit MPFR) | 5e-33 – 6e-32 | ~8e-33 |
 | Complex `+ − × ÷`, and the `cdd_*` transcendentals (exp, log, `log1p`, sqrt, `pow`, the trig / hyperbolic / inverse families, `sinpi`/`cospi`, `expm1`) | ~1e-32 – 7e-32 | ~1e-32 |
 | `sum`, `dot_product`, `norm2`, `matmul` (n=8) | 2e-31 – 7e-30 | ~1e-32 |
@@ -149,7 +149,6 @@ error (see the caveat below).
 
 | Op | max_rel | mean_rel | Why |
 | --- | --- | --- | --- |
-| `gamma` | 1.4e-31 | 1.0e-32 | `exp(lgamma)` amplifies lgamma's absolute error (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | full DD normally (~2e-32 vs MPFR); ~1e-23 only at very large arguments (~2⁶⁵), where the integer-quotient reduction degrades |
 
 (Everything else — including the **whole Bessel family**, the **complex
@@ -202,8 +201,12 @@ complex branch cuts), not kernel error.)
 - **Complex `÷`** — both numerator parts use a compensated `a·b ± c·d` kernel
   (`dd_cross_diff`, a triple-double 14-term product expansion), so the real
   part stays full DD even when `ar·br ≈ −ai·bi` cancels.
+- **`gamma`** — the Stirling `log Γ(x) = (x−½)·log x − x + ½log(2π) + Σ c_k/x^…`
+  is carried in **triple-double** (`log x` via `log_td`), then `Γ = exp(logΓ)`
+  uses the `erfc_scaled` residual trick — so `exp` no longer amplifies a
+  DD-rounded `log Γ`. The shift-into-range product is also triple-double.
 
-Only `gamma` (~1.4e-31 at large arguments) and `mod`/`remainder` at extreme
+Only `mod`/`remainder` at extreme
 (~2⁶⁵) arguments remain short of full DD against a clean reference.
 
 ## Matmul API and GEMM relationship
