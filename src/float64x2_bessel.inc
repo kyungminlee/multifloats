@@ -103,6 +103,21 @@ static void bessel_hankel_phase(float64x2 const &x, bool three_quarter,
   }
 }
 
+// (2k/x)·b in triple-double for the Y-recurrence. The coefficient 2k/x is a DD
+// division (~1e-32); near the zeros of Y_n that error is amplified into the
+// result, so carry it to ~TD: c = round_dd(2k/x) plus a correction
+// ccorr = (2k − c·x)/x = (2k/x − c), with c·x evaluated to TD so the residual
+// is exact. (c + ccorr)·b is then accumulated in TD.
+static float64x3 bessel_recur_term(float64x3 const &b, int twok,
+                                   float64x2 const &x) {
+  double tk = static_cast<double>(twok);
+  float64x2 c = float64x2(tk) / x;
+  float64x3 cx = td_mul_dd(td_from_dd(c), x);                   // c·x (TD)
+  float64x2 resid = td_to_dd(td_add_double(td_negate(cx), tk)); // 2k − c·x
+  float64x2 ccorr = resid / x;                                  // 2k/x − c
+  return td_add_td(td_mul_dd(b, c), td_mul_dd(b, ccorr));
+}
+
 float64x2 j0(float64x2 const &x) {
   float64x2 ax = x;
   if (ax.limbs[0] < 0.0) { ax.limbs[0] = -ax.limbs[0]; ax.limbs[1] = -ax.limbs[1]; }
@@ -348,15 +363,19 @@ float64x2 yn(int n, float64x2 const &x) {
     return parity ? -r : r;
   }
   if (!std::isfinite(xx)) return float64x2(0.0);
-  float64x2 a = y0(x);
-  float64x2 b = y1(x);
+  // Forward recurrence Y_{i+1} = (2i/x)·Y_i − Y_{i-1}, carried in triple-double
+  // so the per-step rounding stays below the DD floor. The recurrence is stable
+  // (|Y_n| grows with n), so the residue folds away cleanly at the end.
+  float64x3 a = td_from_dd(y0(x));
+  float64x3 b = td_from_dd(y1(x));
   for (int i = 1; i < n; ++i) {
-    float64x2 temp = b;
-    b = float64x2(static_cast<double>(2 * i)) / x * b - a;
-    a = temp;
+    float64x3 nb = td_add_td(bessel_recur_term(b, 2 * i, x), td_negate(a));
+    a = b;
+    b = nb;
     if (!std::isfinite(b.limbs[0])) break;
   }
-  return parity ? -b : b;
+  float64x2 r = td_to_dd(b);
+  return parity ? -r : r;
 }
 
 // Range variant of Jn: Jn forward-recurrence is unstable for n > x, so
@@ -376,17 +395,20 @@ void jn(int n1, int n2, float64x2 const &x, float64x2 *out) {
 void yn(int n1, int n2, float64x2 const &x, float64x2 *out) {
   int size = n2 - n1 + 1;
   if (size <= 0) return;
-  float64x2 a = y0(x);
-  float64x2 b = y1(x);
-  if (n1 == 0) out[0] = a;
-  if (n1 <= 1 && n2 >= 1) out[1 - n1] = b;
+  // Triple-double forward recurrence (see scalar yn for the rationale), folding
+  // each requested order back to DD as it is produced.
+  float64x3 a = td_from_dd(y0(x));
+  float64x3 b = td_from_dd(y1(x));
+  if (n1 == 0) out[0] = td_to_dd(a);
+  if (n1 <= 1 && n2 >= 1) out[1 - n1] = td_to_dd(b);
   for (int n = 2; n <= n2; ++n) {
-    float64x2 temp = b;
-    b = float64x2(static_cast<double>(2 * (n - 1))) / x * b - a;
-    a = temp;
-    if (n >= n1) out[n - n1] = b;
+    float64x3 nb = td_add_td(bessel_recur_term(b, 2 * (n - 1), x), td_negate(a));
+    a = b;
+    b = nb;
+    if (n >= n1) out[n - n1] = td_to_dd(b);
     if (!std::isfinite(b.limbs[0])) {
-      for (int j = std::max(n - n1 + 1, 0); j < size; ++j) out[j] = b;
+      float64x2 bd = td_to_dd(b);
+      for (int j = std::max(n - n1 + 1, 0); j < size; ++j) out[j] = bd;
       return;
     }
   }
