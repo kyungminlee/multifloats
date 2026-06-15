@@ -151,7 +151,6 @@ error (see the caveat below).
 | --- | --- | --- | --- |
 | `gamma` | 1.4e-31 | 1.0e-32 | `exp(lgamma)` amplifies lgamma's absolute error (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | full DD normally (~2e-32 vs MPFR); ~1e-23 only at very large arguments (~2⁶⁵), where the integer-quotient reduction degrades |
-| `cdd_div` (re) | 2.6e-30 | ~1e-32 | cancellation in `(ac+bd)/(c²+d²)` |
 
 (Everything else — including the **whole Bessel family**, the **complex
 inverse trig** `cdd_asin/acos/atan/asinh/acosh/atanh`, `cdd_sinpi`/`cospi`,
@@ -200,10 +199,12 @@ complex branch cuts), not kernel error.)
 - **Complex `log1p`** — uses `Re = ½·log1p(2a + a² + b²)` (avoiding the `1±1`
   cancellation), with `2a + a² + b²` formed in **triple-double** so it stays
   accurate on the circle `|1+z| = 1`, where those terms cancel to ~0.
+- **Complex `÷`** — both numerator parts use a compensated `a·b ± c·d` kernel
+  (`dd_cross_diff`, a triple-double 14-term product expansion), so the real
+  part stays full DD even when `ar·br ≈ −ai·bi` cancels.
 
-Only `gamma` (~1.4e-31 at large arguments), the complex-division real part
-(`cdd_div`, ~3e-30 from `(ac+bd)/(c²+d²)` cancellation), and `mod`/`remainder`
-at extreme arguments remain short of full DD against a clean reference.
+Only `gamma` (~1.4e-31 at large arguments) and `mod`/`remainder` at extreme
+(~2⁶⁵) arguments remain short of full DD against a clean reference.
 
 ## Matmul API and GEMM relationship
 

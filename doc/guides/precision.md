@@ -39,9 +39,8 @@ build will land in the same orders of magnitude.
   - `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`, `scale`,
     `set_exponent`, every constructor and assignment, complex `*` real part.
 * - **Near full DD**
-  - ~1e-31 – 3e-30
-  - `gamma` (~1e-31) and the cancellation-bound `cdd_div`(re) (~3e-30) —
-    a few to ~100 DD ulp.
+  - ~1e-31
+  - `gamma` — a few DD ulp at large arguments (`exp(lgamma)` amplification).
 * - **Reduced**
   - ~1e-23
   - `mod`/`modulo`/`remainder` only — full DD normally (~2e-32), but ~1e-23 at
@@ -118,6 +117,8 @@ series — is full DD.
 - **complex `log1p`** — `Re = ½·log1p(2a + a² + b²)`, with the argument formed
   in **triple-double** so it stays accurate on the circle `|1+z| = 1` where the
   terms cancel.
+- **complex `÷`** — both numerator parts use a compensated `a·b ± c·d` kernel
+  (`dd_cross_diff`), so the real part stays full DD even when `ar·br ≈ −ai·bi`.
 
 ```{important}
 Every error-free transformation depends on `std::fma` being IEEE-compliant
