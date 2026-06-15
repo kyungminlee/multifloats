@@ -119,7 +119,7 @@ every elementary transcendental.
 | `erf`, `erfc`, `erfc_scaled` | 1.7e-32 – 5.5e-32 | ~2e-33 |
 | `log_gamma` | 4.7e-32 | 6.4e-33 |
 | `bessel_*` (`j0/j1/jn`, `y0/y1/yn`; vs 200-bit MPFR) | 5e-33 – 6e-32 | ~8e-33 |
-| Complex `+ − × ÷`, `cdd_*` transcendentals | ~5e-32 – 3e-31 | ~1e-32 |
+| Complex `+ − × ÷`, and the `cdd_*` transcendentals (exp, log, sqrt, the trig / hyperbolic / inverse families, `sinpi`/`cospi`, `expm1`) | ~1e-32 – 7e-32 | ~1e-32 |
 | `sum`, `dot_product`, `norm2`, `matmul` (n=8) | 2e-31 – 7e-30 | ~1e-32 |
 | `product` (n=8) | 4.0e-50 | 4.0e-53 |
 
@@ -140,18 +140,24 @@ constructor and assignment, and the complex `conjg` / `proj` / `*`-real-part.
 A handful of kernels fall short of full DD. None is near the single-double
 floor — the worst case is ~1e-26.
 
+Numbers here are against the **200-bit MPFR** oracle (the honest kernel
+measure) — the float128 fuzz inflates several of these well past their true
+error (see the caveat below).
+
 | Op | max_rel | mean_rel | Why |
 | --- | --- | --- | --- |
-| `gamma` | 2.6e-31 | 1.0e-32 | a few DD ulp at large arguments (`log_gamma` is full DD) |
+| `gamma` | 1.4e-31 | 1.0e-32 | `exp(lgamma)` amplifies lgamma's absolute error (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | cancellation when the remainder is near zero; full DD otherwise |
-| `cdd_pow` | 2.4e-27 | 4.5e-31 | cancellation in `exp(w·log(z))` |
-| `cdd_expm1`, `cdd_log1p`, complex `sinpi`/`cospi` | 3e-29 – 1.9e-28 | ~1e-31 | cancellation in the complex `…−1` / near-axis formulas |
+| `cdd_pow` | 1.8e-29 | ~5e-31 | `exp(w·log(z))` amplifies a large `w·log(z)` (gamma-like) |
+| `cdd_div` (re), `cdd_log1p` (re) | 2.3e-31 / 4.6e-31 | ~1e-32 | cancellation in `(ac+bd)/(c²+d²)` and `½log((1+x)²+y²)` near `z→0` |
 
-(The float128 fuzz reports `bessel_y0`/`yn_range` at ~1e-29 and the real-valued
-`sinpi`/`cospi`/`tanpi` at ~1e-26 — those are the float128 *reference's* own
-floor near the zeros (its 113-bit π differs from the kernel's for the π-scaled
-trig at large `x`), not kernel error; the 200-bit MPFR oracle confirms all of
-these kernels are full DD.)
+(Everything else — including the **whole Bessel family**, the **complex
+inverse trig** `cdd_asin/acos/atan/asinh/acosh/atanh`, `cdd_sinpi`/`cospi`,
+`cdd_expm1`, and the real `sinpi`/`cospi`/`tanpi` — is **full DD** against the
+200-bit MPFR oracle. The float128 fuzz reports some of these at ~1e-26 – 1e-29:
+that is the float128 *reference's* own floor (its 113-bit π differs from the
+kernel's for π-scaled trig at large `x`; libquadmath loses precision on the
+complex branch cuts), not kernel error.)
 
 ### What makes the full-DD kernels exact
 

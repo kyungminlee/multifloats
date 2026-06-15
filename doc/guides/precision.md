@@ -43,9 +43,10 @@ build will land in the same orders of magnitude.
   - `gamma` — a few DD ulp at large arguments.
 * - **Reduced**
   - ~1e-23
-  - `mod`/`modulo`/`remainder` near a near-zero result, and the
-    cancellation-bound complex cases (`cdd_pow`, `cdd_expm1`, …) — inherent
-    cancellation, not kernel error.
+  - `mod`/`modulo`/`remainder` near a near-zero result; `cdd_pow`
+    (`exp(w·log(z))` amplification, ~1e-29); and the cancellation-bound
+    `cdd_div`/`cdd_log1p` real parts (~2–5e-31). Amplification/cancellation,
+    not kernel imprecision.
 ```
 
 ## Measured worst / mean relative error (1M, seed 0)
