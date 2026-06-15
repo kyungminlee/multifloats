@@ -1,5 +1,6 @@
 // ---- sinh / cosh / tanh ----------------------------------------------------
 float64x2 sinh(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0])) {
     float64x2 r;
     r.limbs[0] = std::sinh(x.limbs[0]);
@@ -55,6 +56,7 @@ void sinhcosh(float64x2 const &x, float64x2 &s, float64x2 &c) {
 }
 
 float64x2 tanh(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0])) {
     float64x2 r;
     r.limbs[0] = std::tanh(x.limbs[0]);

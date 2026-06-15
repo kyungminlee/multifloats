@@ -117,6 +117,13 @@ sqrt(complex<multifloats::float64x2> const &z) {
   float64x2 a = z.real(), b = z.imag();
   if (a.limbs[0] == 0.0 && b.limbs[0] == 0.0)
     return complex<multifloats::float64x2>(float64x2(0.0), b);  // preserves signed zero of imag
+  // C99 Annex G.6.4.2: sqrt(x ± i∞) = +∞ ± i∞ for every x (finite or NaN).
+  // Otherwise mod = ∞ feeds i = b/(r+r) = ∞/∞ = NaN below.
+  if (std::isinf(b.limbs[0])) {
+    float64x2 inf = float64x2(std::numeric_limits<double>::infinity());
+    return complex<multifloats::float64x2>(
+        inf, std::signbit(b.limbs[0]) ? -inf : inf);
+  }
   float64x2 mod = multifloats::hypot(a, b);
   float64x2 half = float64x2(0.5, 0.0);
   if (a.limbs[0] >= 0.0) {

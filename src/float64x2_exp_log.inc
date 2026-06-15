@@ -389,6 +389,7 @@ float64x2 exp10(float64x2 const &x) {
 // atanh-narrow polynomial preserves every bit.
 
 float64x2 expm1(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   // Non-finite: expm1(+inf) = +inf, expm1(-inf) = -1, expm1(NaN) = NaN.
   if (!std::isfinite(x.limbs[0])) {
     float64x2 r;
@@ -410,6 +411,7 @@ float64x2 expm1(float64x2 const &x) {
 }
 
 float64x2 log1p(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   // Non-finite: log1p(+inf) = +inf, log1p(NaN) = NaN. log1p(-inf) reaches
   // the domain check below via (1 + -inf = -inf).
   if (!std::isfinite(x.limbs[0])) {
@@ -512,6 +514,13 @@ float64x2 log10p1(float64x2 const &x) {
 // thus accurate to ~ulp_dd·|y| in absolute terms regardless of |e_x|.
 float64x2 pow(float64x2 const &x, float64x2 const &y) {
   if (x.limbs[0] == 0.0 && y.limbs[0] == 0.0) return float64x2(1.0);
+
+  // C/IEEE: pow(1, y) == 1 for every y (incl. NaN/±∞), and pow(-1, ±∞) == 1.
+  // (pow(x, ±0) == 1 for every x is handled by the integer fast path below.)
+  // Without these guards both reach exp(y·log(x)) and produce NaN.
+  if (x.limbs[0] == 1.0 && x.limbs[1] == 0.0) return float64x2(1.0);
+  if (x.limbs[0] == -1.0 && x.limbs[1] == 0.0 && std::isinf(y.limbs[0]))
+    return float64x2(1.0);
 
   // Integer-exponent fast path: y exact integer with |y| ≤ 2^31.
   // Uses repeated squaring (powi) — bit-cleaner than exp(y*log(x)) and

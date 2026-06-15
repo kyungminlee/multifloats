@@ -173,8 +173,20 @@ struct float64x2 {
     return limbs[1] < r.limbs[1];
   }
   constexpr bool operator>(float64x2 const &r) const  { return  (r < *this); }
-  constexpr bool operator<=(float64x2 const &r) const { return !(r < *this); }
-  constexpr bool operator>=(float64x2 const &r) const { return !(*this < r); }
+  // `<=` / `>=` are NOT `!(r < *this)` / `!(*this < r)`: negating `<` turns
+  // NaN's unordered-false into a wrong `true`. Compare limbwise and require
+  // an *equal* high limb (NaN fails `==`, so it falls through to false) — the
+  // ordered IEEE result, at the same cost as `operator<`.
+  constexpr bool operator<=(float64x2 const &r) const {
+    if (limbs[0] < r.limbs[0]) return true;
+    if (limbs[0] == r.limbs[0]) return limbs[1] <= r.limbs[1];
+    return false;
+  }
+  constexpr bool operator>=(float64x2 const &r) const {
+    if (r.limbs[0] < limbs[0]) return true;
+    if (limbs[0] == r.limbs[0]) return limbs[1] >= r.limbs[1];
+    return false;
+  }
 
   /// @brief Unary plus (identity).
   constexpr float64x2 operator+() const { return *this; }

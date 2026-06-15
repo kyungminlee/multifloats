@@ -228,6 +228,7 @@ float64x2 atan2pi(float64x2 const &y, float64x2 const &x) {
 
 // ---- asinh / acosh / atanh -------------------------------------------------
 float64x2 asinh(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::asinh(d); });
   }
@@ -274,6 +275,7 @@ float64x2 acosh(float64x2 const &x) {
 }
 
 float64x2 atanh(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0])) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::atanh(d); });
   }

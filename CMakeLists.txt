@@ -137,6 +137,19 @@ option(MULTIFLOATSF_INSTALL_PRECOMPILED_MOD
 # =============================================================================
 # Library subprojects
 # =============================================================================
+# Parse MULTIFLOATS_ABI_VERSION from the header here, at the top level, so BOTH
+# the src/ and fsrc/ sibling subprojects inherit it (a plain variable set inside
+# one add_subdirectory() does NOT reach its siblings — that previously left the
+# Fortran package's ConfigVersion as ".0.0", breaking find_package version
+# gating). The header #define remains the single source of truth.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats/float64x2.h"
+     _mf_abi_line REGEX "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+[0-9]+")
+if(NOT _mf_abi_line)
+    message(FATAL_ERROR "multifloats: could not find MULTIFLOATS_ABI_VERSION in include/multifloats/float64x2.h")
+endif()
+string(REGEX REPLACE "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+([0-9]+).*$"
+       "\\1" MULTIFLOATS_ABI_VERSION "${_mf_abi_line}")
+
 add_subdirectory(src)   # project(multifloats)  → libmultifloats.a
 add_subdirectory(fsrc)  # project(multifloatsf) → libmultifloatsf-<compiler>.a
 

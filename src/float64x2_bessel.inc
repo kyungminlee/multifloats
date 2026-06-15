@@ -108,9 +108,9 @@ static void bessel_hankel_phase(float64x2 const &x, bool three_quarter,
 // result, so carry it to ~TD: c = round_dd(2k/x) plus a correction
 // ccorr = (2k − c·x)/x = (2k/x − c), with c·x evaluated to TD so the residual
 // is exact. (c + ccorr)·b is then accumulated in TD.
-static float64x3 bessel_recur_term(float64x3 const &b, int twok,
+static float64x3 bessel_recur_term(float64x3 const &b, double twok,
                                    float64x2 const &x) {
-  double tk = static_cast<double>(twok);
+  double tk = twok;
   float64x2 c = float64x2(tk) / x;
   float64x3 cx = td_mul_dd(td_from_dd(c), x);                   // c·x (TD)
   float64x2 resid = td_to_dd(td_add_double(td_negate(cx), tk)); // 2k − c·x
@@ -123,7 +123,8 @@ float64x2 j0(float64x2 const &x) {
   if (ax.limbs[0] < 0.0) { ax.limbs[0] = -ax.limbs[0]; ax.limbs[1] = -ax.limbs[1]; }
   double xx = ax.limbs[0];
   if (xx == 0.0) return float64x2(1.0);
-  if (!std::isfinite(xx)) return float64x2(0.0);
+  if (std::isnan(xx)) return float64x2(xx);     // J0(NaN) = NaN
+  if (!std::isfinite(xx)) return float64x2(0.0);  // J0(±∞) = 0
 
   if (xx <= 2.0) {
     // Power series (j0q.c): J0(x) = 1 - x²/4 + x⁴·N(x²)/D(x²).
@@ -155,7 +156,8 @@ float64x2 j1(float64x2 const &x) {
   float64x2 ax = neg ? -x : x;
   double xx = ax.limbs[0];
   if (xx == 0.0) return float64x2(0.0);
-  if (!std::isfinite(xx)) return float64x2(0.0);
+  if (std::isnan(xx)) return float64x2(xx);     // J1(NaN) = NaN
+  if (!std::isfinite(xx)) return float64x2(0.0);  // J1(±∞) = 0
 
   float64x2 res;
   if (xx <= 2.0) {
@@ -185,8 +187,9 @@ float64x2 y0(float64x2 const &x) {
   double xx = x.limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
     float64x2 r;
-    r.limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
-                               : std::numeric_limits<double>::quiet_NaN();
+    r.limbs[0] = std::isinf(xx)    ? 0.0  // Y0(+∞) = +0 (decays)
+                 : (xx == 0.0)     ? -std::numeric_limits<double>::infinity()
+                                   : std::numeric_limits<double>::quiet_NaN();
     r.limbs[1] = 0.0;
     return r;
   }
@@ -220,8 +223,9 @@ float64x2 y1(float64x2 const &x) {
   double xx = x.limbs[0];
   if (xx <= 0.0 || !std::isfinite(xx)) {
     float64x2 r;
-    r.limbs[0] = (xx == 0.0) ? -std::numeric_limits<double>::infinity()
-                               : std::numeric_limits<double>::quiet_NaN();
+    r.limbs[0] = std::isinf(xx)    ? 0.0  // Y1(+∞) = +0 (decays)
+                 : (xx == 0.0)     ? -std::numeric_limits<double>::infinity()
+                                   : std::numeric_limits<double>::quiet_NaN();
     r.limbs[1] = 0.0;
     return r;
   }
@@ -268,7 +272,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
   //   J_{-n}(x) = (-1)^n J_n(x)     and     J_n(-x) = (-1)^n J_n(x).
   float64x2 x = x_in;
   int parity = 0;
-  if (n < 0) { n = -n; parity ^= (n & 1); }
+  if (n < 0) { parity ^= (n & 1); n = (n == INT_MIN) ? INT_MAX : -n; }
   if (n == 0) return j0(x);
   if (n == 1) {
     float64x2 r = j1(x);
@@ -277,6 +281,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
   if (x.limbs[0] < 0.0) { x = -x; parity ^= (n & 1); }
 
   double xx = x.limbs[0];
+  if (std::isnan(xx)) return float64x2(xx);     // Jn(NaN) = NaN
   if (xx == 0.0 || !std::isfinite(xx)) return float64x2(0.0);
 
   float64x2 result;
@@ -286,7 +291,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
     float64x2 b = j1(x);
     for (int i = 1; i < n; ++i) {
       float64x2 temp = b;
-      b = float64x2(static_cast<double>(2 * i)) / x * b - a;
+      b = float64x2(2.0 * i) / x * b - a;
       a = temp;
     }
     result = b;
@@ -296,7 +301,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
     // ~2^106 ≈ 8e31 (vs ~2^56 ≈ 1e17 for plain double). The upper cap on k
     // prevents a runaway on pathological inputs (q1 always grows faster
     // than geometric with rate ≥ 2/x, so 1000 iterations is a vast margin).
-    float64x2 w = float64x2(static_cast<double>(2 * n) / xx);
+    float64x2 w = float64x2(2.0 * n / xx);
     float64x2 h = float64x2(2.0 / xx);
     float64x2 q0 = w;
     float64x2 z = w + h;
@@ -311,7 +316,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
     }
     // Downward Lentz from index 2(n+k) to 2n.
     float64x2 t(0.0);
-    for (int i = 2 * (n + k); i >= 2 * n; i -= 2) {
+    for (long long i = 2LL * (static_cast<long long>(n) + k); i >= 2LL * n; i -= 2) {
       t = float64x2(1.0) / (float64x2(static_cast<double>(i)) / x - t);
     }
     float64x2 a = t;
@@ -323,7 +328,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
     bool rescale = log_arg.limbs[0] >= 1.1356e4;
     for (int i = n - 1; i >= 1; --i) {
       float64x2 temp = b;
-      b = float64x2(static_cast<double>(2 * i)) * b / x - a;
+      b = float64x2(2.0 * i) * b / x - a;
       a = temp;
       if (rescale && b.limbs[0] > 1e100) {
         a = a / b;
@@ -345,7 +350,7 @@ float64x2 jn(int n, float64x2 const &x_in) {
 float64x2 yn(int n, float64x2 const &x) {
   // Y_{-n}(x) = (-1)^n Y_n(x). No x-sign identity — Y is undefined on x < 0.
   int parity = 0;
-  if (n < 0) { n = -n; parity ^= (n & 1); }
+  if (n < 0) { parity ^= (n & 1); n = (n == INT_MIN) ? INT_MAX : -n; }
   double xx = x.limbs[0];
   if (xx <= 0.0) {
     float64x2 r;
@@ -362,14 +367,15 @@ float64x2 yn(int n, float64x2 const &x) {
     float64x2 r = y1(x);
     return parity ? -r : r;
   }
-  if (!std::isfinite(xx)) return float64x2(0.0);
+  if (std::isnan(xx)) return float64x2(xx);     // Yn(NaN) = NaN
+  if (!std::isfinite(xx)) return float64x2(0.0);  // Yn(+∞) = 0
   // Forward recurrence Y_{i+1} = (2i/x)·Y_i − Y_{i-1}, carried in triple-double
   // so the per-step rounding stays below the DD floor. The recurrence is stable
   // (|Y_n| grows with n), so the residue folds away cleanly at the end.
   float64x3 a = td_from_dd(y0(x));
   float64x3 b = td_from_dd(y1(x));
   for (int i = 1; i < n; ++i) {
-    float64x3 nb = td_add_td(bessel_recur_term(b, 2 * i, x), td_negate(a));
+    float64x3 nb = td_add_td(bessel_recur_term(b, 2.0 * i, x), td_negate(a));
     a = b;
     b = nb;
     if (!std::isfinite(b.limbs[0])) break;
@@ -384,16 +390,18 @@ float64x2 yn(int n, float64x2 const &x) {
 // model means this call can be inlined by the compiler without LTO.
 // Caller guarantees out[] has room for n2−n1+1 elements.
 void jn(int n1, int n2, float64x2 const &x, float64x2 *out) {
-  int size = n2 - n1 + 1;
+  // Widen to avoid signed overflow in n2−n1+1 / n1+i for extreme orders.
+  long long size = static_cast<long long>(n2) - n1 + 1;
   if (size <= 0) return;
-  for (int i = 0; i < size; ++i) out[i] = jn(n1 + i, x);
+  for (long long i = 0; i < size; ++i)
+    out[i] = jn(static_cast<int>(n1 + i), x);
 }
 
 // Range variant: compute Y_{n1}, Y_{n1+1}, …, Y_{n2}(x) into `out` via a
 // single forward recurrence sweep. Cheaper than n2−n1+1 independent calls.
 // Caller guarantees out[] has room for n2−n1+1 elements.
 void yn(int n1, int n2, float64x2 const &x, float64x2 *out) {
-  int size = n2 - n1 + 1;
+  long long size = static_cast<long long>(n2) - n1 + 1;  // avoid n2−n1+1 overflow
   if (size <= 0) return;
   // Triple-double forward recurrence (see scalar yn for the rationale), folding
   // each requested order back to DD as it is produced.
@@ -402,7 +410,7 @@ void yn(int n1, int n2, float64x2 const &x, float64x2 *out) {
   if (n1 == 0) out[0] = td_to_dd(a);
   if (n1 <= 1 && n2 >= 1) out[1 - n1] = td_to_dd(b);
   for (int n = 2; n <= n2; ++n) {
-    float64x3 nb = td_add_td(bessel_recur_term(b, 2 * (n - 1), x), td_negate(a));
+    float64x3 nb = td_add_td(bessel_recur_term(b, 2.0 * (n - 1), x), td_negate(a));
     a = b;
     b = nb;
     if (n >= n1) out[n - n1] = td_to_dd(b);

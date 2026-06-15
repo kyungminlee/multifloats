@@ -16,6 +16,7 @@
 // bit-compatible fuzz coverage against `erfq`/`erfcq`/`tgammaq`/`lgammaq`.
 // ---- erf / erfc (piecewise rational, ported from libquadmath erfq.c) -------
 float64x2 erf(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0])) {
     float64x2 r;
     r.limbs[0] = std::erf(x.limbs[0]);
@@ -498,7 +499,15 @@ float64x2 tgamma(float64x2 const &x) {
     r.limbs[1] = 0.0;
     return r;
   }
-  if (hi <= 0.0 && hi == std::nearbyint(hi) && x.limbs[1] == 0.0) {
+  if (hi == 0.0 && x.limbs[1] == 0.0) {
+    // Γ has a simple pole at a *true* zero: Γ(+0) = +∞, Γ(−0) = −∞ (signed per
+    // IEEE). A non-canonical (0, ε) is a tiny nonzero argument (Γ ≈ 1/ε), so it
+    // must fall through to the reflection path below.
+    r.limbs[0] = std::copysign(std::numeric_limits<double>::infinity(), hi);
+    r.limbs[1] = 0.0;
+    return r;
+  }
+  if (hi < 0.0 && hi == std::nearbyint(hi) && x.limbs[1] == 0.0) {
     r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
     r.limbs[1] = 0.0;
     return r;

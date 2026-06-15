@@ -240,6 +240,7 @@ void sincos(float64x2 const &x, float64x2 &s, float64x2 &c) {
 }
 
 float64x2 sin(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
@@ -266,6 +267,7 @@ float64x2 cos(float64x2 const &x) {
 }
 
 float64x2 tan(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) return pi_trig_nan();
   float64x2 r;
   int q;
