@@ -1692,8 +1692,11 @@ inline uintmax_t ufromfp(float64x2 const &x, int rnd, unsigned int width) {
     std::feraiseexcept(FE_INVALID);
     return 0;
   }
+  // r.limbs[1] may be negative (canonical DD allows a low limb of either sign);
+  // casting a negative double straight to uintmax_t is UB, so route the low
+  // limb through intmax_t first. r.limbs[0] is a non-negative integer < 2^64.
   return static_cast<uintmax_t>(r.limbs[0]) +
-         static_cast<uintmax_t>(r.limbs[1]);
+         static_cast<uintmax_t>(static_cast<intmax_t>(r.limbs[1]));
 }
 
 /// @brief Like `fromfp`, also raising the inexact exception (C23 `fromfpx`).
@@ -2071,12 +2074,22 @@ inline constexpr float64x2 remainder(float64x2 const &x, float64x2 const &y) {
 /// @brief IEEE 754 remainder of `x / y`; low quotient bits stored in `*quo`.
 inline constexpr float64x2 remquo(float64x2 const &x, float64x2 const &y, int *quo) {
   float64x2 q = round(x / y);
-  *quo = static_cast<int>(q.limbs[0]);
+  // q can exceed the range of int for huge x/y; static_cast<int> of an
+  // out-of-range double is UB, so clamp. (C only mandates the low-order bits;
+  // any in-range value with the right sign satisfies the contract.)
+  double qd = q.limbs[0];
+  *quo = (qd >= 2147483648.0)    ? 2147483647
+         : (qd <= -2147483648.0) ? (-2147483647 - 1)
+                                 : static_cast<int>(qd);
   return x - q * y;
 }
 
 /// @brief Positive difference, `max(x - y, 0)`.
 inline constexpr float64x2 fdim(float64x2 const &x, float64x2 const &y) {
+  // C requires fdim to return NaN when either argument is NaN; the bare
+  // `x > y` comparison is false for NaN and would wrongly yield 0.
+  if (x.limbs[0] != x.limbs[0] || y.limbs[0] != y.limbs[0])
+    return float64x2(std::numeric_limits<double>::quiet_NaN());
   return (x > y) ? (x - y) : float64x2();
 }
 

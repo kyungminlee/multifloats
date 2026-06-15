@@ -84,6 +84,13 @@ log(complex<multifloats::float64x2> const &z) {
   float64x2 ay = multifloats::abs(b);
   float64x2 big   = (ax > ay) ? ax : ay;
   float64x2 small = (ax > ay) ? ay : ax;
+  // A non-canonical operand like (0, ε) has a zero leading limb but a nonzero
+  // value; fold it down so the `== 0.0` test below means a true zero (else we
+  // would return log|z| = -inf for a finite nonzero z).
+  if (big.limbs[0] == 0.0 && big.limbs[1] != 0.0)
+    big = float64x2(big.limbs[1], 0.0);
+  if (small.limbs[0] == 0.0 && small.limbs[1] != 0.0)
+    small = float64x2(small.limbs[1], 0.0);
   float64x2 r;
   if (big.limbs[0] == 0.0) {
     r.limbs[0] = -std::numeric_limits<double>::infinity();

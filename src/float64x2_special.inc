@@ -155,8 +155,7 @@ float64x2 erfcx(float64x2 const &x) {
   // Asymptotic branch.
   float64x2 x2 = ax * ax;
   float64x2 z = float64x2(1.0) / x2;
-  int i = static_cast<int>(8.0 / ax.limbs[0]);
-  if (i > 7) i = 7;
+  int i = static_cast<int>(8.0 / ax.limbs[0]);  // ax ≥ 1.25 ⇒ i ∈ [0, 6]
   float64x2 p;
   switch (i) {
   case 0: p = neval(z, erfc_AN1_hi, erfc_AN1_lo, 9)  / deval(z, erfc_AD1_hi, erfc_AD1_lo, 8);  break;
