@@ -149,12 +149,31 @@ pow(complex<multifloats::float64x2> const &z,
   complex<multifloats::float64x2> l = std::log(zn);
   float64x2 lr = l.real(), li = l.imag();
   float64x2 wr = w.real(), wi = w.imag();
-  // w * log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr).
-  // The dominant error here is |Im(w·log z)|·ulp_dd amplified by exp;
-  // this scales with |w|·|log z| ≈ a few hundred DD ulp at fuzz extremes.
-  // Compensated cross-diff for the real part doesn't move the needle.
-  complex<multifloats::float64x2> p(wr * lr - wi * li, wr * li + wi * lr);
-  return std::exp(p);
+  // w * log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr). The dominant error is
+  // |Im(p)|·ulp_dd (a few hundred DD ulp at fuzz extremes) amplified by the
+  // complex exp: a DD p only holds Im(p) to ~|Im(p)|·2⁻¹⁰⁴ absolute, which the
+  // phase of exp turns into relative error. Carry p to triple-double and fold
+  // the residual limbs back — exp(Re) via exp(Re_dd)·(1+resid) (the
+  // erfc_scaled trick) and the phase via the linear sin/cos correction (the
+  // Bessel-phase trick). log(z)'s own DD accuracy (~1e-32) is then the floor.
+  namespace d = multifloats::detail;
+  d::float64x3 re_td = d::td_add_td(d::td_mul_dd(d::td_from_dd(wr), lr),
+                                    d::td_negate(d::td_mul_dd(d::td_from_dd(wi), li)));
+  d::float64x3 im_td = d::td_add_td(d::td_mul_dd(d::td_from_dd(wr), li),
+                                    d::td_mul_dd(d::td_from_dd(wi), lr));
+  float64x2 re_dd(re_td.limbs[0], re_td.limbs[1]);
+  float64x2 im_dd(im_td.limbs[0], im_td.limbs[1]);
+  if (!std::isfinite(re_dd.limbs[0]) || !std::isfinite(im_dd.limbs[0])) {
+    return std::exp(complex<multifloats::float64x2>(re_dd, im_dd));
+  }
+  float64x2 mag =
+      multifloats::exp(re_dd) * (float64x2(1.0) + float64x2(re_td.limbs[2]));
+  float64x2 s, c;
+  multifloats::sincos(im_dd, s, c);
+  float64x2 delta(im_td.limbs[2]);
+  float64x2 cc = c - delta * s;   // cos(Im_dd + δ)
+  float64x2 ss = s + delta * c;   // sin(Im_dd + δ)
+  return complex<multifloats::float64x2>(mag * cc, mag * ss);
 }
 
 // ---- Trigonometric ---------------------------------------------------------
