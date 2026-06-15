@@ -26,7 +26,7 @@ build will land in the same orders of magnitude.
   - Members
 * - **Full double-double**
   - ~1e-32 (≈ 1 DD ulp)
-  - `+ - * /`, `sqrt`, `cbrt`, `min`/`max`, `mod`, `dim`, `hypot`, `pow`,
+  - `+ - * /`, `fma`, `sqrt`, `cbrt`, `min`/`max`, `mod`, `dim`, `hypot`, `pow`,
     `exp`/`exp2`/`expm1`, `log`/`log2`/`log10`/`log1p`, the full trig set
     (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, and the π-scaled
     `sinpi`/`cospi`/`tanpi`), the full
@@ -55,8 +55,9 @@ The transcendentals and special functions — the historically interesting
 cases — all reach full DD. The Bessel and π-scaled-trig columns list the
 **200-bit MPFR** oracle (`max_dd`): the float128 reference's own precision
 floor near the zeros of `y0` (and its 113-bit π differing from the kernel's
-for `sinpi`/`cospi`/`tanpi` at large `x`) limits *its* readings to ~1e-26 –
-1e-30, so MPFR is the honest measure of these kernels.
+for `sinpi`/`cospi`/`tanpi` at large `x`, and its near-cancellation floor for
+`fma`) limits *its* readings to ~1e-26 – 1e-30, so MPFR is the honest measure
+of these kernels — `fma` itself is full DD (~4e-32).
 
 | Op | max_rel | mean_rel |
 | --- | --- | --- |
