@@ -146,21 +146,32 @@ pow(complex<multifloats::float64x2> const &z,
   if (a.limbs[0] == 0.0 && a.limbs[1] != 0.0) { a = float64x2(a.limbs[1], 0.0); }
   if (b.limbs[0] == 0.0 && b.limbs[1] != 0.0) { b = float64x2(b.limbs[1], 0.0); }
   complex<multifloats::float64x2> zn(a, b);
-  complex<multifloats::float64x2> l = std::log(zn);
-  float64x2 lr = l.real(), li = l.imag();
   float64x2 wr = w.real(), wi = w.imag();
-  // w * log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr). The dominant error is
-  // |Im(p)|·ulp_dd (a few hundred DD ulp at fuzz extremes) amplified by the
-  // complex exp: a DD p only holds Im(p) to ~|Im(p)|·2⁻¹⁰⁴ absolute, which the
-  // phase of exp turns into relative error. Carry p to triple-double and fold
-  // the residual limbs back — exp(Re) via exp(Re_dd)·(1+resid) (the
-  // erfc_scaled trick) and the phase via the linear sin/cos correction (the
-  // Bessel-phase trick). log(z)'s own DD accuracy (~1e-32) is then the floor.
   namespace d = multifloats::detail;
-  d::float64x3 re_td = d::td_add_td(d::td_mul_dd(d::td_from_dd(wr), lr),
-                                    d::td_negate(d::td_mul_dd(d::td_from_dd(wi), li)));
-  d::float64x3 im_td = d::td_add_td(d::td_mul_dd(d::td_from_dd(wr), li),
-                                    d::td_mul_dd(d::td_from_dd(wi), lr));
+  // log(z) to triple-double. Its DD accuracy (~1e-32 relative) would otherwise
+  // be the floor: in p = w·log(z) the absolute error |log z|·ulp_dd, amplified
+  // by the complex exp's phase, dominates. imag = atan2(b, a) is ratio-based
+  // (overflow-safe at any |z|); real = ½·log(a²+b²) when a²+b² is safe to
+  // form, else the overflow-safe DD log|z|.
+  d::float64x3 a_td = d::td_from_dd(a), b_td = d::td_from_dd(b);
+  d::float64x3 li_td = d::atan2_td(b_td, a_td);
+  d::float64x3 lr_td;
+  double maxabs = std::max(std::fabs(a.limbs[0]), std::fabs(b.limbs[0]));
+  if (maxabs < 1e150 && maxabs > 1e-150) {
+    d::float64x3 m2 = d::td_add_td(d::td_mul_dd(a_td, a), d::td_mul_dd(b_td, b));
+    d::float64x3 lg = d::log_td(m2);
+    lr_td = d::float64x3(0.5 * lg.limbs[0], 0.5 * lg.limbs[1], 0.5 * lg.limbs[2]);
+  } else {
+    lr_td = d::td_from_dd(std::log(zn).real());
+  }
+  // p = w·log(z) = (wr·lr − wi·li) + i·(wr·li + wi·lr), carried in triple-double
+  // so the large Im(p) keeps its low bits for the complex exp's phase. exp(Re)
+  // uses exp(Re_dd)·(1+resid) (the erfc_scaled trick); the phase uses the
+  // linear sin/cos residual correction (the Bessel-phase trick).
+  d::float64x3 re_td = d::td_add_td(d::td_mul_dd(lr_td, wr),
+                                    d::td_negate(d::td_mul_dd(li_td, wi)));
+  d::float64x3 im_td = d::td_add_td(d::td_mul_dd(li_td, wr),
+                                    d::td_mul_dd(lr_td, wi));
   float64x2 re_dd(re_td.limbs[0], re_td.limbs[1]);
   float64x2 im_dd(im_td.limbs[0], im_td.limbs[1]);
   if (!std::isfinite(re_dd.limbs[0]) || !std::isfinite(im_dd.limbs[0])) {

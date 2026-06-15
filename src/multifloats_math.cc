@@ -57,6 +57,7 @@ using namespace multifloats::detail;  // neval, deval, horner, float64x3, kernel
 #include "float64x2_trig.inc"
 #include "float64x2_hyp.inc"
 #include "float64x2_inv_trig.inc"
+#include "float64x2_td_log_atan2.inc"
 #include "float64x2_special.inc"
 #include "float64x2_bessel.inc"
 } // namespace multifloats
