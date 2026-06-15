@@ -1282,14 +1282,17 @@ inline constexpr float64x2 fabs(float64x2 const &x) {
   return std::signbit(x.limbs[i]) ? -x : x;
 }
 
-/// @brief Minimum of two double-doubles.
+/// @brief Minimum of two double-doubles (NaN-as-missing-data, like C `fmin`).
 inline constexpr float64x2 fmin(float64x2 const &a, float64x2 const &b) {
-  return (a < b) ? a : b;
+  // `b != b` (b is NaN) ⇒ return a. Combined with `a < b` being false for a
+  // NaN, this returns the non-NaN operand if exactly one is NaN, with a single
+  // extra comparison. `(value, NaN)` would otherwise wrongly return NaN.
+  return (a < b || b.limbs[0] != b.limbs[0]) ? a : b;
 }
 
-/// @brief Maximum of two double-doubles.
+/// @brief Maximum of two double-doubles (NaN-as-missing-data, like C `fmax`).
 inline constexpr float64x2 fmax(float64x2 const &a, float64x2 const &b) {
-  return (a < b) ? b : a;
+  return (a < b || a.limbs[0] != a.limbs[0]) ? b : a;
 }
 
 // C23 min/max variants. fmax/fmin treat NaN as missing data ("if exactly

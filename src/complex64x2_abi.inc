@@ -110,13 +110,19 @@ complex64x2 cdivdd(complex64x2 a, complex64x2 b) {
   float64x2 ar = a.re, ai = a.im;
   float64x2 br = b.re, bi = b.im;
 
-  // Fast path: b is in the range where br²+bi² won't overflow/underflow.
-  // The square of √DBL_MAX (~1.34e154) is the boundary; allow a generous
-  // margin and skip the ldexp/frexp pre/post-scaling for typical inputs.
+  // Fast path: b is in the range where br²+bi² won't overflow/underflow, and
+  // |a| is small enough that the numerator products ar·br / ai·bi can't
+  // overflow either (the square of √DBL_MAX ≈ 1.34e154 bounds the denom; the
+  // 1e150 cap keeps ar·br < 1e300 < DBL_MAX). Large |a| with moderate |b|
+  // would otherwise overflow the unscaled numerator here even when the true
+  // quotient is finite, so it falls through to the scaled slow path.
   double abs_br = std::fabs(br.limbs[0]);
   double abs_bi = std::fabs(bi.limbs[0]);
   double max_b = abs_br > abs_bi ? abs_br : abs_bi;
-  if (max_b < 1e150 && max_b > 1e-150) {
+  double max_a = std::fabs(ar.limbs[0]) > std::fabs(ai.limbs[0])
+                     ? std::fabs(ar.limbs[0])
+                     : std::fabs(ai.limbs[0]);
+  if (max_b < 1e150 && max_b > 1e-150 && max_a < 1e150) {
     float64x2 denom = br * br + bi * bi;
     float64x2 num_re = dd_cross_diff(ar, br, -ai, bi);  // ar·br + ai·bi, compensated
     float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
