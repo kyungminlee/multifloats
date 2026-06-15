@@ -137,8 +137,9 @@ constructor and assignment, and the complex `conjg` / `proj` / `*`-real-part.
 
 ### Reduced precision
 
-A handful of kernels fall short of full DD. None is near the single-double
-floor — the worst case is ~1e-26.
+A handful of kernels fall short of full DD — though all stay far above the
+single-double floor (~1e-16). The errors span ~1e-31 (a few DD ulp) up to
+~1e-23 for `mod`/`remainder` only at very large arguments.
 
 Numbers here are against the **200-bit MPFR** oracle (the honest kernel
 measure) — the float128 fuzz inflates several of these well past their true
@@ -147,7 +148,7 @@ error (see the caveat below).
 | Op | max_rel | mean_rel | Why |
 | --- | --- | --- | --- |
 | `gamma` | 1.4e-31 | 1.0e-32 | `exp(lgamma)` amplifies lgamma's absolute error (`log_gamma` is full DD) |
-| `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | cancellation when the remainder is near zero; full DD otherwise |
+| `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | full DD normally (~2e-32 vs MPFR); ~1e-23 only at very large arguments (~2⁶⁵), where the integer-quotient reduction degrades |
 | `cdd_pow` | 1.8e-29 | ~5e-31 | `exp(w·log(z))` amplifies a large `w·log(z)` (gamma-like) |
 | `cdd_div` (re), `cdd_log1p` (re) | 2.3e-31 / 4.6e-31 | ~1e-32 | cancellation in `(ac+bd)/(c²+d²)` and `½log((1+x)²+y²)` near `z→0` |
 

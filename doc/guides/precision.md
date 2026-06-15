@@ -40,13 +40,13 @@ build will land in the same orders of magnitude.
     `set_exponent`, every constructor and assignment, complex `*` real part.
 * - **Near full DD**
   - ~1e-31
-  - `gamma` — a few DD ulp at large arguments.
+  - `gamma`, and the cancellation-bound real parts of `cdd_div` (~2e-31) and
+    `cdd_log1p` (~5e-31) — a few DD ulp.
 * - **Reduced**
-  - ~1e-23
-  - `mod`/`modulo`/`remainder` near a near-zero result; `cdd_pow`
-    (`exp(w·log(z))` amplification, ~1e-29); and the cancellation-bound
-    `cdd_div`/`cdd_log1p` real parts (~2–5e-31). Amplification/cancellation,
-    not kernel imprecision.
+  - ~1e-29 – 1e-23
+  - `cdd_pow` (~1e-29; `exp(w·log(z))` amplifies a large argument), and
+    `mod`/`modulo`/`remainder` (full DD normally — ~2e-32 — but ~1e-23 at very
+    large arguments, ~2⁶⁵, where the integer-quotient reduction degrades).
 ```
 
 ## Measured worst / mean relative error (1M, seed 0)
