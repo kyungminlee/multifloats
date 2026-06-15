@@ -1513,12 +1513,16 @@ int main(int argc, char **argv) {
         q_t ln10_q = (q_t)2.3025850929940456840179914546843642076011q;
         q_t exp2m1_ref  = expm1q(q1 * ln2_q);
         q_t exp10m1_ref = expm1q(q1 * ln10_q);
+        // mpreal references: use the same cancellation-free identities as the
+        // qp refs above (the naive `exp2(m1)-1` / `log2(1+m1)` forms lose
+        // precision for small x even at 200 bits — the bug this block warns
+        // about, which must not be reintroduced in the oracle).
         CHK_IF(q_isfinite(q1) && q_isfinite(exp2q(q1)),
                "exp2m1", mf::exp2m1(f1), exp2m1_ref, q1, (q_t)0,
-               mpfr::exp2(m1) - mp_t(1));
+               mpfr::expm1(m1 * mpfr::log(mp_t(2))));
         CHK_IF(q_isfinite(q1) && q_isfinite(exp10_ref),
                "exp10m1", mf::exp10m1(f1), exp10m1_ref, q1, (q_t)0,
-               mpfr::pow(mpfr::mpreal(10), m1) - mp_t(1));
+               mpfr::expm1(m1 * mpfr::log(mp_t(10))));
         // log2p1 / log10p1: log2(1+x), log10(1+x). For |x| small, the
         // identity `log1pq(x) · log2(e)` (resp. `… · log10(e)`) is the
         // precision-safe form; libquadmath's log2q(1+x) and log10q(1+x)
@@ -1529,10 +1533,10 @@ int main(int argc, char **argv) {
         q_t log10p1_ref = log1pq(q1) * log10_e_q;
         CHK_IF(q_isfinite(q1) && q1 > (q_t)-1,
                "log2p1", mf::log2p1(f1), log2p1_ref, q1, (q_t)0,
-               mpfr::log2(mp_t(1) + m1));
+               mpfr::log1p(m1) / mpfr::log(mp_t(2)));
         CHK_IF(q_isfinite(q1) && q1 > (q_t)-1,
                "log10p1", mf::log10p1(f1), log10p1_ref, q1, (q_t)0,
-               mpfr::log10(mp_t(1) + m1));
+               mpfr::log1p(m1) / mpfr::log(mp_t(10)));
       }
 
       // Trig: keep magnitudes moderate.
