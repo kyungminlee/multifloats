@@ -8,6 +8,26 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-06-15
+
+### Fixed
+
+- `fdim` now returns NaN when either argument is NaN (the bare `x > y`
+  comparison was false for NaN and wrongly yielded 0).
+- `remquo` clamps the stored `int` quotient for very large `x / y`; casting
+  an out-of-range double to `int` was undefined behavior. C only mandates
+  the low-order quotient bits, so the clamped value is conforming.
+- `ufromfp` routes the (possibly negative) low limb through `intmax_t`
+  before the `uintmax_t` cast; casting a negative double to unsigned was
+  undefined behavior.
+- `std::log(std::complex<float64x2>)` renormalizes a non-canonical operand
+  such as `(0, ε)` before its zero test, so a finite nonzero argument no
+  longer returns `log|z| = -∞`.
+- Complex division (`cdiv`) guards its fast path against overflow for very
+  large `|denominator|` (was returning NaN).
+- `fmin`/`fmax` propagate the non-NaN operand symmetrically (NaN previously
+  leaked through depending on argument order).
+
 ## [0.7.0] — 2026-06-15
 
 ### Changed
