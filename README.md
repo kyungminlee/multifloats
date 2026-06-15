@@ -119,7 +119,7 @@ every elementary transcendental.
 | `erf`, `erfc`, `erfc_scaled` | 1.7e-32 – 5.5e-32 | ~2e-33 |
 | `log_gamma` | 4.7e-32 | 6.4e-33 |
 | `bessel_*` (`j0/j1/jn`, `y0/y1/yn`; vs 200-bit MPFR) | 5e-33 – 6e-32 | ~8e-33 |
-| Complex `+ − × ÷`, and the `cdd_*` transcendentals (exp, log, sqrt, `pow`, the trig / hyperbolic / inverse families, `sinpi`/`cospi`, `expm1`) | ~1e-32 – 7e-32 | ~1e-32 |
+| Complex `+ − × ÷`, and the `cdd_*` transcendentals (exp, log, `log1p`, sqrt, `pow`, the trig / hyperbolic / inverse families, `sinpi`/`cospi`, `expm1`) | ~1e-32 – 7e-32 | ~1e-32 |
 | `sum`, `dot_product`, `norm2`, `matmul` (n=8) | 2e-31 – 7e-30 | ~1e-32 |
 | `product` (n=8) | 4.0e-50 | 4.0e-53 |
 
@@ -151,7 +151,6 @@ error (see the caveat below).
 | --- | --- | --- | --- |
 | `gamma` | 1.4e-31 | 1.0e-32 | `exp(lgamma)` amplifies lgamma's absolute error (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | full DD normally (~2e-32 vs MPFR); ~1e-23 only at very large arguments (~2⁶⁵), where the integer-quotient reduction degrades |
-| `cdd_log1p` (re) | 3.5e-29 | ~1e-32 | cancellation in `½log((1+x)²+y²)` near `z→0` |
 | `cdd_div` (re) | 2.6e-30 | ~1e-32 | cancellation in `(ac+bd)/(c²+d²)` |
 
 (Everything else — including the **whole Bessel family**, the **complex
@@ -198,10 +197,13 @@ complex branch cuts), not kernel error.)
   `atan2_td`, each one Newton step from the DD result using the TD `exp` /
   `sincos` — then carries `w · log z` in TD with the `erfc_scaled` /
   Bessel-phase residual corrections in the final exp.
+- **Complex `log1p`** — uses `Re = ½·log1p(2a + a² + b²)` (avoiding the `1±1`
+  cancellation), with `2a + a² + b²` formed in **triple-double** so it stays
+  accurate on the circle `|1+z| = 1`, where those terms cancel to ~0.
 
-Only `gamma` (~2.6e-31 at large arguments) and the inherently
-cancellation-bound cases above (`mod`/`remainder` near a zero remainder, the
-complex `…−1` formulas) remain short of full DD against a clean reference.
+Only `gamma` (~1.4e-31 at large arguments), the complex-division real part
+(`cdd_div`, ~3e-30 from `(ac+bd)/(c²+d²)` cancellation), and `mod`/`remainder`
+at extreme arguments remain short of full DD against a clean reference.
 
 ## Matmul API and GEMM relationship
 

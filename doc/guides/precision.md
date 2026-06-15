@@ -43,10 +43,9 @@ build will land in the same orders of magnitude.
   - `gamma` (~1e-31) and the cancellation-bound `cdd_div`(re) (~3e-30) —
     a few to ~100 DD ulp.
 * - **Reduced**
-  - ~3e-29 – 1e-23
-  - `cdd_log1p`(re) (~3e-29; `½log((1+x)²+y²)` cancellation near `z→0`), and
-    `mod`/`modulo`/`remainder` (full DD normally — ~2e-32 — but ~1e-23 at very
-    large arguments, ~2⁶⁵, where the integer-quotient reduction degrades).
+  - ~1e-23
+  - `mod`/`modulo`/`remainder` only — full DD normally (~2e-32), but ~1e-23 at
+    very large arguments (~2⁶⁵), where the integer-quotient reduction degrades.
 ```
 
 ## Measured worst / mean relative error (1M, seed 0)
@@ -116,6 +115,9 @@ series — is full DD.
   (`log_td` / `atan2_td`, each one Newton step from the DD result using the TD
   `exp` / `sincos`), so `log z`'s absolute error no longer dominates after the
   complex exp's phase amplification.
+- **complex `log1p`** — `Re = ½·log1p(2a + a² + b²)`, with the argument formed
+  in **triple-double** so it stays accurate on the circle `|1+z| = 1` where the
+  terms cancel.
 
 ```{important}
 Every error-free transformation depends on `std::fma` being IEEE-compliant
