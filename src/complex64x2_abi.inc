@@ -118,7 +118,7 @@ complex64x2 cdivdd(complex64x2 a, complex64x2 b) {
   double max_b = abs_br > abs_bi ? abs_br : abs_bi;
   if (max_b < 1e150 && max_b > 1e-150) {
     float64x2 denom = br * br + bi * bi;
-    float64x2 num_re = ar * br + ai * bi;
+    float64x2 num_re = dd_cross_diff(ar, br, -ai, bi);  // ar·br + ai·bi, compensated
     float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
     return { num_re / denom, num_im / denom };
   }
@@ -134,7 +134,7 @@ complex64x2 cdivdd(complex64x2 a, complex64x2 b) {
                    std::ldexp(bi.limbs[1], -e));
   }
   float64x2 denom = br * br + bi * bi;
-  float64x2 num_re = ar * br + ai * bi;
+  float64x2 num_re = dd_cross_diff(ar, br, -ai, bi);  // ar·br + ai·bi, compensated
   float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
   float64x2 res_re = num_re / denom;
   float64x2 res_im = num_im / denom;
