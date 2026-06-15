@@ -28,7 +28,8 @@ build will land in the same orders of magnitude.
   - ~1e-32 (≈ 1 DD ulp)
   - `+ - * /`, `sqrt`, `cbrt`, `min`/`max`, `mod`, `dim`, `hypot`, `pow`,
     `exp`/`exp2`/`expm1`, `log`/`log2`/`log10`/`log1p`, the full trig set
-    (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`), the full
+    (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, and the π-scaled
+    `sinpi`/`cospi`/`tanpi`), the full
     hyperbolic set (`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`),
     `erf`, `erfc`, `erfc_scaled`, `lgamma`, the full Bessel family
     (`bessel_j0/j1/jn`, `bessel_y0/y1/yn`), complex `+ - * /`, and the
@@ -41,22 +42,25 @@ build will land in the same orders of magnitude.
   - ~1e-31
   - `gamma` — a few DD ulp at large arguments.
 * - **Reduced**
-  - ~1e-26
-  - π-scaled trig (`sinpi`/`cospi`/`tanpi`, lossy `π·x` reduction); `mod`/
-    `remainder` near a near-zero result. Reduction-/cancellation-limited.
+  - ~1e-23
+  - `mod`/`modulo`/`remainder` near a near-zero result, and the
+    cancellation-bound complex cases (`cdd_pow`, `cdd_expm1`, …) — inherent
+    cancellation, not kernel error.
 ```
 
 ## Measured worst / mean relative error (1M, seed 0)
 
 The transcendentals and special functions — the historically interesting
-cases — all reach full DD. The Bessel column lists the **200-bit MPFR** oracle
-(`max_dd`); the float128 oracle's own precision floor near the zeros of `y0`
-limits *its* reading of `y0`/`yn` to ~1e-30, so MPFR is the honest measure of
-the kernel here.
+cases — all reach full DD. The Bessel and π-scaled-trig columns list the
+**200-bit MPFR** oracle (`max_dd`): the float128 reference's own precision
+floor near the zeros of `y0` (and its 113-bit π differing from the kernel's
+for `sinpi`/`cospi`/`tanpi` at large `x`) limits *its* readings to ~1e-26 –
+1e-30, so MPFR is the honest measure of these kernels.
 
 | Op | max_rel | mean_rel |
 | --- | --- | --- |
 | `sin` / `cos` / `tan` | 3.7e-32 / 4.1e-32 / 6.5e-32 | ~2e-33 |
+| `sinpi` / `cospi` / `tanpi` (MPFR) | 3.9e-32 / 2.3e-32 / 4.7e-32 | ~3e-33 |
 | `atan` / `atan2` | 2.5e-32 | 1.3e-33 |
 | `sinh` / `cosh` / `tanh` | ~6e-32 | ~3e-33 |
 | `asinh` / `acosh` / `atanh` | ~5e-32 | ~2e-33 |

@@ -112,6 +112,7 @@ every elementary transcendental.
 | `pow` (dd\*\*dd / dp), `powr`, `rootn` | ~5e-32 | ~5e-33 |
 | `pow` (integer exponent) | 2.4e-31 | 8.4e-33 |
 | `sin`, `cos`, `tan` | 3.7e-32 – 6.5e-32 | ~2e-33 |
+| `sinpi`, `cospi`, `tanpi` (vs 200-bit MPFR) | 2.3e-32 – 4.7e-32 | ~3e-33 |
 | `asin`, `acos`, `atan`, `atan2` | 1.4e-32 – 3.6e-32 | ~1.5e-33 |
 | `sinh`, `cosh`, `tanh` | 3.2e-32 – 6.1e-32 | ~3e-33 |
 | `asinh`, `acosh`, `atanh` | 3.1e-32 – 5.7e-32 | ~2e-33 |
@@ -141,15 +142,16 @@ floor — the worst case is ~1e-26.
 
 | Op | max_rel | mean_rel | Why |
 | --- | --- | --- | --- |
-| `sinpi`, `cospi`, `tanpi` | 1.7e-26 – 6.6e-26 | ~3e-29 | the `π·x` reduction loses bits ∝ log₂\|x\| |
 | `gamma` | 2.6e-31 | 1.0e-32 | a few DD ulp at large arguments (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | cancellation when the remainder is near zero; full DD otherwise |
 | `cdd_pow` | 2.4e-27 | 4.5e-31 | cancellation in `exp(w·log(z))` |
 | `cdd_expm1`, `cdd_log1p`, complex `sinpi`/`cospi` | 3e-29 – 1.9e-28 | ~1e-31 | cancellation in the complex `…−1` / near-axis formulas |
 
-(The float128 fuzz reports `bessel_y0`/`yn_range` at ~1e-29 — that is the
-float128 *reference's* own precision floor near the zeros of `y0`, not kernel
-error; the 200-bit MPFR oracle confirms the kernels are full DD.)
+(The float128 fuzz reports `bessel_y0`/`yn_range` at ~1e-29 and the real-valued
+`sinpi`/`cospi`/`tanpi` at ~1e-26 — those are the float128 *reference's* own
+floor near the zeros (its 113-bit π differs from the kernel's for the π-scaled
+trig at large `x`), not kernel error; the 200-bit MPFR oracle confirms all of
+these kernels are full DD.)
 
 ### What makes the full-DD kernels exact
 
@@ -176,9 +178,15 @@ error; the 200-bit MPFR oracle confirms the kernels are full DD.)
   and amplify the relative error near the zeros of `y0`/`y1`). The integer-order
   `jn`/`yn` recurrence runs in triple-double with a corrected `2k/x` coefficient,
   so it stays full DD near the zeros of `Y_n` too.
+- **`sinpi` / `cospi` / `tanpi`** — reduce `x` mod ½ *exactly* (the
+  integer/half-integer part is removed with no rounding), then scale the small
+  remainder by the DD π — so the result is full DD even near the zeros at large
+  `x`. (The float128 fuzz can't see this: its 113-bit π differs from the
+  kernel's, so it reports a spurious ~1e-26 there; MPFR confirms full DD.)
 
-Only the π-scaled trig (lossy `π·x` reduction) and the inherently
-cancellation-bound cases above remain short of full DD.
+Only `gamma` (~2.6e-31 at large arguments) and the inherently
+cancellation-bound cases above (`mod`/`remainder` near a zero remainder, the
+complex `…−1` formulas) remain short of full DD against a clean reference.
 
 ## Matmul API and GEMM relationship
 
