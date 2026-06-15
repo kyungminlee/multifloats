@@ -39,9 +39,9 @@ build will land in the same orders of magnitude.
   - `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`, `scale`,
     `set_exponent`, every constructor and assignment, complex `*` real part.
 * - **Near full DD**
-  - ~1e-31 – 6e-30
-  - `gamma` (~1e-31), and the cancellation-/log-accuracy-bound `cdd_div`(re)
-    (~3e-30) and `cdd_pow` (~6e-30) — a few to ~100 DD ulp.
+  - ~1e-31 – 3e-30
+  - `gamma` (~1e-31) and the cancellation-bound `cdd_div`(re) (~3e-30) —
+    a few to ~100 DD ulp.
 * - **Reduced**
   - ~3e-29 – 1e-23
   - `cdd_log1p`(re) (~3e-29; `½log((1+x)²+y²)` cancellation near `z→0`), and
@@ -112,6 +112,10 @@ series — is full DD.
   squares `x` to **triple-double** and folds the residual limb back into the
   exponent (`exp(x²) = exp(x²_dd)·(1 + resid)`), since a DD `x²` cannot hold
   the argument to the absolute precision `exp` needs at large `|x|`.
+- **complex `pow`** — `exp(w · log z)` computes `log z` in **triple-double**
+  (`log_td` / `atan2_td`, each one Newton step from the DD result using the TD
+  `exp` / `sincos`), so `log z`'s absolute error no longer dominates after the
+  complex exp's phase amplification.
 
 ```{important}
 Every error-free transformation depends on `std::fma` being IEEE-compliant
