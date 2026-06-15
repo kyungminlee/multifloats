@@ -77,6 +77,32 @@ static void bessel_pq1(double xinv_d, float64x2 const &z, float64x2 &p, float64x
   }
 }
 
+// sin(x − φ) and cos(x − φ) for the Hankel phase φ ∈ {π/4, 3π/4}, as DD.
+//
+// Forming the angle (x − φ) as a DD rounds it to ~ulp(x); for large x that
+// ~x·2⁻¹⁰⁴ absolute error is amplified into a large *relative* error near the
+// zeros of Y0/Y1 (where P·sin+Q·cos cancels). Instead evaluate sin x / cos x
+// to triple-double via sincos_td (proper π/2 range reduction, no angle
+// rounding) and apply the exact angle-subtraction identities — exact because
+// cos(π/4) = sin(π/4) = 1/√2:
+//   φ = π/4 : sin = (sin x − cos x)/√2,   cos = (sin x + cos x)/√2
+//   φ = 3π/4: sin = −(sin x + cos x)/√2,  cos = (sin x − cos x)/√2
+static void bessel_hankel_phase(float64x2 const &x, bool three_quarter,
+                                float64x2 &s, float64x2 &c) {
+  float64x3 sx, cx;
+  sincos_td(x, sx, cx);
+  float64x3 sum = td_add_td(sx, cx);                 // sin x + cos x
+  float64x3 dif = td_add_td(sx, td_negate(cx));      // sin x − cos x
+  float64x2 r2(inv_sqrt2_hi, inv_sqrt2_lo);
+  if (!three_quarter) {
+    s = td_to_dd(td_mul_dd(dif, r2));
+    c = td_to_dd(td_mul_dd(sum, r2));
+  } else {
+    s = td_to_dd(td_mul_dd(td_negate(sum), r2));
+    c = td_to_dd(td_mul_dd(dif, r2));
+  }
+}
+
 float64x2 j0(float64x2 const &x) {
   float64x2 ax = x;
   if (ax.limbs[0] < 0.0) { ax.limbs[0] = -ax.limbs[0]; ax.limbs[1] = -ax.limbs[1]; }
@@ -95,9 +121,8 @@ float64x2 j0(float64x2 const &x) {
   // Hankel asymptotic (x > 2):
   //   J0(x) = sqrt(2/(πx)) · (P(1/x²)·cos(x-π/4) - Q(1/x²)·sin(x-π/4))
   // P,Q picked from 8 sub-intervals via bessel_pq0 (j0q.c fits).
-  float64x2 angle = ax - float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 s, c;
-  sincos(angle, s, c);
+  bessel_hankel_phase(ax, /*three_quarter=*/false, s, c);
   float64x2 xinv = float64x2(1.0) / ax;
   float64x2 z = xinv * xinv;
   float64x2 p, q;
@@ -126,9 +151,8 @@ float64x2 j1(float64x2 const &x) {
   } else {
     // Hankel asymptotic (x > 2), phase shifted by 3π/4:
     //   J1(x) = sqrt(2/(πx)) · (P(1/x²)·cos(x-3π/4) - Q(1/x²)·sin(x-3π/4))
-    float64x2 angle = ax - float64x2(three_pi_quarter_hi, three_pi_quarter_lo);
     float64x2 s, c;
-    sincos(angle, s, c);
+    bessel_hankel_phase(ax, /*three_quarter=*/true, s, c);
     float64x2 xinv = float64x2(1.0) / ax;
     float64x2 z = xinv * xinv;
     float64x2 p, q;
@@ -165,9 +189,8 @@ float64x2 y0(float64x2 const &x) {
     return tpi * log(x) * j0(x) + p;
   }
 
-  float64x2 angle = x - float64x2(pi_quarter_hi, pi_quarter_lo);
   float64x2 s, c;
-  sincos(angle, s, c);
+  bessel_hankel_phase(x, /*three_quarter=*/false, s, c);
   float64x2 xinv = float64x2(1.0) / x;
   float64x2 z = xinv * xinv;
   float64x2 p, q;
@@ -201,9 +224,8 @@ float64x2 y1(float64x2 const &x) {
     return tpi * (log(x) * j1(x) - float64x2(1.0) / x) + p;
   }
 
-  float64x2 angle = x - float64x2(three_pi_quarter_hi, three_pi_quarter_lo);
   float64x2 s, c;
-  sincos(angle, s, c);
+  bessel_hankel_phase(x, /*three_quarter=*/true, s, c);
   float64x2 xinv = float64x2(1.0) / x;
   float64x2 z = xinv * xinv;
   float64x2 p, q;
