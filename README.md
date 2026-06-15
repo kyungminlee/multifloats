@@ -117,6 +117,7 @@ every elementary transcendental.
 | `asinh`, `acosh`, `atanh` | 3.1e-32 – 5.7e-32 | ~2e-33 |
 | `erf`, `erfc`, `erfc_scaled` | 1.7e-32 – 5.5e-32 | ~2e-33 |
 | `log_gamma` | 4.7e-32 | 6.4e-33 |
+| `bessel_j0/j1/jn`, `bessel_y0/y1` (vs 200-bit MPFR) | 5e-33 – 1e-32 | ~5e-34 |
 | Complex `+ − × ÷`, `cdd_*` transcendentals | ~5e-32 – 3e-31 | ~1e-32 |
 | `sum`, `dot_product`, `norm2`, `matmul` (n=8) | 2e-31 – 7e-30 | ~1e-32 |
 | `product` (n=8) | 4.0e-50 | 4.0e-53 |
@@ -136,18 +137,20 @@ constructor and assignment, and the complex `conjg` / `proj` / `*`-real-part.
 ### Reduced precision
 
 A handful of kernels fall short of full DD. None is near the single-double
-floor — the worst case is ~1e-27.
+floor — the worst case is ~1e-26.
 
 | Op | max_rel | mean_rel | Why |
 | --- | --- | --- | --- |
-| `bessel_y0`, `yn_range` | 7.9e-27 | ~5e-31 | libm-seeded; relative error peaks near the zeros of `y0` |
-| `bessel_jn` | 1.4e-28 | 1.8e-32 | integer-order recurrence on the libm-seeded `j0`/`j1` |
-| `bessel_j0/j1`, `bessel_y1`, `bessel_yn` | 1.1e-29 – 3.6e-29 | ~3e-32 | same |
 | `sinpi`, `cospi`, `tanpi` | 1.7e-26 – 6.6e-26 | ~3e-29 | the `π·x` reduction loses bits ∝ log₂\|x\| |
+| `bessel_yn` | 2.0e-31 | ~2e-32 | forward recurrence accumulates over `n` (`y0`/`y1` are full DD) |
 | `gamma` | 2.6e-31 | 1.0e-32 | a few DD ulp at large arguments (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | cancellation when the remainder is near zero; full DD otherwise |
 | `cdd_pow` | 2.4e-27 | 4.5e-31 | cancellation in `exp(w·log(z))` |
 | `cdd_expm1`, `cdd_log1p`, complex `sinpi`/`cospi` | 3e-29 – 1.9e-28 | ~1e-31 | cancellation in the complex `…−1` / near-axis formulas |
+
+(The float128 fuzz reports `bessel_y0`/`yn_range` at ~1e-29 — that is the
+float128 *reference's* own precision floor near the zeros of `y0`, not kernel
+error; the 200-bit MPFR oracle confirms the kernels are full DD.)
 
 ### What makes the full-DD kernels exact
 
@@ -168,10 +171,13 @@ floor — the worst case is ~1e-27.
   large-negative reflection `2·exp(x²) − erfc_scaled(|x|)` squares `x` to
   triple-double and folds the residual limb into the exponent, since a DD `x²`
   cannot hold the argument to the precision `exp` needs at large `|x|`.
+- **`bessel_*`** — the Hankel asymptotic phase is computed via the exact
+  identity `sin(x − π/4) = (sin x − cos x)/√2` from a triple-double `sincos x`,
+  rather than rounding the angle `x − π/4` to a DD (which would lose `~x·2⁻¹⁰⁴`
+  and amplify the relative error near the zeros of `y0`/`y1`).
 
-Only the Bessel family and the inherently cancellation-bound cases above remain
-short of full DD; closing the Bessel gap would need dedicated DD polynomial /
-asymptotic kernels rather than the current libm-seeded refinement.
+Only the π-scaled trig (lossy `π·x` reduction) and the inherently
+cancellation-bound cases above remain short of full DD.
 
 ## Matmul API and GEMM relationship
 

@@ -30,25 +30,28 @@ build will land in the same orders of magnitude.
     `exp`/`exp2`/`expm1`, `log`/`log2`/`log10`/`log1p`, the full trig set
     (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`), the full
     hyperbolic set (`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`),
-    `erf`, `erfc`, `erfc_scaled`, `lgamma`, complex `+ - * /`, and the
-    `cdd_*` transcendentals.
+    `erf`, `erfc`, `erfc_scaled`, `lgamma`, `bessel_j0/j1/jn`,
+    `bessel_y0/y1`, complex `+ - * /`, and the `cdd_*` transcendentals.
 * - **Bit-exact (always 0)**
   - 0
   - `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`, `scale`,
     `set_exponent`, every constructor and assignment, complex `*` real part.
 * - **Near full DD**
   - ~1e-31
-  - `gamma` (a few DD ulp worst-case).
-* - **Reduced — Bessel family**
-  - ~1e-29 – 1e-27
-  - `bessel_j0/j1/jn`, `bessel_y0/y1/yn`. libm-seeded; far better than one
-    double ulp, but not full DD.
+  - `gamma`, `bessel_yn` (forward recurrence) — a few DD ulp worst-case.
+* - **Reduced**
+  - ~1e-26
+  - π-scaled trig (`sinpi`/`cospi`/`tanpi`, lossy `π·x` reduction); `mod`/
+    `remainder` near a near-zero result. Reduction-/cancellation-limited.
 ```
 
 ## Measured worst / mean relative error (1M, seed 0)
 
 The transcendentals and special functions — the historically interesting
-cases — all reach full DD except the Bessel family:
+cases — all reach full DD. The Bessel column lists the **200-bit MPFR** oracle
+(`max_dd`); the float128 oracle's own precision floor near the zeros of `y0`
+limits *its* reading of `y0`/`yn` to ~1e-30, so MPFR is the honest measure of
+the kernel here.
 
 | Op | max_rel | mean_rel |
 | --- | --- | --- |
@@ -61,19 +64,23 @@ cases — all reach full DD except the Bessel family:
 | `erfc_scaled` (`erfcx`) | 5.5e-32 | 2.5e-33 |
 | `lgamma` | 4.7e-32 | 6.4e-33 |
 | `gamma` | 2.6e-31 | 1.0e-32 |
-| `bessel_j0` / `j1` / `jn` | 1.1e-29 / 1.4e-29 / 1.4e-28 | ~1.5e-32 |
-| `bessel_y0` / `y1` / `yn` | 7.9e-27 / 2.6e-29 / 3.6e-29 | ~3e-31 |
+| `bessel_j0` / `j1` / `jn` (MPFR) | 5.9e-33 / 7.4e-33 / 1.1e-32 | ~3e-34 |
+| `bessel_y0` / `y1` / `yn` (MPFR) | 4.9e-32 / 5.8e-32 / 2.0e-31 | ~1e-32 |
 
-## Why the Bessel family is not full DD
+## The Bessel family
 
-`bessel_*` is seeded from libm's double-precision result and refined, with
-`jn`/`yn` built on integer-order recurrences from `j0`/`j1`/`y0`/`y1`. The
-worst case is `bessel_y0` near its zeros (~8e-27), where the function passes
-through zero and the relative error is dominated by the libm seed. Reaching
-full DD here would need dedicated DD polynomial / asymptotic kernels rather
-than a libm-seeded refinement. `gamma` is a touch above the DD floor
-(~2.6e-31) for the same reason at large arguments, while `lgamma` — computed
-from a native DD Stirling series — is full DD.
+`bessel_*` evaluates the small-argument power series (`x ≤ 2`) or the Hankel
+asymptotic (`x > 2`), with `jn`/`yn` built on integer-order recurrences from
+`j0`/`j1`/`y0`/`y1`. The asymptotic phase `sin(x − π/4)` / `cos(x − π/4)` is
+*not* formed by rounding the angle `x − π/4` to a DD — that would lose
+`~x·2⁻¹⁰⁴` of the angle and blow up the relative error near `y0`'s zeros
+(where `P·sin + Q·cos` cancels). Instead `sin x` / `cos x` are evaluated to
+triple-double (proper `π/2` range reduction) and combined via the exact
+identity `sin(x − π/4) = (sin x − cos x)/√2`. With this, the kernels are full
+DD (verified against the 200-bit MPFR oracle); `bessel_yn` is a touch above
+(~2e-31) because the forward recurrence accumulates over `n`. `gamma` is
+similarly ~2.6e-31 at large arguments, while `lgamma` — a native DD Stirling
+series — is full DD.
 
 ## What makes the full-DD kernels exact
 
