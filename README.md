@@ -123,8 +123,10 @@ every elementary transcendental.
 | `sum`, `dot_product`, `norm2`, `matmul` (n=8) | 2e-31 – 7e-30 | ~1e-32 |
 | `product` (n=8) | 4.0e-50 | 4.0e-53 |
 
-The three-argument `fma` is full DD on average (mean 2.9e-33) with a ~1.8e-30
-worst case. Reduction error grows ~linearly with the element count `n`.
+The three-argument `fma` is full DD (~4e-32 vs the 200-bit MPFR oracle; the
+float128 fuzz reports ~2e-30 in near-cancellation cases, but that is the
+float128 reference's floor, not kernel error). Reduction error grows
+~linearly with the element count `n`.
 
 ### Bit-exact (always 0)
 
