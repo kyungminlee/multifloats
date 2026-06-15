@@ -117,7 +117,7 @@ every elementary transcendental.
 | `asinh`, `acosh`, `atanh` | 3.1e-32 – 5.7e-32 | ~2e-33 |
 | `erf`, `erfc`, `erfc_scaled` | 1.7e-32 – 5.5e-32 | ~2e-33 |
 | `log_gamma` | 4.7e-32 | 6.4e-33 |
-| `bessel_j0/j1/jn`, `bessel_y0/y1` (vs 200-bit MPFR) | 5e-33 – 1e-32 | ~5e-34 |
+| `bessel_*` (`j0/j1/jn`, `y0/y1/yn`; vs 200-bit MPFR) | 5e-33 – 6e-32 | ~8e-33 |
 | Complex `+ − × ÷`, `cdd_*` transcendentals | ~5e-32 – 3e-31 | ~1e-32 |
 | `sum`, `dot_product`, `norm2`, `matmul` (n=8) | 2e-31 – 7e-30 | ~1e-32 |
 | `product` (n=8) | 4.0e-50 | 4.0e-53 |
@@ -142,7 +142,6 @@ floor — the worst case is ~1e-26.
 | Op | max_rel | mean_rel | Why |
 | --- | --- | --- | --- |
 | `sinpi`, `cospi`, `tanpi` | 1.7e-26 – 6.6e-26 | ~3e-29 | the `π·x` reduction loses bits ∝ log₂\|x\| |
-| `bessel_yn` | 2.0e-31 | ~2e-32 | forward recurrence accumulates over `n` (`y0`/`y1` are full DD) |
 | `gamma` | 2.6e-31 | 1.0e-32 | a few DD ulp at large arguments (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | cancellation when the remainder is near zero; full DD otherwise |
 | `cdd_pow` | 2.4e-27 | 4.5e-31 | cancellation in `exp(w·log(z))` |
@@ -174,7 +173,9 @@ error; the 200-bit MPFR oracle confirms the kernels are full DD.)
 - **`bessel_*`** — the Hankel asymptotic phase is computed via the exact
   identity `sin(x − π/4) = (sin x − cos x)/√2` from a triple-double `sincos x`,
   rather than rounding the angle `x − π/4` to a DD (which would lose `~x·2⁻¹⁰⁴`
-  and amplify the relative error near the zeros of `y0`/`y1`).
+  and amplify the relative error near the zeros of `y0`/`y1`). The integer-order
+  `jn`/`yn` recurrence runs in triple-double with a corrected `2k/x` coefficient,
+  so it stays full DD near the zeros of `Y_n` too.
 
 Only the π-scaled trig (lossy `π·x` reduction) and the inherently
 cancellation-bound cases above remain short of full DD.

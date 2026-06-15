@@ -30,15 +30,16 @@ build will land in the same orders of magnitude.
     `exp`/`exp2`/`expm1`, `log`/`log2`/`log10`/`log1p`, the full trig set
     (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`), the full
     hyperbolic set (`sinh`, `cosh`, `tanh`, `asinh`, `acosh`, `atanh`),
-    `erf`, `erfc`, `erfc_scaled`, `lgamma`, `bessel_j0/j1/jn`,
-    `bessel_y0/y1`, complex `+ - * /`, and the `cdd_*` transcendentals.
+    `erf`, `erfc`, `erfc_scaled`, `lgamma`, the full Bessel family
+    (`bessel_j0/j1/jn`, `bessel_y0/y1/yn`), complex `+ - * /`, and the
+    `cdd_*` transcendentals.
 * - **Bit-exact (always 0)**
   - 0
   - `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`, `scale`,
     `set_exponent`, every constructor and assignment, complex `*` real part.
 * - **Near full DD**
   - ~1e-31
-  - `gamma`, `bessel_yn` (forward recurrence) — a few DD ulp worst-case.
+  - `gamma` — a few DD ulp at large arguments.
 * - **Reduced**
   - ~1e-26
   - π-scaled trig (`sinpi`/`cospi`/`tanpi`, lossy `π·x` reduction); `mod`/
@@ -65,7 +66,7 @@ the kernel here.
 | `lgamma` | 4.7e-32 | 6.4e-33 |
 | `gamma` | 2.6e-31 | 1.0e-32 |
 | `bessel_j0` / `j1` / `jn` (MPFR) | 5.9e-33 / 7.4e-33 / 1.1e-32 | ~3e-34 |
-| `bessel_y0` / `y1` / `yn` (MPFR) | 4.9e-32 / 5.8e-32 / 2.0e-31 | ~1e-32 |
+| `bessel_y0` / `y1` / `yn` (MPFR) | 4.9e-32 / 5.8e-32 / 5.9e-32 | ~8e-33 |
 
 ## The Bessel family
 
@@ -76,10 +77,12 @@ asymptotic (`x > 2`), with `jn`/`yn` built on integer-order recurrences from
 `~x·2⁻¹⁰⁴` of the angle and blow up the relative error near `y0`'s zeros
 (where `P·sin + Q·cos` cancels). Instead `sin x` / `cos x` are evaluated to
 triple-double (proper `π/2` range reduction) and combined via the exact
-identity `sin(x − π/4) = (sin x − cos x)/√2`. With this, the kernels are full
-DD (verified against the 200-bit MPFR oracle); `bessel_yn` is a touch above
-(~2e-31) because the forward recurrence accumulates over `n`. `gamma` is
-similarly ~2.6e-31 at large arguments, while `lgamma` — a native DD Stirling
+identity `sin(x − π/4) = (sin x − cos x)/√2`. With this, all the kernels are
+full DD (verified against the 200-bit MPFR oracle). `jn`/`yn` carry their
+integer-order recurrence in triple-double — including a corrected `2k/x`
+coefficient, whose plain-DD rounding would otherwise dominate near the zeros
+of `Y_n` — so the recurrence does not accumulate above the DD floor. `gamma`
+remains ~2.6e-31 at large arguments, while `lgamma` — a native DD Stirling
 series — is full DD.
 
 ## What makes the full-DD kernels exact
