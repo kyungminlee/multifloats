@@ -35,7 +35,12 @@ std::complex<float64x2> log2(std::complex<float64x2> const &z) {
 // propagation directly. Matches libquadmath clog1pq.
 std::complex<float64x2> log1p(std::complex<float64x2> const &z) {
   float64x2 a = z.real(), b = z.imag();
-  float64x2 u = (a + a) + a * a + b * b;          // 2a + a² + b²
+  // 2a + a² + b² in triple-double: on the circle |1+z| = 1 these terms cancel
+  // to ~0, so a plain-DD sum loses the small result that log1p then needs.
+  float64x3 u_td = td_add_dd(td_add_td(td_mul_dd(td_from_dd(a), a),
+                                       td_mul_dd(td_from_dd(b), b)),
+                             a + a);
+  float64x2 u = td_to_dd(u_td);                   // 2a + a² + b² (accurate near 0)
   float64x2 half(0.5, 0.0);
   float64x2 r = half * log1p(u);
   float64x2 phi = atan2(b, float64x2(1.0, 0.0) + a);
