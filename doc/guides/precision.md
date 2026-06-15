@@ -39,12 +39,12 @@ build will land in the same orders of magnitude.
   - `abs`, `neg`, `sign`, `aint`, `anint`, `fraction`, `scale`,
     `set_exponent`, every constructor and assignment, complex `*` real part.
 * - **Near full DD**
-  - ~1e-31
-  - `gamma`, and the cancellation-bound real parts of `cdd_div` (~2e-31) and
-    `cdd_log1p` (~5e-31) — a few DD ulp.
+  - ~1e-31 – 6e-30
+  - `gamma` (~1e-31), and the cancellation-/log-accuracy-bound `cdd_div`(re)
+    (~3e-30) and `cdd_pow` (~6e-30) — a few to ~100 DD ulp.
 * - **Reduced**
-  - ~1e-29 – 1e-23
-  - `cdd_pow` (~1e-29; `exp(w·log(z))` amplifies a large argument), and
+  - ~3e-29 – 1e-23
+  - `cdd_log1p`(re) (~3e-29; `½log((1+x)²+y²)` cancellation near `z→0`), and
     `mod`/`modulo`/`remainder` (full DD normally — ~2e-32 — but ~1e-23 at very
     large arguments, ~2⁶⁵, where the integer-quotient reduction degrades).
 ```

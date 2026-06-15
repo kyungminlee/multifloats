@@ -151,8 +151,9 @@ error (see the caveat below).
 | --- | --- | --- | --- |
 | `gamma` | 1.4e-31 | 1.0e-32 | `exp(lgamma)` amplifies lgamma's absolute error (`log_gamma` is full DD) |
 | `mod`, `modulo`, `remainder` | ~3e-23 | ~1e-27 | full DD normally (~2e-32 vs MPFR); ~1e-23 only at very large arguments (~2⁶⁵), where the integer-quotient reduction degrades |
-| `cdd_pow` | 1.8e-29 | ~5e-31 | `exp(w·log(z))` amplifies a large `w·log(z)` (gamma-like) |
-| `cdd_div` (re), `cdd_log1p` (re) | 2.3e-31 / 4.6e-31 | ~1e-32 | cancellation in `(ac+bd)/(c²+d²)` and `½log((1+x)²+y²)` near `z→0` |
+| `cdd_log1p` (re) | 3.5e-29 | ~1e-32 | cancellation in `½log((1+x)²+y²)` near `z→0` |
+| `cdd_pow` | 5.8e-30 | ~1e-31 | `exp(w·log(z))`; the argument is carried in triple-double, so the floor is `log(z)`'s own DD accuracy |
+| `cdd_div` (re) | 2.6e-30 | ~1e-32 | cancellation in `(ac+bd)/(c²+d²)` |
 
 (Everything else — including the **whole Bessel family**, the **complex
 inverse trig** `cdd_asin/acos/atan/asinh/acosh/atanh`, `cdd_sinpi`/`cospi`,
