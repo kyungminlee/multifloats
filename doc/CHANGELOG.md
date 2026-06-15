@@ -8,6 +8,30 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.7.2] — 2026-06-15
+
+### Fixed
+
+- **`operator<=` / `operator>=` on `float64x2` returned `true` for any NaN
+  comparison** (e.g. `NaN <= 1`). They were defined as `!(r < *this)` /
+  `!(*this < r)`, so NaN's unordered-false was negated into a wrong `true` —
+  corrupting any sort, clamp, or branch built on DD `<=`/`>=`, and reaching
+  the C ABI (`ledd`/`gedd`). Now computed limbwise as the ordered IEEE result.
+- `tgamma(±0)` returns `±∞` (the simple pole) instead of NaN.
+- `std::sqrt(std::complex<float64x2>)`: `sqrt(x ± i∞) = +∞ ± i∞` for every `x`
+  (C99 Annex G.6.4.2); previously the infinite-imaginary case gave NaN.
+- `pow(1, y) = 1` for every `y` (including NaN/±∞), and `pow(-1, ±∞) = 1`.
+- `bessel_y0`/`y1`/`yn(+∞)` return `+0`; `bessel_j0`/`j1`/`jn(NaN)` return NaN.
+- The odd functions `sin`, `tan`, `sinh`, `tanh`, `asinh`, `atanh`, `expm1`,
+  `log1p`, `erf` now preserve a signed zero (`f(-0) = -0`).
+- Undefined behavior at extreme Bessel orders: `n = -n` at `INT_MIN`, and the
+  `2·k` recurrence coefficients overflowing `int` for orders `> 2³⁰`, are now
+  computed without signed-integer overflow.
+- The Fortran package's `multifloatsfConfigVersion.cmake` shipped
+  `PACKAGE_VERSION ".0.0"`, so `find_package(multifloatsf <version>)` never
+  matched. `MULTIFLOATS_ABI_VERSION` is now parsed at the top level and both
+  the C++ and Fortran subprojects inherit it.
+
 ## [0.7.1] — 2026-06-15
 
 ### Fixed
