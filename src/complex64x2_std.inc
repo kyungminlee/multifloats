@@ -203,6 +203,20 @@ pow(complex<multifloats::float64x2> const &z,
 
 // ---- Trigonometric ---------------------------------------------------------
 
+// Componentwise factor product for the entire-function add-formulas below.
+// When one factor is an exact 0 and the other overflowed to ±∞ (e.g.
+// sin(0)·cosh(b) for |b| ≳ 710), the analytic limit is a signed zero, but
+// IEEE 0·∞ = NaN. Intercept only that exact case; ordinary products (and NaN
+// inputs) pass through bit-identically.
+static inline multifloats::float64x2
+cmul_lim(multifloats::float64x2 const &x, multifloats::float64x2 const &y) {
+  double xh = x.limbs[0], yh = y.limbs[0];
+  if ((xh == 0.0 && std::isinf(yh)) || (yh == 0.0 && std::isinf(xh)))
+    return multifloats::float64x2(
+        std::copysign(0.0, xh) * std::copysign(1.0, yh), 0.0);
+  return x * y;
+}
+
 // sin(a+bi) = sin(a)·cosh(b) + i·cos(a)·sinh(b). 2 fused transcendentals.
 template <>
 complex<multifloats::float64x2>
@@ -212,7 +226,7 @@ sin(complex<multifloats::float64x2> const &z) {
   float64x2 sa, ca, sb, cb;
   multifloats::sincos(a, sa, ca);
   multifloats::sinhcosh(b, sb, cb);
-  return complex<multifloats::float64x2>(sa * cb, ca * sb);
+  return complex<multifloats::float64x2>(cmul_lim(sa, cb), cmul_lim(ca, sb));
 }
 
 // cos(a+bi) = cos(a)·cosh(b) − i·sin(a)·sinh(b). 2 fused transcendentals.
@@ -224,7 +238,7 @@ cos(complex<multifloats::float64x2> const &z) {
   float64x2 sa, ca, sb, cb;
   multifloats::sincos(a, sa, ca);
   multifloats::sinhcosh(b, sb, cb);
-  return complex<multifloats::float64x2>(ca * cb, -(sa * sb));
+  return complex<multifloats::float64x2>(cmul_lim(ca, cb), -cmul_lim(sa, sb));
 }
 
 // tan(a+bi) = (sin(a)·cos(a) + i·sinh(b)·cosh(b)) / (cos(a)² + sinh(b)²).
@@ -266,7 +280,7 @@ sinh(complex<multifloats::float64x2> const &z) {
   float64x2 sa, ca, sb, cb;
   multifloats::sinhcosh(a, sa, ca);
   multifloats::sincos(b, sb, cb);
-  return complex<multifloats::float64x2>(sa * cb, ca * sb);
+  return complex<multifloats::float64x2>(cmul_lim(sa, cb), cmul_lim(ca, sb));
 }
 
 // cosh(a+bi) = cosh(a)·cos(b) + i·sinh(a)·sin(b). 2 fused transcendentals.
@@ -278,7 +292,7 @@ cosh(complex<multifloats::float64x2> const &z) {
   float64x2 sa, ca, sb, cb;
   multifloats::sinhcosh(a, sa, ca);
   multifloats::sincos(b, sb, cb);
-  return complex<multifloats::float64x2>(ca * cb, sa * sb);
+  return complex<multifloats::float64x2>(cmul_lim(ca, cb), cmul_lim(sa, sb));
 }
 
 // tanh(a+bi) = (sinh(a)·cosh(a) + i·sin(b)·cos(b)) / (sinh(a)² + cos(b)²).
