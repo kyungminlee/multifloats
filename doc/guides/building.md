@@ -31,7 +31,6 @@ default consumer build.
 | `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89). |
 | `-DMULTIFLOATS_USE_LTO=ON/OFF` | ON | LTO + fat-LTO objects on the installed archives. When ON the C++ archive is named `libmultifloats-<compiler>.a`; when OFF it is the portable untagged `libmultifloats.a`. |
 | `-DMULTIFLOATS_HIDDEN_VISIBILITY=ON/OFF` | ON | `-fvisibility=hidden` so only the `extern "C" dd_*` ABI is exported. Turn OFF for full C++ symbol visibility (debugging, profiling, re-export). |
-| `-DMULTIFLOATS_NATIVE_FMA=ON` | OFF | Compile the library with `-mfma` (x86 GCC/Clang/Intel). Every DD multiply bottoms out in `std::fma`; without an FMA-enabled target the compiler lowers it to a libm call. Enabling this is ~12% faster on the transcendental kernels but makes the resulting binary require a CPU with the FMA instruction (x86: Haswell / 2013+). It only changes how `std::fma` is lowered — a correctly-rounded fused op either way — so the error-free transformations keep identical results. No-op on AArch64 (FMA is in the base ISA). For a wider baseline pass e.g. `-DCMAKE_CXX_FLAGS=-march=x86-64-v3` instead. |
 | `-DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON` | OFF | Additionally install a compiler-tagged precompiled `.mod` + tagged Fortran archive. By default the fypp-expanded `.f90` source is shipped and consumers compile the module with their own Fortran compiler, sidestepping `.mod` format incompatibilities. |
 
 ## Tests

@@ -68,24 +68,18 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
     target_compile_options(multifloats PRIVATE -fp-model=precise)
 endif()
 
-# Optional hardware-FMA baseline. Every DD multiply bottoms out in std::fma;
-# with no FMA-enabled target the compiler lowers it to a libm call (one call
-# per fused multiply-add). Turning this ON compiles the library for a CPU
-# baseline that has the FMA instruction — measured ~12% faster on the
-# transcendental kernels — at the cost of the resulting binary requiring such
-# a CPU (x86: Haswell / 2013+). OFF by default to keep the build fully
-# portable. This only changes how std::fma is lowered (a correctly-rounded
-# fused op either way); it does NOT enable -ffast-math or relax the IEEE
-# semantics the error-free transformations depend on. AArch64 already has FMA
-# in its base ISA, so the flag is a no-op there. For a different baseline
-# (e.g. -march=x86-64-v3) pass it via CMAKE_CXX_FLAGS instead.
-option(MULTIFLOATS_NATIVE_FMA
-       "Compile libmultifloats for a CPU baseline with hardware FMA (-mfma)" OFF)
-if(MULTIFLOATS_NATIVE_FMA AND
-   CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64|amd64" AND
-   CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|IntelLLVM")
-    target_compile_options(multifloats PRIVATE -mfma)
-endif()
+# NOTE on hardware FMA: the library deliberately does NOT compile with -mfma
+# (or any FMA-enabling -march). Every DD multiply bottoms out in std::fma,
+# which the compiler lowers to a call to glibc's `fma` — and that symbol is a
+# GNU IFUNC: its resolver runs CPUID at load time and binds to the hardware
+# FMA (vfmadd) implementation on capable CPUs, or a software fallback
+# otherwise. So a single portable binary already uses hardware FMA at runtime
+# where present and NEVER executes an illegal instruction on an older CPU.
+# Statically inlining vfmadd (via -mfma) would only save the call/ifunc
+# indirection (~12% on the transcendental kernels) but would SIGILL on any CPU
+# without FMA — unacceptable for a library that must run anywhere. A consumer
+# who fully controls their target CPUs can still pass -mfma/-march via
+# CMAKE_CXX_FLAGS at their own risk.
 
 # LTO via CMake's standard abstraction, gated on the project-wide
 # MULTIFLOATS_USE_LTO option (defined in the top-level CMakeLists.txt).

@@ -8,6 +8,19 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+### Removed
+
+- The `MULTIFLOATS_NATIVE_FMA` CMake option (added in 0.7.3). It compiled the
+  library with `-mfma`, which inlines `vfmadd` and therefore raises an illegal
+  instruction (SIGILL) on any CPU without FMA — unacceptable for a library
+  that must run anywhere. It is unnecessary in the first place: `std::fma`
+  lowers to glibc's `fma`, a GNU IFUNC whose resolver already selects the
+  hardware-FMA implementation at load time on capable CPUs (and a software
+  fallback otherwise), so the stock portable binary already uses hardware FMA
+  at runtime where present and never crashes on older hardware. A consumer who
+  fully controls their target CPUs can still pass `-mfma`/`-march` via
+  `CMAKE_CXX_FLAGS` at their own risk.
+
 ## [0.7.3] — 2026-06-16
 
 ### Fixed
