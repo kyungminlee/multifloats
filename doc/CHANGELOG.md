@@ -8,6 +8,8 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.7.4] — 2026-06-16
+
 ### Added
 
 - **Runtime-dispatched packed FMA for matmul.** The `matmul_mm`/`mv`/`vm`
