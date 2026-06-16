@@ -8,6 +8,18 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+### Fixed
+
+- The library is now compiled with `-ffp-contract=off` on GCC/Clang (the
+  analog of the existing IntelLLVM `-fp-model=precise`). The compilers' default
+  `-ffp-contract=fast` fuses an incidental `a*b + c` into a single-rounded FMA
+  on any FMA-capable target — which happens with no special flag on AArch64
+  (FMA is in the base ISA) and whenever a consumer builds with `-march`/`-mfma`
+  — silently changing the rounding the error-free transformations depend on.
+  Pinning it off makes every build bit-identical to the reference regardless
+  of target ISA, with no measured speed cost (the explicit `std::fma` still
+  lowers to glibc's ifunc-dispatched hardware FMA).
+
 ### Removed
 
 - The `MULTIFLOATS_NATIVE_FMA` CMake option (added in 0.7.3). It compiled the
