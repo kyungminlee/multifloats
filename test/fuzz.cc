@@ -40,6 +40,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <random>
+#include <vector>
 
 namespace mf = multifloats;
 using multifloats::float64x2;
@@ -592,6 +593,31 @@ static void check(char const *op, mf::float64x2 const &got, q_t expected,
     double rq  = (mpfr::abs(to_mp(expected) - expected_mp) / denom_mp).toDouble();
     double rdd = (mpfr::abs(to_mp(got)      - expected_mp) / denom_mp).toDouble();
     update_stat(op, rq, rdd, i1, i2, expected, got_q);
+
+    // Honest pass/fail on the 200-bit oracle. The __float128 gate below
+    // can't make this check for ops where qp floors out (sinpi/cospi, the
+    // complex transcendentals, fma, Bessel near zeros) — its tolerance is
+    // deliberately loose (1e-26) to avoid flagging the reference's own
+    // floor. MPFR doesn't floor, so for the precision tiers we hold the
+    // kernel to a real full-DD bound: 5e-30 ≈ 100 DD ulp (1 DD ulp ≈ 5e-32),
+    // ~8× above the measured worst full-DD op (compoundn ~6e-31, an
+    // input-amplified case) — tight enough to catch a kernel falling off
+    // full-DD, loose enough not to flake. The fmod/remainder family
+    // legitimately degrades at huge arguments, so it keeps the coarse bound.
+    bool precision_tier = is_full_dd(op) || is_reduced_dd(op) || is_compound(op);
+    double mtol = precision_tier ? 5e-30 : 1e-15;
+    q_t huge_edge_mp = (q_t)0x1.fffffffffffffp+1023q * (q_t)0.99q;
+    if (rdd > mtol && abs_exp <= huge_edge_mp) {
+      ++g_failures;
+      if (g_prints < kPrintLimit) {
+        std::fprintf(stderr, "FAIL(mpfr) [%s] rdd=%g > mtol=%g\n", op, rdd, mtol);
+        std::fprintf(stderr, "  i1  = %s\n", qstr(i1));
+        std::fprintf(stderr, "  i2  = %s\n", qstr(i2));
+        std::fprintf(stderr, "  got = %s  (limbs %a, %a)\n", qstr(got_q),
+                     got.limbs[0], got.limbs[1]);
+        ++g_prints;
+      }
+    }
   }
 #else
   update_stat(op, rel_err, i1, i2, expected, got_q);
@@ -1054,6 +1080,72 @@ static void fuzz_matmul_mm_vm_only(Rng &rng) {
       }
       q_t mag = max_a * max_m * (q_t)kArrayN;
       check("arr_matmul_vm", y_dd[col], y_q, mag, (q_t)0, y_mp);
+    }
+  }
+}
+
+// Shape-varying matmul coverage. The fixed 8×8 fuzz above never exercises a
+// contraction dimension K larger than the renorm interval (kArrayRenorm = 8),
+// nor non-square / size-1 shapes — so a renorm-interval off-by-one or an
+// accumulation-order bug that only appears for K > interval would slip
+// through. Each shape feeds the same matmuldd_mm / matmuldd_mv C kernels and
+// checks every output element against the qp and MPFR references. Column-major
+// throughout: element (r, c) of an R-row matrix lives at index c*R + r.
+static void fuzz_matmul_shapes_only(Rng &rng) {
+  struct Shape { int m, k, n; };
+  static const Shape shapes[] = {
+      {1, 1, 1},     // minimal
+      {7, 1, 9},     // K = 1 (degenerate contraction), rectangular
+      {3, 9, 1},     // K just past the renorm interval, n = 1
+      {2, 20, 5},    // K ≫ interval, multiple renorm passes
+      {16, 16, 16},  // larger square, K = 2·interval
+      {4, 32, 6},    // K = 4·interval
+  };
+  for (Shape s : shapes) {
+    const int m = s.m, k = s.k, n = s.n;
+    std::vector<q_t> qa(m * k), qb(k * n);
+    std::vector<mf::float64x2> a(m * k), b(k * n);
+    std::vector<mp_t> ma(m * k), mb(k * n);
+    q_t max_a = 0, max_b = 0;
+    for (int i = 0; i < m * k; ++i) {
+      qa[i] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+      a[i] = from_q(qa[i]); ma[i] = to_mp(a[i]);
+      q_t aa = qa[i] < 0 ? -qa[i] : qa[i]; if (aa > max_a) max_a = aa;
+    }
+    for (int i = 0; i < k * n; ++i) {
+      qb[i] = to_q(from_q(rng.narrow(rng.u(), rng.u())));
+      b[i] = from_q(qb[i]); mb[i] = to_mp(b[i]);
+      q_t bb = qb[i] < 0 ? -qb[i] : qb[i]; if (bb > max_b) max_b = bb;
+    }
+    // C(m,n) = A(m,k) · B(k,n).
+    std::vector<mf::float64x2> c_dd(m * n);
+    matmuldd_mm(reinterpret_cast<float64x2 const *>(a.data()),
+                reinterpret_cast<float64x2 const *>(b.data()),
+                reinterpret_cast<float64x2 *>(c_dd.data()),
+                m, k, n, kArrayRenorm);
+    for (int j = 0; j < n; ++j)
+      for (int i = 0; i < m; ++i) {
+        q_t cq = (q_t)0; mp_t cmp = mp_t(0);
+        for (int p = 0; p < k; ++p) {
+          cq += qa[p * m + i] * qb[j * k + p];
+          cmp += ma[p * m + i] * mb[j * k + p];
+        }
+        check("arr_matmul_mm", c_dd[j * m + i], cq,
+              max_a * max_b * (q_t)k, (q_t)0, cmp);
+      }
+    // y(m) = A(m,k) · x(k); use B's first column (b[0..k-1]) as x.
+    std::vector<mf::float64x2> y_dd(m);
+    matmuldd_mv(reinterpret_cast<float64x2 const *>(a.data()),
+                reinterpret_cast<float64x2 const *>(b.data()),
+                reinterpret_cast<float64x2 *>(y_dd.data()),
+                m, k, kArrayRenorm);
+    for (int i = 0; i < m; ++i) {
+      q_t yq = (q_t)0; mp_t ymp = mp_t(0);
+      for (int p = 0; p < k; ++p) {
+        yq += qa[p * m + i] * qb[p];
+        ymp += ma[p * m + i] * mb[p];
+      }
+      check("arr_matmul", y_dd[i], yq, max_a * max_b * (q_t)k, (q_t)0, ymp);
     }
   }
 }
@@ -2023,6 +2115,7 @@ int main(int argc, char **argv) {
     if (i % kArrayInterval == 0) {
       static Rng extra_rng(0xa110ca7eULL);
       fuzz_matmul_mm_vm_only(extra_rng);
+      fuzz_matmul_shapes_only(extra_rng);
     }
 #endif
 

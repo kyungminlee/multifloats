@@ -26,7 +26,8 @@ build will land in the same orders of magnitude.
   - Members
 * - **Full double-double**
   - ~1e-32 (≈ 1 DD ulp)
-  - `+ - * /`, `fma`, `sqrt`, `cbrt`, `min`/`max`, `mod`, `dim`, `hypot`, `pow`,
+  - `+ - * /`, `fma`, `sqrt`, `cbrt`, `min`/`max`, `mod`, `dim`, `hypot`,
+    `pow`/`pown`/`powr`/`rootn`/`compoundn`,
     `exp`/`exp2`/`expm1`, `log`/`log2`/`log10`/`log1p`, the full trig set
     (`sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, and the π-scaled
     `sinpi`/`cospi`/`tanpi`), the full
@@ -68,6 +69,18 @@ of these kernels — `fma` itself is full DD (~4e-32).
 | `gamma` | 4.6e-32 | 8.4e-33 |
 | `bessel_j0` / `j1` / `jn` (MPFR) | 5.9e-33 / 7.4e-33 / 1.1e-32 | ~3e-34 |
 | `bessel_y0` / `y1` / `yn` (MPFR) | 4.9e-32 / 5.8e-32 / 5.9e-32 | ~8e-33 |
+| `cbrt` (MPFR) | 3.8e-31 | 1.2e-32 |
+| `pow` / `pown` (MPFR) | 2.5e-31 | ~2e-33 |
+| `powr` / `rootn` (MPFR) | 1.4e-32 / 4.3e-32 | ~1e-32 |
+| `compoundn` `(1+x)ⁿ` (MPFR) | 6.2e-31 | 8.4e-33 |
+
+The `pow`/`pown`/`cbrt`/`compoundn` worst cases (a few to ~12 DD ulp) are
+**input amplification, not kernel error**: a power map `f(x) = xⁿ` multiplies
+the input's relative error by `|n|`, and `(1+x)ⁿ` amplifies by `|n·x/(1+x)|`,
+so the worst inputs (large `|n|`, or `x` near `−1`) carry the input's last-bit
+uncertainty into the result. Each is still full double-double *relative to its
+inputs* — the kernel adds no error above the `~5e-32` floor that the
+non-amplifying members hit.
 
 ## The Bessel family
 
