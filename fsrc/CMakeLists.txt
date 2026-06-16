@@ -97,6 +97,16 @@ if(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
     target_compile_options(multifloatsf PRIVATE -fp-model=precise)
 endif()
 
+# Correctness — GNU/flang. Same as the C++ side (src/CMakeLists.txt): the
+# default -ffp-contract=fast fuses incidental `a*b + c` into an FMA on any
+# FMA-capable target (AArch64 by default, or under -march/-mcpu), perturbing
+# the DD arithmetic. The Fortran two_prod uses an explicit libc `fma` (immune),
+# but pin contraction off so the whole Fortran surface stays bit-stable and
+# matches the C++ kernels. Comes after inherited FFLAGS, so it wins over -mcpu.
+if(CMAKE_Fortran_COMPILER_ID MATCHES "GNU|LLVMFlang|Flang")
+    target_compile_options(multifloatsf PRIVATE -ffp-contract=off)
+endif()
+
 # LTO via CMake's IPO abstraction, gated on the project-wide
 # MULTIFLOATS_USE_LTO option (defined in the top-level CMakeLists.txt)
 # AND on GNU / LLVMFlang because other Fortran compilers (Intel ifx,

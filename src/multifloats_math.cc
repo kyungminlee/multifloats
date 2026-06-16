@@ -163,12 +163,35 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
 #include "float64x2_matmul.inc"
 } // anonymous namespace
 
+// Runtime-dispatched FMA for matmul. matmul is the only place DD arithmetic
+// vectorizes to PACKED FMA (vfmadd…pd) — the scalar transcendental EFTs are
+// sequential dependency chains that don't vectorize. target_clones compiles
+// each entry twice: a "default" clone for the build's baseline ISA (no FMA
+// inlined → runs on any supported CPU; std::fma still reaches the hardware FMA
+// at runtime via glibc's `fma` ifunc) and an "arch=haswell" clone (AVX2+FMA →
+// packed vfmadd). A GNU IFUNC resolver picks via CPUID at load, so a single
+// portable binary uses packed FMA where present and NEVER executes an illegal
+// instruction on an older CPU. `flatten` pulls the panel µkernels into the
+// entry so the clone's body actually vectorizes (cloning the entry alone
+// leaves the hot loop in the out-of-line, baseline gemm_panel).
+//
+// x86-64 ELF only: AArch64 has FMA in its base ISA (no dispatch needed) and
+// Mach-O has no ifunc. Opt out with -DMULTIFLOATS_NO_MM_DISPATCH.
+#if defined(__x86_64__) && !defined(__APPLE__) && defined(__GNUC__) &&         \
+    !defined(MULTIFLOATS_NO_MM_DISPATCH)
+#define MULTIFLOATS_MM_MV                                                      \
+    __attribute__((target_clones("default", "arch=haswell"), flatten))
+#else
+#define MULTIFLOATS_MM_MV
+#endif
+
 // Public C++ matmul entry points. `float64x2` is a single unified type
 // across C and C++, so the boundary is a direct hand-off — the panel
 // dispatchers above (anon namespace) operate on the same type. The
 // `matmuldd_*` shims in float64x2_abi.inc forward to these one-for-one.
 namespace multifloats {
 
+MULTIFLOATS_MM_MV
 void matmul_mm(float64x2 const *a, float64x2 const *b, float64x2 *c,
                std::int64_t m, std::int64_t k, std::int64_t n,
                std::int64_t renorm_interval) {
@@ -198,6 +221,7 @@ void matmul_mm(float64x2 const *a, float64x2 const *b, float64x2 *c,
   }
 }
 
+MULTIFLOATS_MM_MV
 void matmul_mv(float64x2 const *a, float64x2 const *x, float64x2 *y,
                std::int64_t m, std::int64_t k,
                std::int64_t renorm_interval) {
@@ -206,6 +230,7 @@ void matmul_mv(float64x2 const *a, float64x2 const *x, float64x2 *y,
 
 // vm: y[j] = sum_p x[p] * B[p, j]. Column-major B makes B[:, j]
 // contiguous at fixed j, so one scalar accumulator per output is optimal.
+MULTIFLOATS_MM_MV
 void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
                std::int64_t k, std::int64_t n,
                std::int64_t renorm_interval) {

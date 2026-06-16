@@ -8,10 +8,23 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+### Added
+
+- **Runtime-dispatched packed FMA for matmul.** The `matmul_mm`/`mv`/`vm`
+  kernels are now multi-versioned (`target_clones` + `flatten`): a single
+  portable binary uses vectorized `vfmadd…pd` on AVX2+FMA CPUs and a baseline
+  that runs anywhere otherwise, selected by a GNU IFUNC resolver via CPUID at
+  load. matmul is the only place DD arithmetic vectorizes to packed FMA (the
+  scalar transcendental EFTs are sequential chains that don't), so this is
+  matmul-specific. Verified bit-identical to the scalar baseline. Opt out with
+  the `MULTIFLOATS_MM_DISPATCH=OFF` CMake option. x86-64 ELF GCC/Clang only;
+  a no-op on AArch64 (FMA is baseline) and Apple/Mach-O.
+
 ### Fixed
 
-- The library is now compiled with `-ffp-contract=off` on GCC/Clang (the
-  analog of the existing IntelLLVM `-fp-model=precise`). The compilers' default
+- The library is now compiled with `-ffp-contract=off` on GCC/Clang — both the
+  C++ (`multifloats`) and Fortran (`multifloatsf`) builds — the analog of the
+  existing IntelLLVM `-fp-model=precise`. The compilers' default
   `-ffp-contract=fast` fuses an incidental `a*b + c` into a single-rounded FMA
   on any FMA-capable target — which happens with no special flag on AArch64
   (FMA is in the base ISA) and whenever a consumer builds with `-march`/`-mfma`
@@ -19,6 +32,11 @@ Dates are ISO-8601 UTC.
   Pinning it off makes every build bit-identical to the reference regardless
   of target ISA, with no measured speed cost (the explicit `std::fma` still
   lowers to glibc's ifunc-dispatched hardware FMA).
+- The released Linux artifacts are now built with `-march=sandybridge` (AVX,
+  2011) instead of `-march=haswell`. Haswell inlines `vfmadd` and so SIGILL'd
+  on any pre-2013 CPU; Sandy Bridge has AVX but no FMA, so the archives never
+  inline an FMA instruction and run on any AVX CPU, while the new matmul
+  dispatch still delivers packed FMA at runtime where the CPU supports it.
 
 ### Removed
 

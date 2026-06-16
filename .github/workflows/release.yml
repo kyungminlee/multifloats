@@ -13,10 +13,13 @@ permissions:
   contents: write
 
 # Per-job CPU baseline:
-#   Linux x86_64 → -march=haswell  (AVX2 + FMA + BMI2)
-#   macOS arm64  → -mcpu=apple-m1  (Apple Silicon baseline; M2/M3/M4 are supersets)
-# Set at the job level instead of workflow level so the macOS arm64 jobs
-# don't inherit a now-illegal -march=haswell flag.
+#   Linux x86_64 → -march=sandybridge (AVX, 2011+). Deliberately has NO FMA, so
+#                  the archives never inline `vfmadd` and cannot SIGILL on a CPU
+#                  that lacks FMA; hardware FMA is still used at runtime via
+#                  glibc's `fma` ifunc. (-march=haswell, the old setting,
+#                  inlined FMA and crashed on pre-2013 CPUs.)
+#   macOS arm64  → -mcpu=apple-m1  (the true Apple Silicon floor; M2/M3/M4 are
+#                  supersets, so every arm64 Mac runs it — not a crash risk)
 
 jobs:
   # ===========================================================================
@@ -31,10 +34,14 @@ jobs:
   # ===========================================================================
   build-lto:
     runs-on: ubuntu-latest
+    # Sandy Bridge baseline (2011): AVX vectorization but NO FMA, so the archives
+    # never inline `vfmadd` and cannot SIGILL on a CPU that lacks FMA. std::fma
+    # still reaches the hardware FMA at runtime via glibc's `fma` ifunc.
+    # (The previous -march=haswell inlined FMA and crashed on pre-2013 CPUs.)
     env:
-      CFLAGS: -march=haswell
-      CXXFLAGS: -march=haswell
-      FFLAGS: -march=haswell
+      CFLAGS: -march=sandybridge
+      CXXFLAGS: -march=sandybridge
+      FFLAGS: -march=sandybridge
     strategy:
       fail-fast: false
       matrix:
@@ -417,10 +424,13 @@ jobs:
   # ===========================================================================
   build-non-lto:
     runs-on: ubuntu-latest
+    # Sandy Bridge baseline (2011), matching build-lto: AVX but no FMA, so no
+    # inlined vfmadd and no FMA-dependent SIGILL. (Previously -march=haswell,
+    # which inlined FMA and crashed on pre-2013 CPUs.)
     env:
-      CFLAGS: -march=haswell
-      CXXFLAGS: -march=haswell
-      FFLAGS: -march=haswell
+      CFLAGS: -march=sandybridge
+      CXXFLAGS: -march=sandybridge
+      FFLAGS: -march=sandybridge
     steps:
       - uses: actions/checkout@v6
 

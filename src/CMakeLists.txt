@@ -84,6 +84,18 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(multifloats PRIVATE -ffp-contract=off)
 endif()
 
+# Runtime FMA dispatch for the matmul kernels (see multifloats_math.cc). ON: a
+# single portable binary uses packed FMA (vfmadd…pd) on AVX2+FMA CPUs via an
+# ifunc resolver, and a baseline that runs on any CPU otherwise. OFF: a single
+# baseline build with no ifunc — for an exotic toolchain that lacks
+# target_clones/ifunc support. Effective only on x86-64 ELF GCC/Clang; a no-op
+# on AArch64 (FMA is baseline) and Apple/Mach-O.
+option(MULTIFLOATS_MM_DISPATCH
+       "Runtime FMA-dispatch the matmul kernels (x86-64)" ON)
+if(NOT MULTIFLOATS_MM_DISPATCH)
+    target_compile_definitions(multifloats PRIVATE MULTIFLOATS_NO_MM_DISPATCH)
+endif()
+
 # NOTE on hardware FMA: the library deliberately does NOT compile with -mfma
 # (or any FMA-enabling -march). Every DD multiply bottoms out in std::fma,
 # which the compiler lowers to a call to glibc's `fma` — and that symbol is a
