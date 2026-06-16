@@ -68,6 +68,22 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
     target_compile_options(multifloats PRIVATE -fp-model=precise)
 endif()
 
+# Correctness — GCC/Clang. The default -ffp-contract=fast fuses an incidental
+# `a*b + c` into a single-rounded FMA on any FMA-capable target. That happens
+# with NO special flag on AArch64 (FMA is in the base ISA) and whenever a
+# consumer configures with -march=…/-mfma — silently changing the rounding the
+# error-free transformations are built around (a future load-bearing `a*b+c`
+# would be corrupted outright). Pin contraction off; it comes after any
+# inherited CMAKE_CXX_FLAGS on the command line, so it neutralizes even
+# -march=native. The explicit std::fma in two_prod is unaffected (it is an
+# fma by name, still lowered to glibc's ifunc-dispatched hardware FMA), so no
+# speed is lost — measured equal-or-faster. This is the GCC/Clang analog of
+# the IntelLLVM -fp-model=precise above, and makes every build bit-identical
+# to the reference regardless of target ISA.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(multifloats PRIVATE -ffp-contract=off)
+endif()
+
 # NOTE on hardware FMA: the library deliberately does NOT compile with -mfma
 # (or any FMA-enabling -march). Every DD multiply bottoms out in std::fma,
 # which the compiler lowers to a call to glibc's `fma` — and that symbol is a
