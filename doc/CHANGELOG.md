@@ -8,6 +8,8 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.7.5] — 2026-06-16
+
 ### Changed
 
 - **Reworked the matmul FMA dispatch** (added in 0.7.4) from `target_clones` +
