@@ -176,9 +176,13 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
 // leaves the hot loop in the out-of-line, baseline gemm_panel).
 //
 // x86-64 ELF only: AArch64 has FMA in its base ISA (no dispatch needed) and
-// Mach-O has no ifunc. Opt out with -DMULTIFLOATS_NO_MM_DISPATCH.
+// Mach-O has no ifunc. IntelLLVM (icx) is excluded: it rejects target_clones
+// combined with flatten ("multiversioning cannot be combined with attribute
+// 'flatten'"); icx falls back to the single baseline build (still gets scalar
+// hardware FMA at runtime via glibc's `fma` ifunc, just no packed-FMA matmul
+// dispatch). Opt out elsewhere with -DMULTIFLOATS_NO_MM_DISPATCH.
 #if defined(__x86_64__) && !defined(__APPLE__) && defined(__GNUC__) &&         \
-    !defined(MULTIFLOATS_NO_MM_DISPATCH)
+    !defined(__INTEL_LLVM_COMPILER) && !defined(MULTIFLOATS_NO_MM_DISPATCH)
 #define MULTIFLOATS_MM_MV                                                      \
     __attribute__((target_clones("default", "arch=haswell"), flatten))
 #else
