@@ -8,6 +8,39 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+## [0.7.3] — 2026-06-16
+
+### Fixed
+
+- Complex `sin`/`cos`/`sinh`/`cosh` returned NaN in the component that should
+  be a signed zero when one factor overflowed and the paired trig factor was
+  exactly 0 (e.g. `sin(0 + 1000i)` gave `(-nan, inf)` instead of `(0, inf)`).
+  The `0·∞` limit for these entire functions is a signed zero; normal values
+  are unchanged. Matches libquadmath.
+
+### Added
+
+- `MULTIFLOATS_NATIVE_FMA` CMake option (default OFF). Compiles the library
+  with `-mfma` on x86 (GCC/Clang/Intel) so every DD multiply's `std::fma`
+  lowers to a hardware instruction instead of a libm call — measured ~12%
+  faster on the transcendental kernels. The resulting binary then requires a
+  CPU with FMA (x86: Haswell / 2013+); the default build stays portable. Only
+  changes `std::fma` lowering (correctly rounded either way), so the
+  error-free transformations keep identical results.
+
+### Changed
+
+- The MPFR precision test now gates pass/fail on the honest 200-bit
+  DD-vs-MPFR error (≤ ~100 DD ulp for the full-/reduced-DD and compound
+  tiers), not just the `__float128` reference (which floors out for several
+  ops). A kernel falling off full double-double now fails CI.
+- Widened the matmul fuzz beyond the fixed 8×8×8 to cover contraction
+  dimensions larger than the renormalization interval, plus non-square and
+  size-1 shapes.
+- Documented the `cbrt` / `pow` / `pown` / `powr` / `rootn` / `compoundn`
+  precision (full double-double; the larger worst-case constants are input
+  amplification, not kernel error).
+
 ## [0.7.2] — 2026-06-15
 
 ### Fixed
