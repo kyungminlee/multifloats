@@ -171,3 +171,69 @@ static inline void gemm_panel(const float64x2 *__restrict__ a,
     for (int i = 0; i < MR; ++i)
       c[jj * ldc + i] = finalize_inl(s_hi[i][jj], s_lo[i][jj]);
 }
+
+// ---------------------------------------------------------------------------
+// Driver bodies. These live in the .inc (not multifloats_math.cc) so the whole
+// matmul implementation can be compiled twice — once for the build baseline
+// and once for an FMA target — by including this file under two namespaces
+// (see multifloats_math.cc). The public matmul_mm/mv/vm entry points dispatch
+// to one copy or the other by CPUID at runtime.
+// ---------------------------------------------------------------------------
+static void mm_impl(const float64x2 *a, const float64x2 *b, float64x2 *c,
+                    std::int64_t m, std::int64_t k, std::int64_t n,
+                    std::int64_t renorm_interval) {
+  constexpr int MR = 8;
+  constexpr int NR = 2;
+  std::int64_t j = 0;
+  for (; j + NR <= n; j += NR) {
+    std::int64_t i = 0;
+    for (; i + MR <= m; i += MR) {
+      gemm_panel<MR, NR>(a + i, b + j * k, c + j * m + i,
+                         m, k, m, k, renorm_interval);
+    }
+    int tail_m = static_cast<int>(m - i);
+    if (tail_m > 0) {
+      for (int jj = 0; jj < NR; ++jj) {
+        gaxpy_mv_tail(a + i, b + (j + jj) * k, c + (j + jj) * m + i,
+                      tail_m, m, k, renorm_interval);
+      }
+    }
+  }
+  for (; j < n; ++j) {
+    gaxpy_mv_dispatch(a, b + j * k, c + j * m, m, k, m, renorm_interval);
+  }
+}
+
+static void mv_impl(const float64x2 *a, const float64x2 *x, float64x2 *y,
+                    std::int64_t m, std::int64_t k,
+                    std::int64_t renorm_interval) {
+  gaxpy_mv_dispatch(a, x, y, m, k, m, renorm_interval);
+}
+
+static void vm_impl(const float64x2 *x, const float64x2 *b, float64x2 *y,
+                    std::int64_t k, std::int64_t n,
+                    std::int64_t renorm_interval) {
+  const bool simple = (renorm_interval <= 0) || (k <= renorm_interval);
+  for (std::int64_t j = 0; j < n; ++j) {
+    double s_hi = 0.0, s_lo = 0.0;
+    const float64x2 *__restrict__ bcol = b + j * k;
+    if (simple) {
+      for (std::int64_t p = 0; p < k; ++p) {
+        mac_inl(x[p].limbs[0], x[p].limbs[1], bcol[p].limbs[0], bcol[p].limbs[1], s_hi, s_lo);
+      }
+    } else {
+      const std::int64_t chunk = renorm_interval;
+      std::int64_t p0 = 0;
+      while (p0 < k) {
+        std::int64_t pend = p0 + chunk;
+        if (pend > k) pend = k;
+        for (std::int64_t p = p0; p < pend; ++p) {
+          mac_inl(x[p].limbs[0], x[p].limbs[1], bcol[p].limbs[0], bcol[p].limbs[1], s_hi, s_lo);
+        }
+        p0 = pend;
+        if (p0 < k) renorm_inl(s_hi, s_lo);
+      }
+    }
+    y[j] = finalize_inl(s_hi, s_lo);
+  }
+}

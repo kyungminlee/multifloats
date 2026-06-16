@@ -160,107 +160,73 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
   return float64x2(hi, lo);
 }
 
+// Matmul is the only place DD arithmetic vectorizes to PACKED FMA (vfmadd…pd);
+// the scalar transcendental EFTs are sequential chains that don't. So matmul is
+// compiled twice: a baseline copy (mm_scalar) that runs on any supported CPU,
+// and — on x86-64 GCC — an FMA copy (mm_vec) whose panels vectorize. The WHOLE
+// implementation (panels + drivers) is recompiled for the FMA target via the
+// block-level `#pragma GCC target`, so gemm_panel itself vectorizes; the public
+// matmul_mm/mv/vm pick a copy by CPUID at runtime. Measured ~5x faster on an
+// AVX2+FMA CPU than the baseline (and than a target_clones+flatten variant,
+// whose clone did not actually vectorize the hot loop).
+//
+// GCC only: only GCC's vectorizer packs this compensated DD MAC loop — Clang/
+// icx emit scalar FMA even at -march=haswell, so a vectorized copy buys them
+// nothing and they use the baseline (still hardware *scalar* FMA at runtime via
+// glibc's `fma` ifunc). Restricting to GCC also avoids the `#pragma clang
+// attribute` path on Clang/icx. AArch64 has FMA in its base ISA (no dispatch);
+// Apple/Mach-O excluded. Opt out with -DMULTIFLOATS_NO_MM_DISPATCH.
+namespace mm_scalar {
 #include "float64x2_matmul.inc"
+}
+#if defined(__x86_64__) && !defined(__APPLE__) && defined(__GNUC__) &&         \
+    !defined(__clang__) && !defined(MULTIFLOATS_NO_MM_DISPATCH)
+#define MULTIFLOATS_MM_DISPATCH_ACTIVE 1
+#pragma GCC push_options
+#pragma GCC target("arch=haswell")
+namespace mm_vec {
+#include "float64x2_matmul.inc"
+}
+#pragma GCC pop_options
+#endif  // dispatch active
 } // anonymous namespace
 
-// Runtime-dispatched FMA for matmul. matmul is the only place DD arithmetic
-// vectorizes to PACKED FMA (vfmadd…pd) — the scalar transcendental EFTs are
-// sequential dependency chains that don't vectorize. target_clones compiles
-// each entry twice: a "default" clone for the build's baseline ISA (no FMA
-// inlined → runs on any supported CPU; std::fma still reaches the hardware FMA
-// at runtime via glibc's `fma` ifunc) and an "arch=haswell" clone (AVX2+FMA →
-// packed vfmadd). A GNU IFUNC resolver picks via CPUID at load, so a single
-// portable binary uses packed FMA where present and NEVER executes an illegal
-// instruction on an older CPU. `flatten` pulls the panel µkernels into the
-// entry so the clone's body actually vectorizes (cloning the entry alone
-// leaves the hot loop in the out-of-line, baseline gemm_panel).
-//
-// x86-64 ELF only: AArch64 has FMA in its base ISA (no dispatch needed) and
-// Mach-O has no ifunc. IntelLLVM (icx) is excluded: it rejects target_clones
-// combined with flatten ("multiversioning cannot be combined with attribute
-// 'flatten'"); icx falls back to the single baseline build (still gets scalar
-// hardware FMA at runtime via glibc's `fma` ifunc, just no packed-FMA matmul
-// dispatch). Opt out elsewhere with -DMULTIFLOATS_NO_MM_DISPATCH.
-#if defined(__x86_64__) && !defined(__APPLE__) && defined(__GNUC__) &&         \
-    !defined(__INTEL_LLVM_COMPILER) && !defined(MULTIFLOATS_NO_MM_DISPATCH)
-#define MULTIFLOATS_MM_MV                                                      \
-    __attribute__((target_clones("default", "arch=haswell"), flatten))
-#else
-#define MULTIFLOATS_MM_MV
-#endif
-
-// Public C++ matmul entry points. `float64x2` is a single unified type
-// across C and C++, so the boundary is a direct hand-off — the panel
-// dispatchers above (anon namespace) operate on the same type. The
+// Public C++ matmul entry points. Each dispatches to the baseline (mm_scalar)
+// or the FMA-vectorized (mm_vec) copy of the driver by CPUID at runtime. The
 // `matmuldd_*` shims in float64x2_abi.inc forward to these one-for-one.
 namespace multifloats {
 
-MULTIFLOATS_MM_MV
+#ifdef MULTIFLOATS_MM_DISPATCH_ACTIVE
+// CPUID is read once into a function-local static — evaluated on first call,
+// well after libgcc's __cpu_model constructor runs — then cached.
+static bool mm_use_vec() {
+  static const bool v =
+      __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
+  return v;
+}
+#define MULTIFLOATS_MM_RUN(impl, ...)                                          \
+  do {                                                                        \
+    if (mm_use_vec()) ::mm_vec::impl(__VA_ARGS__);                            \
+    else ::mm_scalar::impl(__VA_ARGS__);                                      \
+  } while (0)
+#else
+#define MULTIFLOATS_MM_RUN(impl, ...) ::mm_scalar::impl(__VA_ARGS__)
+#endif
+
 void matmul_mm(float64x2 const *a, float64x2 const *b, float64x2 *c,
                std::int64_t m, std::int64_t k, std::int64_t n,
                std::int64_t renorm_interval) {
-  // NR-blocked mm: the MR-row × NR-col tile loads A[:,p] once per p and
-  // reuses it across NR output columns, halving A-bandwidth vs a per-
-  // column mv dispatch. Row-tail (1..MR-1 rows) and column-tail
-  // (1..NR-1 cols) fall back to the single-column mv panel.
-  constexpr int MR = 8;
-  constexpr int NR = 2;
-  std::int64_t j = 0;
-  for (; j + NR <= n; j += NR) {
-    std::int64_t i = 0;
-    for (; i + MR <= m; i += MR) {
-      gemm_panel<MR, NR>(a + i, b + j * k, c + j * m + i,
-                         m, k, m, k, renorm_interval);
-    }
-    int tail_m = static_cast<int>(m - i);
-    if (tail_m > 0) {
-      for (int jj = 0; jj < NR; ++jj) {
-        gaxpy_mv_tail(a + i, b + (j + jj) * k, c + (j + jj) * m + i,
-                      tail_m, m, k, renorm_interval);
-      }
-    }
-  }
-  for (; j < n; ++j) {
-    gaxpy_mv_dispatch(a, b + j * k, c + j * m, m, k, m, renorm_interval);
-  }
+  MULTIFLOATS_MM_RUN(mm_impl, a, b, c, m, k, n, renorm_interval);
 }
 
-MULTIFLOATS_MM_MV
 void matmul_mv(float64x2 const *a, float64x2 const *x, float64x2 *y,
-               std::int64_t m, std::int64_t k,
-               std::int64_t renorm_interval) {
-  gaxpy_mv_dispatch(a, x, y, m, k, m, renorm_interval);
+               std::int64_t m, std::int64_t k, std::int64_t renorm_interval) {
+  MULTIFLOATS_MM_RUN(mv_impl, a, x, y, m, k, renorm_interval);
 }
 
-// vm: y[j] = sum_p x[p] * B[p, j]. Column-major B makes B[:, j]
-// contiguous at fixed j, so one scalar accumulator per output is optimal.
-MULTIFLOATS_MM_MV
 void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
-               std::int64_t k, std::int64_t n,
-               std::int64_t renorm_interval) {
-  const bool simple = (renorm_interval <= 0) || (k <= renorm_interval);
-  for (std::int64_t j = 0; j < n; ++j) {
-    double s_hi = 0.0, s_lo = 0.0;
-    const float64x2 *__restrict__ bcol = b + j * k;
-    if (simple) {
-      for (std::int64_t p = 0; p < k; ++p) {
-        mac_inl(x[p].limbs[0], x[p].limbs[1], bcol[p].limbs[0], bcol[p].limbs[1], s_hi, s_lo);
-      }
-    } else {
-      const std::int64_t chunk = renorm_interval;
-      std::int64_t p0 = 0;
-      while (p0 < k) {
-        std::int64_t pend = p0 + chunk;
-        if (pend > k) pend = k;
-        for (std::int64_t p = p0; p < pend; ++p) {
-          mac_inl(x[p].limbs[0], x[p].limbs[1], bcol[p].limbs[0], bcol[p].limbs[1], s_hi, s_lo);
-        }
-        p0 = pend;
-        if (p0 < k) renorm_inl(s_hi, s_lo);
-      }
-    }
-    y[j] = finalize_inl(s_hi, s_lo);
-  }
+               std::int64_t k, std::int64_t n, std::int64_t renorm_interval) {
+  MULTIFLOATS_MM_RUN(vm_impl, x, b, y, k, n, renorm_interval);
 }
 
 } // namespace multifloats

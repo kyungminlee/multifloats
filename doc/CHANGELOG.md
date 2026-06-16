@@ -8,6 +8,21 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+### Changed
+
+- **Reworked the matmul FMA dispatch** (added in 0.7.4) from `target_clones` +
+  `flatten` to a two-copy `#pragma GCC target` approach. The whole matmul
+  implementation (panels + drivers) is now compiled twice — a portable baseline
+  and an AVX2+FMA copy whose `gemm_panel` vectorizes to packed `vfmadd…pd` — and
+  the public `matmul_mm`/`mv`/`vm` pick one by CPUID at runtime. The 0.7.4
+  `target_clones`+`flatten` clone did **not** actually vectorize the hot
+  accumulation loop (no measurable speedup); the new form is **~5x faster** on
+  an AVX2+FMA CPU. Scoped to GCC, since only GCC's vectorizer packs this
+  compensated DD MAC loop — Clang/icx emit scalar FMA even at `-march=haswell`,
+  so they use the baseline (still hardware *scalar* FMA at runtime via glibc's
+  `fma` ifunc). Still bit-identical to the scalar baseline; opt out with
+  `MULTIFLOATS_MM_DISPATCH=OFF`.
+
 ## [0.7.4] — 2026-06-16
 
 ### Added
