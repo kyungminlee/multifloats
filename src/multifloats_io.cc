@@ -86,16 +86,36 @@ char *format_scientific_chars(multifloats::float64x2 const &value,
     // post-scale fixup corrects.
     int e10 = static_cast<int>(std::floor(std::log10(hi)));
 
-    // Scale to [1, 10). Multiplying by 10 is exact in DD; multiplying by 0.1
-    // is not, but each iteration retains ~106 bits of precision, so 308
-    // iterations (max for dp range) lose at most a handful of ulps — well
-    // below the visible 34 digits.
-    int shift = -e10;
-    while (shift > 0) { io_dd_mul_d(hi, lo, 10.0); --shift; }
-    while (shift < 0) { io_dd_mul_d(hi, lo, 0.1);  ++shift; }
-    // Drift correction: at most ±1 from the log10 estimate.
-    if (hi >= 10.0)     { io_dd_mul_d(hi, lo, 0.1);  ++e10; }
-    else if (hi < 1.0)  { io_dd_mul_d(hi, lo, 10.0); --e10; }
+    // Scale to [1, 10) by a power of ten held to full DD precision. For each
+    // set bit k of |e10| we divide (e10 > 0) or multiply (e10 < 0) by the DD
+    // constant 10^(2^k) — O(log|e10|) DD ops at ~1 ulp each. The previous code
+    // iterated ×0.1, injecting ~1 ulp PER decimal place, which destroyed most
+    // of the 32 significant digits once |x| ≥ 10. Scaling by one table entry at
+    // a time (not forming 10^|e10| first) keeps the intermediate from
+    // overflowing for tiny subnormal inputs. Constants are the correctly-
+    // rounded DD of 10^(2^k), k=0..8 (10^1 … 10^256; |e10| ≤ ~323 < 512).
+    static const double kP10Hi[9] = {
+        0x1.4p+3, 0x1.9p+6, 0x1.388p+13, 0x1.7d784p+26, 0x1.1c37937e08p+53,
+        0x1.3b8b5b5056e17p+106, 0x1.84f03e93ff9f5p+212, 0x1.27748f9301d32p+425,
+        0x1.54fdd7f73bf3cp+850};
+    static const double kP10Lo[9] = {
+        0.0, 0.0, 0.0, 0.0, 0.0, -0x1.3107fp+52, -0x1.2ac340948e389p+157,
+        -0x1.901cc86649e4ap+371, -0x1.7222446fe467p+795};
+    {
+      multifloats::float64x2 v(hi, lo);
+      for (int k = 0, n = (e10 >= 0 ? e10 : -e10); n && k < 9; ++k, n >>= 1) {
+        if (n & 1) {
+          multifloats::float64x2 p(kP10Hi[k], kP10Lo[k]);
+          v = (e10 >= 0) ? v / p : v * p;
+        }
+      }
+      // Drift correction: the log10 estimate can be ±1.
+      multifloats::float64x2 ten(kP10Hi[0], 0.0);
+      if (v.limbs[0] >= 10.0)     { v = v / ten; ++e10; }
+      else if (v.limbs[0] < 1.0)  { v = v * ten; --e10; }
+      hi = v.limbs[0];
+      lo = v.limbs[1];
+    }
 
     // Extract precision+2 digits; the last two guard round-half-to-even.
     const int ndigits = precision + 2;
