@@ -6,10 +6,29 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
-## [Unreleased]
+## [0.8.0] — 2026-06-16
 
 ### Fixed
 
+- **Decimal output lost roughly two-thirds of its digits for `|x| ≥ 1`.** The
+  `to_chars`/`operator<<` formatter scaled the value into `[1, 10)` by iterated
+  multiplication by `0.1`, each step injecting ~1 ulp of error, so a 32-digit DD
+  printed only ~14 correct digits. Scaling now uses a table of exact
+  `10^(2^k)` double-double constants applied by binary exponentiation, giving
+  29–32 correct digits. (Formatter only; there is no decimal parser.)
+- `pow`/`powi` of a signed-zero base returned the wrong signed zero/infinity for
+  odd integer exponents (`powi(-0, 3)` gave `+0`), and `powr(∞, 0)` returned `1`
+  instead of NaN. Both now follow C99/IEEE: `powi` carries `sign(base)` for odd
+  `n` and yields `±0`/`±∞` by exponent sign; `powr(∞, 0)` is NaN.
+- Several complex functions diverged from C99 Annex G on special values:
+  `cexp` mishandled `∞ + i∞`, and `cdiv` (the `cdivdd` C-ABI) did not run the
+  G.6.4.4 recovery for `NaN + iNaN` results arising from inf/zero operands. The
+  branch-cut signed zero of `cpow`, `cacosh`, and `catanh` was also wrong on the
+  axes. These now match the Annex G special-value tables.
+- The fused `sincos`/`sinhcosh` kernels and the `catanh` branch point did not
+  preserve a signed zero on their odd component; added ±0 fast-paths so
+  `sin`/`sinh` return the input's signed zero (`cos`/`cosh` return 1) and the
+  `catanh` branch point carries `sign(Im z)`.
 - `operator<` / `operator>` on `float64x2` returned `true` for some NaN
   comparisons — e.g. `(NaN, 0) < (1, 2⁻⁶⁰)`. The low-limb comparison fell
   through on an unordered (NaN) high limb instead of requiring an equal high
@@ -56,6 +75,19 @@ Dates are ISO-8601 UTC.
 - Documented the `MULTIFLOATS_MM_DISPATCH` build option; removed a dead local
   in `lgamma_rational` and refreshed a stale CMake comment that still described
   the old ifunc/target_clones matmul dispatch.
+
+### Known limitations
+
+- **Sign of a zero *result* component may differ from libquadmath/glibc.** The
+  DD primitives `operator*`, `operator/`, and `td_to_dd` renormalize a zero
+  result to `+0` (the `two_sum`/`fast_two_sum` step flushes the sign), so a
+  function whose final value is a signed zero produced *through* one of these
+  primitives can return `+0` where a reference returns `-0`. This affects only
+  the sign of an exact-zero output, never magnitude or any nonzero result. A
+  root-cause fix in the three primitives was measured at ~3% on the
+  transcendental kernels and backed out to keep the hot multiply path fast; the
+  per-function ±0 fast-paths above cover the cases that matter most in practice
+  (odd elementary functions and complex branch points).
 
 ## [0.7.5] — 2026-06-16
 
