@@ -36,7 +36,13 @@ exp(complex<multifloats::float64x2> const &z) {
                     : complex<float64x2>(float64x2(nan, 0.0), float64x2(nan, 0.0));
     }
     if (std::isinf(b_hi)) {
-      // finite + i·∞ or ±∞ + i·∞ → NaN + i·NaN (invalid).
+      // Annex G.6.3.1: +∞ + i·∞ → +∞ + i·NaN; −∞ + i·∞ → ±0 ± i0 (use +0+i0);
+      // finite + i·∞ → NaN + i·NaN. All raise invalid.
+      if (std::isinf(a_hi)) {
+        if (a_hi > 0.0)
+          return complex<float64x2>(float64x2(inf, 0.0), float64x2(nan, 0.0));
+        return complex<float64x2>(float64x2(0.0, 0.0), float64x2(0.0, 0.0));
+      }
       return complex<float64x2>(float64x2(nan, 0.0), float64x2(nan, 0.0));
     }
     if (std::isnan(b_hi)) {
@@ -168,7 +174,15 @@ pow(complex<multifloats::float64x2> const &z,
   // (overflow-safe at any |z|); real = ½·log(a²+b²) when a²+b² is safe to
   // form, else the overflow-safe DD log|z|.
   d::float64x3 a_td = d::td_from_dd(a), b_td = d::td_from_dd(b);
-  d::float64x3 li_td = d::atan2_td(b_td, a_td);
+  d::float64x3 li_td;
+  if (b.limbs[0] == 0.0 && b.limbs[1] == 0.0) {
+    // On the real axis atan2_td's td_to_dd sums −0+0 = +0, flushing the sign of
+    // b and losing the ±π branch on the negative real axis. The phase is exact
+    // here (0 or ±π); the DD atan2 resolves the signed-zero cut correctly.
+    li_td = d::td_from_dd(multifloats::atan2(b, a));
+  } else {
+    li_td = d::atan2_td(b_td, a_td);
+  }
   d::float64x3 lr_td;
   double maxabs = std::max(std::fabs(a.limbs[0]), std::fabs(b.limbs[0]));
   if (maxabs < 1e150 && maxabs > 1e-150) {
@@ -491,8 +505,13 @@ acosh(complex<multifloats::float64x2> const &z) {
   }
   float64x2 a = zr, b = zi;
   float64x2 half = float64x2(0.5, 0.0);
-  complex<multifloats::float64x2> zp((a + float64x2(1.0)) * half, b * half);
-  complex<multifloats::float64x2> zm((a - float64x2(1.0)) * half, b * half);
+  // b·half flushes a −0 to +0, which would push sqrt onto the wrong branch on
+  // the real-axis cut Re ≤ −1 (Im picks its sign from this zero). Restore it.
+  float64x2 bh = b * half;
+  if (b.limbs[0] == 0.0 && b.limbs[1] == 0.0)
+    bh = float64x2(std::copysign(0.0, b.limbs[0]), 0.0);
+  complex<multifloats::float64x2> zp((a + float64x2(1.0)) * half, bh);
+  complex<multifloats::float64x2> zm((a - float64x2(1.0)) * half, bh);
   complex<multifloats::float64x2> s1 = std::sqrt(zp);
   complex<multifloats::float64x2> s2 = std::sqrt(zm);
   complex<multifloats::float64x2> sum(s1.real() + s2.real(),
@@ -562,6 +581,10 @@ atanh(complex<multifloats::float64x2> const &z) {
       re_res = quarter * multifloats::log1p(four_a / den);
     }
   }
+  // catanh is odd in Re: catanh(±0 + bi) has real part ±0 (C99 G.6.2.4). The
+  // DD divide above flushes the sign of a zero numerator, so restore it.
+  if (a.limbs[0] == 0.0 && a.limbs[1] == 0.0)
+    re_res = float64x2(std::copysign(0.0, a.limbs[0]), 0.0);
 
   // Imag-part denominator picks the non-cancelling form per region.
   float64x2 big   = (absa.limbs[0] > absb.limbs[0]) ? absa : absb;

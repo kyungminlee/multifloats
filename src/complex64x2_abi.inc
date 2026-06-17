@@ -122,33 +122,64 @@ complex64x2 cdivdd(complex64x2 a, complex64x2 b) {
   double max_a = std::fabs(ar.limbs[0]) > std::fabs(ai.limbs[0])
                      ? std::fabs(ar.limbs[0])
                      : std::fabs(ai.limbs[0]);
+  float64x2 res_re, res_im;
   if (max_b < 1e150 && max_b > 1e-150 && max_a < 1e150) {
     float64x2 denom = br * br + bi * bi;
     float64x2 num_re = dd_cross_diff(ar, br, -ai, bi);  // ar·br + ai·bi, compensated
     float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
-    return { num_re / denom, num_im / denom };
+    res_re = num_re / denom;
+    res_im = num_im / denom;
+  } else {
+    // Slow path: scale b by an exact power of 2 so |max element| ∈ [0.5, 1)
+    // and br²+bi² is bounded by 2. Power-of-2 scaling preserves all DD limbs
+    // exactly; we unscale the result by the same power at the end.
+    int e = 0;
+    if (max_b > 0.0 && std::isfinite(max_b)) {
+      std::frexp(max_b, &e);
+      br = float64x2(std::ldexp(br.limbs[0], -e),
+                     std::ldexp(br.limbs[1], -e));
+      bi = float64x2(std::ldexp(bi.limbs[0], -e),
+                     std::ldexp(bi.limbs[1], -e));
+    }
+    float64x2 denom = br * br + bi * bi;
+    float64x2 num_re = dd_cross_diff(ar, br, -ai, bi);  // ar·br + ai·bi, compensated
+    float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
+    res_re = num_re / denom;
+    res_im = num_im / denom;
+    if (e != 0) {
+      res_re = float64x2(std::ldexp(res_re.limbs[0], -e),
+                         std::ldexp(res_re.limbs[1], -e));
+      res_im = float64x2(std::ldexp(res_im.limbs[0], -e),
+                         std::ldexp(res_im.limbs[1], -e));
+    }
   }
-  // Slow path: scale b by an exact power of 2 so |max element| ∈ [0.5, 1)
-  // and br²+bi² is bounded by 2. Power-of-2 scaling preserves all DD limbs
-  // exactly; we unscale the result by the same power at the end.
-  int e = 0;
-  if (max_b > 0.0 && std::isfinite(max_b)) {
-    std::frexp(max_b, &e);
-    br = float64x2(std::ldexp(br.limbs[0], -e),
-                   std::ldexp(br.limbs[1], -e));
-    bi = float64x2(std::ldexp(bi.limbs[0], -e),
-                   std::ldexp(bi.limbs[1], -e));
-  }
-  float64x2 denom = br * br + bi * bi;
-  float64x2 num_re = dd_cross_diff(ar, br, -ai, bi);  // ar·br + ai·bi, compensated
-  float64x2 num_im = dd_cross_diff(ai, br, ar, bi);
-  float64x2 res_re = num_re / denom;
-  float64x2 res_im = num_im / denom;
-  if (e != 0) {
-    res_re = float64x2(std::ldexp(res_re.limbs[0], -e),
-                       std::ldexp(res_re.limbs[1], -e));
-    res_im = float64x2(std::ldexp(res_im.limbs[0], -e),
-                       std::ldexp(res_im.limbs[1], -e));
+
+  // C99 Annex G.6.4.4 recovery: if the compensated formula produced NaN+iNaN
+  // but the operands imply a determinate ∞ or 0, recover it. Operates on the
+  // original hi limbs (these results are inf/0, with no DD low part).
+  if (std::isnan(res_re.limbs[0]) && std::isnan(res_im.limbs[0])) {
+    double arh = a.re.limbs[0], aih = a.im.limbs[0];
+    double brh = b.re.limbs[0], bih = b.im.limbs[0];
+    double inf = std::numeric_limits<double>::infinity();
+    bool b_zero = brh == 0.0 && b.re.limbs[1] == 0.0 &&
+                  bih == 0.0 && b.im.limbs[1] == 0.0;
+    if (b_zero && !(std::isnan(arh) && std::isnan(aih))) {
+      double s = std::copysign(inf, brh);              // ∞ · numerator
+      res_re = float64x2(s * arh, 0.0);
+      res_im = float64x2(s * aih, 0.0);
+    } else if ((std::isinf(arh) || std::isinf(aih)) &&
+               std::isfinite(brh) && std::isfinite(bih)) {
+      double ra = std::copysign(std::isinf(arh) ? 1.0 : 0.0, arh);
+      double rb = std::copysign(std::isinf(aih) ? 1.0 : 0.0, aih);
+      res_re = float64x2(inf * (ra * brh + rb * bih), 0.0);
+      res_im = float64x2(inf * (rb * brh - ra * bih), 0.0);
+    } else if ((std::isinf(brh) || std::isinf(bih)) &&
+               std::isfinite(arh) && std::isfinite(aih)) {
+      double rc = std::copysign(std::isinf(brh) ? 1.0 : 0.0, brh);
+      double rd = std::copysign(std::isinf(bih) ? 1.0 : 0.0, bih);
+      res_re = float64x2(0.0 * (arh * rc + aih * rd), 0.0);
+      res_im = float64x2(0.0 * (aih * rc - arh * rd), 0.0);
+    }
   }
   return { res_re, res_im };
 }
