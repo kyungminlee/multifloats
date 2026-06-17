@@ -157,11 +157,12 @@ struct float64x2 {
   /// @brief Truncate to the leading limb as a plain `double`.
   constexpr explicit operator double() const { return limbs[0]; }
 
-  // Lexicographic comparison. NaN is unordered: IEEE `<` is false on either
-  // side, so for NaN limbs both `<` checks fall through to the next limb,
-  // yielding `operator<` = false — same as the previous _lex_compare loop.
-  // For +0 vs -0 the leading comparisons are both false (IEEE +0 == -0), so
-  // we correctly fall through to the next limb.
+  // Lexicographic by limb. The low-limb compare MUST be gated on an *equal*
+  // high limb: a NaN high limb fails both `<` and `==`, so the operators
+  // return false (NaN is unordered) — whereas a bare fall-through to the low
+  // limb would let `(NaN, 0) < (x, lo>0)` wrongly return true. For +0 vs -0
+  // the high limbs compare equal (IEEE +0 == -0), so we fall through to the
+  // low limb. Same ordering for `<= / >=` below.
   /// @brief Lexicographic ordering by limb; NaN is unordered, +0 equals -0.
   constexpr bool operator==(float64x2 const &r) const {
     return limbs[0] == r.limbs[0] && limbs[1] == r.limbs[1];
@@ -169,8 +170,8 @@ struct float64x2 {
   constexpr bool operator!=(float64x2 const &r) const { return !(*this == r); }
   constexpr bool operator<(float64x2 const &r) const {
     if (limbs[0] < r.limbs[0]) return true;
-    if (r.limbs[0] < limbs[0]) return false;
-    return limbs[1] < r.limbs[1];
+    if (limbs[0] == r.limbs[0]) return limbs[1] < r.limbs[1];
+    return false;
   }
   constexpr bool operator>(float64x2 const &r) const  { return  (r < *this); }
   // `<=` / `>=` are NOT `!(r < *this)` / `!(*this < r)`: negating `<` turns
@@ -2079,13 +2080,18 @@ inline constexpr float64x2 powi(float64x2 base, int n) {
 inline constexpr float64x2 pown(float64x2 base, int n) { return powi(base, n); }
 
 /// @brief IEEE 754 remainder of `x / y` (round-to-nearest quotient).
-inline constexpr float64x2 remainder(float64x2 const &x, float64x2 const &y) {
-  return x - round(x / y) * y;
+// Not constexpr: IEEE 754 `remainder` rounds the quotient to nearest, ties to
+// EVEN — `round` (ties away from zero) is wrong at half-integer quotients, e.g.
+// remainder(1,2) must be +1, not -1. `roundeven` is the correct rounding but is
+// non-constexpr (it pins the FE rounding mode), so these lose constexpr — as
+// does the C library `remainder`/`remquo`, which were never constexpr anyway.
+inline float64x2 remainder(float64x2 const &x, float64x2 const &y) {
+  return x - roundeven(x / y) * y;
 }
 
 /// @brief IEEE 754 remainder of `x / y`; low quotient bits stored in `*quo`.
-inline constexpr float64x2 remquo(float64x2 const &x, float64x2 const &y, int *quo) {
-  float64x2 q = round(x / y);
+inline float64x2 remquo(float64x2 const &x, float64x2 const &y, int *quo) {
+  float64x2 q = roundeven(x / y);
   // q can exceed the range of int for huge x/y; static_cast<int> of an
   // out-of-range double is UB, so clamp. (C only mandates the low-order bits;
   // any in-range value with the right sign satisfies the contract.)

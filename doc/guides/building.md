@@ -31,6 +31,7 @@ default consumer build.
 | `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89). |
 | `-DMULTIFLOATS_USE_LTO=ON/OFF` | ON | LTO + fat-LTO objects on the installed archives. When ON the C++ archive is named `libmultifloats-<compiler>.a`; when OFF it is the portable untagged `libmultifloats.a`. |
 | `-DMULTIFLOATS_HIDDEN_VISIBILITY=ON/OFF` | ON | `-fvisibility=hidden` so only the `extern "C" dd_*` ABI is exported. Turn OFF for full C++ symbol visibility (debugging, profiling, re-export). |
+| `-DMULTIFLOATS_MM_DISPATCH=ON/OFF` | ON | Compile the matmul kernels twice (a portable baseline + an AVX2+FMA copy that vectorizes to packed `vfmadd…pd`) and pick one by CPUID at runtime — a single binary that uses packed FMA where the CPU supports it and runs anywhere otherwise. Only effective on x86-64 GCC (only GCC's vectorizer packs this loop); a no-op on Clang/icx, AArch64, and Apple. Turn OFF for a single baseline build. |
 | `-DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON` | OFF | Additionally install a compiler-tagged precompiled `.mod` + tagged Fortran archive. By default the fypp-expanded `.f90` source is shipped and consumers compile the module with their own Fortran compiler, sidestepping `.mod` format incompatibilities. |
 
 ## Tests

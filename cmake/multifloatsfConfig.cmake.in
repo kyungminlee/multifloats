@@ -103,11 +103,17 @@ if(NOT TARGET multifloats::fortran_module)
     target_include_directories(multifloatsf INTERFACE "${_MULTIFLOATSF_MOD_DIR}")
     target_link_libraries(multifloatsf PUBLIC multifloats::multifloats)
 
-    # Correctness — IntelLLVM. ifx defaults to -fp-model=fast at -O2+.
-    # DD error-free transformations require strict IEEE associativity and
-    # no FMA contraction. Mirrors fsrc/CMakeLists.txt producer-side flag.
+    # Correctness — the DD error-free transformations require strict IEEE
+    # associativity and no FMA contraction. This is a consumer-side SOURCE
+    # recompile (the default distribution model), so it must carry the same
+    # guards as the producer build (fsrc/CMakeLists.txt): ifx defaults to
+    # -fp-model=fast, and GCC/flang default to -ffp-contract=fast, which fuses
+    # an incidental `a*b + c` into an FMA on any FMA-capable target (AArch64 by
+    # default, or under -march/-mcpu) and corrupts the `lo` compensation.
     if(CMAKE_Fortran_COMPILER_ID STREQUAL "IntelLLVM")
       target_compile_options(multifloatsf PRIVATE -fp-model=precise)
+    elseif(CMAKE_Fortran_COMPILER_ID MATCHES "GNU|LLVMFlang|Flang")
+      target_compile_options(multifloatsf PRIVATE -ffp-contract=off)
     endif()
 
     add_library(multifloats::fortran_module ALIAS multifloatsf)

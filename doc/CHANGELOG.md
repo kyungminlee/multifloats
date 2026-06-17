@@ -8,6 +8,34 @@ Dates are ISO-8601 UTC.
 
 ## [Unreleased]
 
+### Fixed
+
+- `operator<` / `operator>` on `float64x2` returned `true` for some NaN
+  comparisons — e.g. `(NaN, 0) < (1, 2⁻⁶⁰)`. The low-limb comparison fell
+  through on an unordered (NaN) high limb instead of requiring an equal high
+  limb; the round-2 fix corrected `<=`/`>=` but left `<`/`>`. Now NaN-correct
+  (and the C-ABI `ltdd`/`gtdd`/`*f64x2` exports inherit it). Only triggered
+  when the right operand had a nonzero low limb, which is why it was missed.
+- `remainder` / `remquo` rounded the quotient with `round` (ties away from
+  zero) instead of round-to-nearest-**even**, so they were wrong on every
+  half-integer quotient — `remainder(1, 2)` gave `-1` instead of `+1`. Now use
+  `roundeven`, matching glibc/IEEE 754. (These two lose `constexpr`, since
+  correct rounding pins the FE mode; the C library versions were never
+  constexpr.)
+- The Fortran `find_package(multifloatsf)` consumer source-recompile path
+  (`multifloatsfConfig.cmake.in`) set a correctness flag only for IntelLLVM,
+  missing `-ffp-contract=off` for GNU/flang — so a consumer recompiling the
+  shipped `.f90` on an FMA-capable target (AArch64, or under `-march`/`-mcpu`)
+  could silently fuse the error-free transformations. Now mirrors the
+  producer-side guard. (Source recompile is the default Fortran distribution
+  model, so this was the live exposure.)
+
+### Changed
+
+- Documented the `MULTIFLOATS_MM_DISPATCH` build option; removed a dead local
+  in `lgamma_rational` and refreshed a stale CMake comment that still described
+  the old ifunc/target_clones matmul dispatch.
+
 ## [0.7.5] — 2026-06-16
 
 ### Changed

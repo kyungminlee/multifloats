@@ -239,7 +239,7 @@ static inline float64x2 sub_exact(float64x2 const &x, double c) {
 // Mirrors lgammaq.c structure: P(z)/Q(z) with z = x - center.
 float64x2 lgamma_rational(float64x2 const &x) {
   int nn = (int)std::nearbyint(x.limbs[0]);
-  float64x2 z, p, q, c;
+  float64x2 z, p, q;
   switch (nn) {
   case 0: // x ≈ 0.5: lgamma(x+1) via near-minimum, then - log(x)
     z = x + float64x2(1.0) - float64x2(lgam_x0_hi, lgam_x0_lo);
