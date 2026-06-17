@@ -701,6 +701,13 @@ float64x2 powr(float64x2 const &x, float64x2 const &y) {
     r.limbs[1] = 0.0;
     return r;
   }
+  // x = ±inf with y = 0 → NaN (exp(0·log∞) = exp(0·∞) = exp(NaN)); pow returns 1.
+  if (std::isinf(xh) && yh == 0.0) {
+    float64x2 r;
+    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
+    r.limbs[1] = 0.0;
+    return r;
+  }
   // x == 1, y = ±inf → NaN (pow returns 1).
   if (xh == 1.0 && x.limbs[1] == 0.0 && std::isinf(yh)) {
     float64x2 r;

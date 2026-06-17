@@ -217,10 +217,20 @@ cmul_lim(multifloats::float64x2 const &x, multifloats::float64x2 const &y) {
   return x * y;
 }
 
+// True iff both components of z are an exact ±0 (all four limbs zero). Used to
+// short-circuit the odd complex functions at the origin: each is ≈ z near 0
+// (f(z) = z − …), so f(±0 ± 0i) = z exactly — but the componentwise DD
+// arithmetic in the general formula flushes the signs of those zeros.
+static inline bool cx_both_zero(complex<multifloats::float64x2> const &z) {
+  return z.real().limbs[0] == 0.0 && z.real().limbs[1] == 0.0 &&
+         z.imag().limbs[0] == 0.0 && z.imag().limbs[1] == 0.0;
+}
+
 // sin(a+bi) = sin(a)·cosh(b) + i·cos(a)·sinh(b). 2 fused transcendentals.
 template <>
 complex<multifloats::float64x2>
 sin(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
   float64x2 sa, ca, sb, cb;
@@ -246,6 +256,7 @@ cos(complex<multifloats::float64x2> const &z) {
 template <>
 complex<multifloats::float64x2>
 tan(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
   float64x2 sa, ca, sb, cb;
@@ -275,6 +286,7 @@ tan(complex<multifloats::float64x2> const &z) {
 template <>
 complex<multifloats::float64x2>
 sinh(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
   float64x2 sa, ca, sb, cb;
@@ -300,6 +312,7 @@ cosh(complex<multifloats::float64x2> const &z) {
 template <>
 complex<multifloats::float64x2>
 tanh(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
   float64x2 sa, ca, sb, cb;
@@ -335,6 +348,7 @@ tanh(complex<multifloats::float64x2> const &z) {
 template <>
 complex<multifloats::float64x2>
 asinh(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
   float64x2 rx = multifloats::abs(a);
@@ -498,6 +512,7 @@ acosh(complex<multifloats::float64x2> const &z) {
 template <>
 complex<multifloats::float64x2>
 atanh(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   float64x2 a = z.real(), b = z.imag();
   float64x2 one(1.0, 0.0), half(0.5, 0.0), quarter(0.25, 0.0);
@@ -582,6 +597,7 @@ atanh(complex<multifloats::float64x2> const &z) {
 template <>
 complex<multifloats::float64x2>
 asin(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   complex<multifloats::float64x2> iz(-z.imag(), z.real());
   complex<multifloats::float64x2> w = std::asinh(iz);
@@ -629,6 +645,7 @@ acos(complex<multifloats::float64x2> const &z) {
 template <>
 complex<multifloats::float64x2>
 atan(complex<multifloats::float64x2> const &z) {
+  if (cx_both_zero(z)) return z;  // odd fn: preserve ±0 at the origin
   using multifloats::float64x2;
   complex<multifloats::float64x2> iz(-z.imag(), z.real());
   complex<multifloats::float64x2> w = std::atanh(iz);

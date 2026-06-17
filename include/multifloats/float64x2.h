@@ -2076,6 +2076,15 @@ inline constexpr float64x2 pown(float64x2 base, int n);
 /// @brief Integer power `x**n` by exponentiation-by-squaring.
 inline constexpr float64x2 powi(float64x2 base, int n) {
   if (n == 0) return float64x2(1.0);
+  // ±0 base (IEEE pow): magnitude is 0 for n>0, +∞ for n<0; the sign is carried
+  // only by an ODD exponent. Handle here because the compensated multiply below
+  // flushes signed zero (so −0 would come out +0) and 1/(0,0) leaves a
+  // non-canonical lo=∞.
+  if (base.limbs[0] == 0.0 && base.limbs[1] == 0.0) {
+    double s = (n & 1) ? std::copysign(1.0, base.limbs[0]) : 1.0;
+    double mag = (n > 0) ? 0.0 : std::numeric_limits<double>::infinity();
+    return float64x2(s * mag, 0.0);
+  }
   bool neg = (n < 0);
   // Promote through long long so INT_MIN negates without overflowing int.
   unsigned long long u = neg
