@@ -1640,8 +1640,12 @@ $:CALL_C_BINARY('fmoddd')
             if (dd_signbit(res) .neqv. dd_signbit(y)) res = res + y
         end if
 #:elif func == 'dim'
-        ! multifloats::fdim : (x > y) ? x - y : 0
-        if (x > y) then
+        ! multifloats::fdim : NaN if either arg is NaN, else (x > y) ? x - y : 0.
+        ! (The bare `x > y` is .false. for a NaN operand and would wrongly
+        ! yield 0; mirror the C++ fdim NaN guard.)
+        if (x%limbs(1) /= x%limbs(1) .or. y%limbs(1) /= y%limbs(1)) then
+            res = x - y    ! NaN in → NaN out
+        else if (x > y) then
             res = x - y
         else
             res = DD_ZERO
@@ -3023,47 +3027,47 @@ $:cdd_arith_body(opname)
         ${d1}$, intent(in) :: a
         ${d2}$, intent(in) :: b
         logical :: res
-        ! Lexicographic on (hi, lo), mirroring the C++
-        ! real64x2::operator< body in include/multifloats.h:
-        !   if (hi < r.hi) return true;
-        !   if (r.hi < hi) return false;
-        !   return lo < r.lo;
-        ! The other ordered ops compose from < exactly as in C++
-        ! (operator> uses r < lhs; <=/>= negate the strict form).
+        ! Lexicographic on (hi, lo), mirroring the C++ real64x2 operators in
+        ! include/multifloats/float64x2.h. The low-limb compare MUST be gated
+        ! on an EQUAL high limb: a NaN high limb satisfies neither `hi < r.hi`
+        ! nor `r.hi < hi` nor `hi == r.hi`, so the operators return .false.
+        ! (NaN is unordered). A bare `else` that compares the low limbs would
+        ! wrongly order NaN operands (e.g. (NaN,0) < (1, tiny) → .true.).
+        ! +0 vs -0 compare equal in the high limb, so they fall to the low limb.
         type(real64x2) :: x, y
         x = ${DDCONV[n1].format('a')}$
         y = ${DDCONV[n2].format('b')}$
 #:if opname == 'lt'
         if (x%limbs(1) < y%limbs(1)) then
             res = .true.
-        else if (y%limbs(1) < x%limbs(1)) then
-            res = .false.
-        else
+        else if (x%limbs(1) == y%limbs(1)) then
             res = x%limbs(2) < y%limbs(2)
+        else
+            res = .false.
         end if
 #:elif opname == 'gt'
         if (y%limbs(1) < x%limbs(1)) then
             res = .true.
-        else if (x%limbs(1) < y%limbs(1)) then
-            res = .false.
-        else
+        else if (x%limbs(1) == y%limbs(1)) then
             res = y%limbs(2) < x%limbs(2)
+        else
+            res = .false.
         end if
 #:elif opname == 'le'
         if (x%limbs(1) < y%limbs(1)) then
             res = .true.
-        else if (y%limbs(1) < x%limbs(1)) then
-            res = .false.
-        else
+        else if (x%limbs(1) == y%limbs(1)) then
             res = x%limbs(2) <= y%limbs(2)
+        else
+            res = .false.
         end if
 #:else
         if (y%limbs(1) < x%limbs(1)) then
             res = .true.
-        else if (x%limbs(1) < y%limbs(1)) then
-            res = .false.
-        else
+        else if (x%limbs(1) == y%limbs(1)) then
             res = y%limbs(2) <= x%limbs(2)
+        else
+            res = .false.
         end if
 #:endif
     end function

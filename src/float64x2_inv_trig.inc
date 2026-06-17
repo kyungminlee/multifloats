@@ -201,6 +201,7 @@ float64x2 atan2(float64x2 const &y, float64x2 const &x) {
 // fn_pi(x) = fn(x) / π via the natural path. The DD multiply by inv_pi
 // costs one DD mul (~3 FLOPs) after the main eval.
 float64x2 asinpi(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   return asin(x) * float64x2(inv_pi_hi, inv_pi_lo);
 }
 float64x2 acospi(float64x2 const &x) {
@@ -210,6 +211,7 @@ float64x2 acospi(float64x2 const &x) {
 // only dp precision — then inv_pi multiplication can't recover the missing
 // low limb. Short-circuit so atanpi(±inf) = ±0.5 exactly.
 float64x2 atanpi(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   if (!std::isfinite(x.limbs[0])) {
     float64x2 r;
     if (std::isnan(x.limbs[0])) {

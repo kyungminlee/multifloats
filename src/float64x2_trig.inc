@@ -45,6 +45,7 @@ inline bool trig_arg_too_large(double a) {
 
 float64x2 sinpi(float64x2 const &x) {
   if (!std::isfinite(x.limbs[0])) return pi_trig_nan();
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   bool sign = x.limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
   if (pi_trig_arg_too_large(ax.limbs[0])) return pi_trig_nan();
@@ -85,6 +86,7 @@ float64x2 cospi(float64x2 const &x) {
 // half-integers fall out naturally (sin(0)=+0 ⇒ ±c/0 = ±inf).
 float64x2 tanpi(float64x2 const &x) {
   if (!std::isfinite(x.limbs[0])) return pi_trig_nan();
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // odd fn: preserve ±0
   bool sign = x.limbs[0] < 0.0;
   float64x2 ax = sign ? -x : x;
   if (pi_trig_arg_too_large(ax.limbs[0])) return pi_trig_nan();

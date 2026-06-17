@@ -1539,6 +1539,7 @@ constexpr void renorm_fast(double &hi, double &lo) {
 
 /// @brief Round toward -infinity.
 inline constexpr float64x2 floor(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // preserve ±0
   float64x2 r;
   double fl_hi = std::floor(x.limbs[0]);
   if (fl_hi == x.limbs[0]) {
@@ -1555,6 +1556,7 @@ inline constexpr float64x2 floor(float64x2 const &x) {
 
 /// @brief Round toward +infinity.
 inline constexpr float64x2 ceil(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // preserve ±0
   float64x2 r;
   double cl_hi = std::ceil(x.limbs[0]);
   if (cl_hi == x.limbs[0]) {
@@ -1575,6 +1577,7 @@ inline constexpr float64x2 trunc(float64x2 const &x) {
 
 /// @brief Round to nearest, halfway away from zero.
 inline constexpr float64x2 round(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // preserve ±0
   // Round half away from zero, matching std::round. Two half-integer
   // hazards handled here:
   //   * hi itself half-integer (e.g. 2.5): std::round jumps away from zero,
@@ -1606,6 +1609,7 @@ inline constexpr float64x2 round(float64x2 const &x) {
 
 /// @brief Round to integer in the current rounding mode, without raising inexact.
 inline constexpr float64x2 nearbyint(float64x2 const &x) {
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;  // preserve ±0 (rint/roundeven inherit)
   float64x2 r;
   double hi = std::nearbyint(x.limbs[0]);
   if (hi == x.limbs[0]) {
@@ -1808,6 +1812,8 @@ inline constexpr float64x2 frexp(float64x2 const &x, int *exp) {
 /// @brief Split `x` into integer part (stored in `*iptr`) and fractional part.
 inline constexpr float64x2 modf(float64x2 const &x, float64x2 *iptr) {
   *iptr = trunc(x);
+  // x - trunc(x) would flip a ±0 input to +0; the fractional part of ±0 is ±0.
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) return x;
   return x - *iptr;
 }
 

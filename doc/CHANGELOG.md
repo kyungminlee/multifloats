@@ -29,6 +29,19 @@ Dates are ISO-8601 UTC.
   could silently fuse the error-free transformations. Now mirrors the
   producer-side guard. (Source recompile is the default Fortran distribution
   model, so this was the live exposure.)
+- The **Fortran** ordered comparisons (`<`, `<=`, `>`, `>=` on `real64x2`, and
+  the `min`/`max`/`dim` built on them) had the same NaN fall-through the C++
+  operators just lost — the low-limb compare fired on an unordered high limb,
+  so e.g. `(NaN,0) < (1, 2⁻⁶⁰)` returned `.true.`. The C++ fix had never been
+  mirrored into the Fortran reimplementation. Now NaN-correct.
+- The **Fortran** `dim` (fdim) returned `0` instead of NaN for a NaN argument;
+  added the NaN guard the C++ `fdim` already has.
+- `floor`/`ceil`/`round`/`nearbyint`/`rint`/`roundeven` and `modf`'s fractional
+  part flipped a `-0.0` input to `+0.0` (a renormalization artifact on the
+  exact-integer path). They now preserve the sign of zero, matching libm.
+- The π-scaled odd functions `sinpi`/`tanpi`/`asinpi`/`atanpi` did not preserve
+  a signed zero (`sinpi(-0)` gave `+0`); the odd-function signed-zero contract
+  the codebase enforces on `sin`/`tan` now covers their π-scaled siblings.
 
 ### Changed
 
