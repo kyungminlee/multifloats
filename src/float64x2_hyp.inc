@@ -39,6 +39,11 @@ void sinhcosh(float64x2 const &x, float64x2 &s, float64x2 &c) {
     c.limbs[0] = std::cosh(x.limbs[0]); c.limbs[1] = 0.0;
     return;
   }
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) {  // sinh(±0)=±0 (odd), cosh(±0)=1
+    s = x;
+    c = float64x2(1.0);
+    return;
+  }
   if (std::abs(x.limbs[0]) < 0.5) {
     // Small-|x| Taylor: sinh via shared coefficients, cosh via the
     // non-cancellation-prone exp form (cosh's leading 1+1=2 doesn't cancel).

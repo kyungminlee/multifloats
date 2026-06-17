@@ -228,6 +228,11 @@ void sincos(float64x2 const &x, float64x2 &s, float64x2 &c) {
     c = nan;
     return;
   }
+  if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) {  // sin(±0)=±0 (odd), cos(±0)=1
+    s = x;
+    c = float64x2(1.0);
+    return;
+  }
   float64x2 r;
   int q;
   reduce_pi_half(x, r, q);

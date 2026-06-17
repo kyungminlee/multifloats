@@ -546,7 +546,7 @@ atanh(complex<multifloats::float64x2> const &z) {
     double inf = std::numeric_limits<double>::infinity();
     return complex<multifloats::float64x2>(
         float64x2(std::copysign(inf, a.limbs[0]), 0.0),
-        float64x2(0.0, 0.0));
+        float64x2(std::copysign(0.0, b.limbs[0]), 0.0));
   }
 
   static constexpr double dd_eps_sq  = 0x1.0p-210;
