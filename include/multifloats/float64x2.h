@@ -1638,28 +1638,37 @@ inline constexpr float64x2 rint(float64x2 const &x) { return nearbyint(x); }
 // IM_MIN / IM_MAX (the *fp variants raise FE_INEXACT in addition,
 // when the rounding actually moved the value).
 //
-// Rounding mode is one of:
-//   FE_TONEAREST          → nearbyint kernel with FE_TONEAREST forced
-//   FE_DOWNWARD           → floor
-//   FE_UPWARD             → ceil
-//   FE_TOWARDZERO         → trunc
-//   FE_TONEARESTFROMZERO  → round (ties away from zero) — C23 added.
+// `rnd` is one of the C23 FP_INT_* rounding-direction macros (NOT the FE_*
+// rounding-environment macros — they have different values):
+//   FP_INT_UPWARD            → ceil  (toward +∞)
+//   FP_INT_DOWNWARD          → floor (toward −∞)
+//   FP_INT_TOWARDZERO        → trunc
+//   FP_INT_TONEARESTFROMZERO → round (ties away from zero)
+//   FP_INT_TONEAREST         → round to nearest, ties to even (default)
 //
-// For DD: each rounding mode has a native kernel; we dispatch on `rnd`,
+// For DD: each rounding direction has a native kernel; we dispatch on `rnd`,
 // run the kernel, then narrow to integer.
+
+// Fallback for a pre-C23 <math.h> that doesn't expose FP_INT_* (their values
+// are fixed by the standard).
+#ifndef FP_INT_UPWARD
+#define FP_INT_UPWARD 0
+#define FP_INT_DOWNWARD 1
+#define FP_INT_TOWARDZERO 2
+#define FP_INT_TONEARESTFROMZERO 3
+#define FP_INT_TONEAREST 4
+#endif
 
 namespace detail {
 
 inline float64x2 round_for_fromfp(float64x2 const &x, int rnd) {
   switch (rnd) {
-  case FE_DOWNWARD:    return floor(x);
-  case FE_UPWARD:      return ceil(x);
-  case FE_TOWARDZERO:  return trunc(x);
-#ifdef FE_TONEARESTFROMZERO
-  case FE_TONEARESTFROMZERO: return round(x);
-#endif
-  case FE_TONEAREST:
-  default: {
+  case FP_INT_UPWARD:            return ceil(x);
+  case FP_INT_DOWNWARD:          return floor(x);
+  case FP_INT_TOWARDZERO:        return trunc(x);
+  case FP_INT_TONEARESTFROMZERO: return round(x);  // ties away from zero
+  case FP_INT_TONEAREST:
+  default: {  // round to nearest, ties to even
     int saved = std::fegetround();
     if (saved != FE_TONEAREST) std::fesetround(FE_TONEAREST);
     float64x2 r = nearbyint(x);

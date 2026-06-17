@@ -1317,18 +1317,19 @@ int main(int argc, char **argv) {
     }
 
     // C23 fromfp / ufromfp / fromfpx / ufromfpx — round-to-int with
-    // overflow detection. Property test: fromfp(x, FE_TONEAREST, 64)
+    // overflow detection. Property test: fromfp(x, FP_INT_TONEAREST, 64)
     // must agree with llrint(x) inside the gate where llrint is
-    // exactly representable.
+    // exactly representable. (The rounding-mode arg is a C23 FP_INT_*
+    // constant, not an FE_* one.)
     if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
-      intmax_t iv = mf::fromfp(f1, FE_TONEAREST, 64);
+      intmax_t iv = mf::fromfp(f1, FP_INT_TONEAREST, 64);
       long long lv = mf::llrint(f1);
       if (iv != static_cast<intmax_t>(lv))
-        report_fail("fromfp", "FE_TONEAREST mismatch with llrint");
+        report_fail("fromfp", "FP_INT_TONEAREST mismatch with llrint");
       if (q1 >= (q_t)0) {
-        uintmax_t uv = mf::ufromfp(f1, FE_TONEAREST, 64);
+        uintmax_t uv = mf::ufromfp(f1, FP_INT_TONEAREST, 64);
         if (uv != static_cast<uintmax_t>(lv))
-          report_fail("ufromfp", "FE_TONEAREST mismatch with llrint");
+          report_fail("ufromfp", "FP_INT_TONEAREST mismatch with llrint");
       }
     }
     CHK1_IF(trunc, q_isfinite(q1) && aq1 < (q_t)1e15q);

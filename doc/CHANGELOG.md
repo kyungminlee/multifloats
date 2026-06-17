@@ -45,6 +45,14 @@ Dates are ISO-8601 UTC.
 
 ### Changed
 
+- **Breaking:** `fromfp`/`ufromfp`/`fromfpx`/`ufromfpx` now take their `rnd`
+  argument as the **C23 `FP_INT_*`** rounding-direction macros (the name these
+  functions implement), not the `FE_*` rounding-environment macros they
+  previously (non-conformantly) expected — these have different values, so a
+  portable caller writing `fromfp(x, FP_INT_UPWARD, …)` had silently been
+  getting round-to-nearest. Pass `FP_INT_UPWARD`/`FP_INT_DOWNWARD`/
+  `FP_INT_TOWARDZERO`/`FP_INT_TONEARESTFROMZERO`/`FP_INT_TONEAREST`. Verified
+  bit-for-bit against glibc `fromfp` for every mode.
 - Documented the `MULTIFLOATS_MM_DISPATCH` build option; removed a dead local
   in `lgamma_rational` and refreshed a stale CMake comment that still described
   the old ifunc/target_clones matmul dispatch.
