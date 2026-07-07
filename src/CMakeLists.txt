@@ -42,23 +42,20 @@ if(MULTIFLOATS_HIDDEN_VISIBILITY)
         VISIBILITY_INLINES_HIDDEN ON)
 endif()
 
-# Strip non-API symbols from the static archive. The compiler emits
-# out-of-line copies of some inline header functions + TU-internal helpers
-# with (private-)external linkage; without this step they'd be visible as
-# `T` entries in `nm libmultifloats.a` and resolvable by accident. The
-# script's keep-list comes from two sources: the `MULTIFLOATS_API` scan of
-# multifloats.h (C ABI) and a demangling scan of the archive itself for
-# public `multifloats::NAME(...)` and `std::NAME<multifloats::float64x2>(...)`
-# symbols. Opt out via `-DMULTIFLOATS_STRIP_SYMBOLS=OFF` for debugging.
-option(MULTIFLOATS_STRIP_SYMBOLS
-       "Localize non-API C++ symbols from libmultifloats.a" ON)
-if(MULTIFLOATS_STRIP_SYMBOLS)
-    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/localize_symbols.sh.in
-                   ${CMAKE_CURRENT_BINARY_DIR}/localize_symbols.sh @ONLY)
-    add_custom_command(TARGET multifloats POST_BUILD
-        COMMAND bash ${CMAKE_CURRENT_BINARY_DIR}/localize_symbols.sh $<TARGET_FILE:multifloats>
-        COMMENT "Localizing non-API symbols in libmultifloats")
-endif()
+# Namespace hygiene is enforced NON-destructively: the `check_exported_symbols`
+# ctest (see the top-level CMakeLists.txt) asserts that the archive's only
+# strong-global (T) symbols are the declared C ABI, the multifloats:: /
+# multifloats::detail:: C++ API, and std::NAME<float64x2> specializations —
+# failing the build (naming the offender) if a TU-internal helper escapes with
+# external linkage. This replaced an earlier post-build strip (objcopy
+# --keep-global-symbols + strip --strip-unneeded) that mutated the archive:
+# that strip removed zero real leaks yet localized the weak COMDAT namespace
+# copies, which GNU ld then discarded ("relocation refers to discarded
+# section") — forcing STRIP_SYMBOLS=OFF on every non-LTO release. The audit
+# keeps the guarantee without touching the archive, so it works identically
+# for LTO and non-LTO builds. The primary source-level defense is unchanged:
+# TU-internal helpers live in anonymous namespaces / `static` / detail::.
+
 # Correctness — IntelLLVM. icpx defaults to -fp-model=fast at -O2+, which
 # reassociates the DD error-free transformations (2Sum / Fast2Sum / Dekker)
 # and contracts add-of-mul into FMAs — either corrupts the `lo`

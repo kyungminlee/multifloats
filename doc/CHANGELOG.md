@@ -6,6 +6,32 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.8.2] — 2026-07-06
+
+Build and packaging only — no changes to numeric behavior or the ABI.
+
+### Removed
+
+- **`MULTIFLOATS_STRIP_SYMBOLS` build option and its `localize_symbols.sh`
+  post-build strip.** The strip mutated the installed archive (`objcopy
+  --keep-global-symbols` + `strip --strip-unneeded`) to localize stray
+  globals, but every global in the archive is already declared API, so it
+  removed zero real leaks. Its one concrete effect was to localize the weak
+  COMDAT copies of the header-inline C++ API (`multifloats::hypot`, …), which
+  GNU ld then rejected as "relocation refers to discarded section" at the
+  consumer's link — forcing the option OFF on every non-LTO release job.
+  Installed archives are no longer post-processed.
+
+### Added
+
+- **`check_exported_symbols` ctest** (`scripts/check_exported_symbols.sh`).
+  A non-destructive replacement for the removed strip: it asserts the
+  installed archive exports only the declared public API as strong-global
+  symbols (the `MULTIFLOATS_API` C ABI, the `multifloats::` C++ API, and
+  `std::…<float64x2>` specializations) and fails the build — naming the
+  offender — if a translation-unit-internal helper escapes with external
+  linkage. It holds identically for LTO and non-LTO builds.
+
 ## [0.8.1] — 2026-07-06
 
 Packaging only — no changes to numeric behavior or the ABI.

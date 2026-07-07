@@ -58,16 +58,15 @@ jobs:
 
       - name: Configure
         run: |
-          # MULTIFLOATS_USE_LTO=OFF / STRIP_SYMBOLS=OFF: keep parity
-          # with the release workflow's non-LTO mac job so CI fails
-          # on the same Mach-O surface (alias / weak-alias / etc).
+          # MULTIFLOATS_USE_LTO=OFF: keep parity with the release
+          # workflow's non-LTO mac job so CI fails on the same Mach-O
+          # surface (alias / weak-alias / etc).
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-14 \
             -DCMAKE_CXX_COMPILER=g++-14 \
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
-            -DMULTIFLOATS_STRIP_SYMBOLS=OFF \
             -DMULTIFLOATS_BUILD_BENCH=OFF
 
       - name: Build
