@@ -324,19 +324,6 @@ jobs:
 
       - name: Configure
         run: |
-          # MULTIFLOATS_STRIP_SYMBOLS=OFF for Apple Clang: the LTO
-          # bitcode .o files inside the archive are opaque to the
-          # standard nm/nmedit toolchain that localize_symbols.sh
-          # uses to build its keep-list. The script then asks nmedit
-          # to re-export symbols that don't visibly exist in the
-          # archive, which errors out. Disable the strip step for
-          # this entry; consumers using Apple Clang will see all
-          # the demangled namespace symbols, which is fine for a
-          # niche-toolchain artifact.
-          STRIP_FLAG="-DMULTIFLOATS_STRIP_SYMBOLS=ON"
-          if [ "${{ matrix.compiler }}" = "appleclang" ]; then
-            STRIP_FLAG="-DMULTIFLOATS_STRIP_SYMBOLS=OFF"
-          fi
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
@@ -345,7 +332,6 @@ jobs:
             -DMULTIFLOATS_USE_LTO=ON \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
             -DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON \
-            $STRIP_FLAG \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
 
       # Apple Clang: build only the C++ library (Apple Clang has no
@@ -429,17 +415,12 @@ jobs:
 
       - name: Configure & build
         run: |
-          # Same MULTIFLOATS_STRIP_SYMBOLS=OFF rationale as the Linux
-          # build-non-lto job — without LTO inlining, hidden namespace
-          # symbols still need to be link-resolvable for downstream
-          # consumers of `multifloats::hypot` etc.
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-14 \
             -DCMAKE_CXX_COMPILER=g++-14 \
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
-            -DMULTIFLOATS_STRIP_SYMBOLS=OFF \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(sysctl -n hw.ncpu)
@@ -490,21 +471,12 @@ jobs:
 
       - name: Configure & build
         run: |
-          # MULTIFLOATS_STRIP_SYMBOLS=OFF: the localize_symbols.sh
-          # post-build hook (objcopy --keep-global-symbols + strip
-          # --strip-unneeded) damages COMDAT-grouped hidden namespace
-          # functions like `multifloats::hypot`, which GNU ld then
-          # discards. The strip is correct for LTO archives (call
-          # sites inline before strip runs); it is wrong for non-LTO
-          # archives where the C++ namespace API must remain
-          # link-resolvable. Disable just for this job.
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-14 \
             -DCMAKE_CXX_COMPILER=g++-14 \
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
-            -DMULTIFLOATS_STRIP_SYMBOLS=OFF \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(nproc)

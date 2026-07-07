@@ -281,6 +281,15 @@ if(BUILD_TESTING)
     add_test(NAME consumer_fortran_smoke
         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_consumer_fortran.sh
                 ${CMAKE_CURRENT_BINARY_DIR})
+
+    # Namespace hygiene: the installed archive must export ONLY the declared
+    # public API as strong-global symbols. Non-destructive audit (replaces the
+    # old localize_symbols.sh strip) — fails the build naming any TU-internal
+    # helper that escaped with external linkage. See scripts/check_exported_symbols.sh.
+    add_test(NAME check_exported_symbols
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_exported_symbols.sh
+                $<TARGET_FILE:multifloats>
+                ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats/float64x2.h)
 endif()  # BUILD_TESTING
 
 # ----------------------------------------------------------------------

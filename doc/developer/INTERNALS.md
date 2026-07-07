@@ -39,11 +39,16 @@ produces wrong answers or ships with the wrong ABI tag.
   at configure time and drives both `VERSION` and `SOVERSION`. Bump
   the header; the CMake side follows. Manual `set(SOVERSION …)` edits
   are a bug.
-- **Public symbols are the ones marked `MULTIFLOATS_API`.** The
-  `localize_symbols.sh` helper extracts the export list by grepping
-  `^MULTIFLOATS_API[^(]+\(` out of `multifloats.h` directly — it is
-  *not* a regex over symbol names. New exports get the attribute;
-  internal helpers do not.
+- **Public symbols are the ones marked `MULTIFLOATS_API`.** ctest
+  `check_exported_symbols` (`scripts/check_exported_symbols.sh`)
+  extracts the export list by grepping `^MULTIFLOATS_API[^(]+\(` out
+  of `multifloats.h` directly — it is *not* a regex over symbol
+  names — then fails the build if the archive exposes any strong-
+  global symbol outside that list plus the `multifloats::` C++ API.
+  New exports get the attribute; internal helpers do not. This
+  audit is non-destructive; it replaced an earlier post-build strip
+  (`localize_symbols.sh`) that mutated the archive and broke COMDAT
+  namespace copies on non-LTO builds.
 - **Fortran bindings must mirror the C ABI.** ctest `fortran_abi_sync`
   (`scripts/check_fortran_abi_sync.sh`) walks `bind(c, name='*dd*')`
   declarations in the generated `multifloats.f90` and fails if the
