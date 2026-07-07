@@ -174,8 +174,10 @@ def detect_build(build_dir: Path) -> str:
 
     # STATIC vs OBJECT vs SHARED — read from CMake's target properties via
     # the generated archive/object artifacts. Default to STATIC when the
-    # archive is present or neither artifact is found.
-    if ((build_dir / "src" / "libmultifloats.a").exists()
+    # archive is present or neither artifact is found. The archive basename
+    # varies with the LTO axis and compiler tag (libmultifloats-lto-<tag>.a
+    # / libmultifloats-nolto.a), so glob rather than match a fixed name.
+    if (list(build_dir.glob("src/libmultifloats*.a"))
             or not list(build_dir.glob("src/CMakeFiles/multifloats.dir/*.o"))):
         lib_type = "STATIC library"
     else:

@@ -28,8 +28,10 @@ jobs:
   # Both libraries (multifloats C++ and multifloatsf Fortran) are built with
   # LTO. Each matrix entry produces compiler-tagged archives that can coexist
   # in one install prefix:
-  #   libmultifloats-<cxx-tag>.a       (e.g. libmultifloats-gcc-15.a)
-  #   libmultifloatsf-<ftn-tag>.a      (e.g. libmultifloatsf-gfortran-15.a)
+  #   libmultifloats-lto-<cxx-tag>.a       (e.g. libmultifloats-lto-gcc-15.a)
+  #   libmultifloatsf-lto-<ftn-tag>.a      (e.g. libmultifloatsf-lto-gfortran-15.a)
+  # A second pass then builds the per-compiler non-LTO Fortran archive
+  # (libmultifloatsf-nolto-<ftn-tag>.a) into the same prefix.
   # The smart Config.cmake on the consumer side picks the matching one.
   # ===========================================================================
   build-lto:
@@ -197,6 +199,34 @@ jobs:
       - name: Install (C++ + Fortran)
         run: cmake --install build
 
+      # Non-LTO Fortran archive for this same compiler. A Fortran archive can
+      # never be compiler-agnostic the way the C++ non-LTO archive is — its
+      # `.mod` interface and module-mangled symbols are version-locked to the
+      # producing compiler — so each compiler needs its own non-LTO archive.
+      # Built in a separate tree with LTO off and installed alongside the LTO
+      # archive as libmultifloatsf-nolto-<ftn-tag>.a. (For Intel/ifx, LTO is
+      # never enabled for Fortran, so the LTO build already produced a
+      # nolto-tagged archive; this pass reproduces the same file — harmless,
+      # last-write-wins.)
+      - name: Configure & build non-LTO Fortran
+        run: |
+          if [ "${{ matrix.compiler }}" = "intel" ]; then
+            source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
+          fi
+          cmake -B build-nolto \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
+            -DMULTIFLOATS_USE_LTO=OFF \
+            -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          cmake --build build-nolto --target multifloatsf -j$(nproc)
+
+      - name: Install non-LTO Fortran
+        run: cmake --install build-nolto/fsrc
+
       - name: Package
         run: |
           TAG="${GITHUB_REF_NAME}"
@@ -345,6 +375,27 @@ jobs:
         if: matrix.compiler == 'gcc'
         run: cmake --install build
 
+      # Non-LTO Fortran archive for this same compiler (see build-lto for the
+      # per-compiler rationale). Installed alongside the LTO archive as
+      # libmultifloatsf-nolto-<ftn-tag>.a.
+      - name: Configure & build non-LTO Fortran
+        if: matrix.compiler == 'gcc'
+        run: |
+          cmake -B build-nolto \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
+            -DMULTIFLOATS_USE_LTO=OFF \
+            -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON \
+            -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
+          cmake --build build-nolto --target multifloatsf -j$(sysctl -n hw.ncpu)
+
+      - name: Install non-LTO Fortran
+        if: matrix.compiler == 'gcc'
+        run: cmake --install build-nolto/fsrc
+
       - name: Package
         run: |
           TAG="${GITHUB_REF_NAME}"
@@ -402,14 +453,14 @@ jobs:
       - name: Package
         run: |
           TAG="${GITHUB_REF_NAME}"
-          ARCHIVE="multifloats-${TAG}-darwin-arm64-no-lto.tar.gz"
+          ARCHIVE="multifloats-${TAG}-darwin-arm64-nolto.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: multifloats-mac-no-lto
+          name: multifloats-mac-nolto
           path: ${{ env.ARCHIVE }}
 
   # ===========================================================================
@@ -467,14 +518,14 @@ jobs:
       - name: Package
         run: |
           TAG="${GITHUB_REF_NAME}"
-          ARCHIVE="multifloats-${TAG}-linux-x86_64-no-lto.tar.gz"
+          ARCHIVE="multifloats-${TAG}-linux-x86_64-nolto.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
 
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
-          name: multifloats-no-lto
+          name: multifloats-nolto
           path: ${{ env.ARCHIVE }}
 
   # ===========================================================================

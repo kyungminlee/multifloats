@@ -6,6 +6,32 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.8.1] — 2026-07-06
+
+Packaging only — no changes to numeric behavior or the ABI.
+
+### Added
+
+- **Per-compiler non-LTO `libmultifloatsf`.** The release now ships a
+  non-LTO Fortran archive for every compiler in the matrix
+  (`libmultifloatsf-nolto-<ftn-tag>.a`) alongside the existing LTO one, so a
+  consumer whose linker lacks the matching LTO plugin still gets a precompiled
+  module. A Fortran archive can't be compiler-agnostic the way the C++ non-LTO
+  archive is — its `.mod` interface is version-locked — so each compiler gets
+  its own. `multifloatsfConfig.cmake` prefers the LTO archive and falls back to
+  the non-LTO one for the same compiler before the source-build path.
+
+### Changed
+
+- **Installed archives now carry an explicit `-lto-`/`-nolto-` axis label.**
+  C++: `libmultifloats-lto-<cxx-tag>.a` (LTO, default) and the portable
+  compiler-agnostic `libmultifloats-nolto.a` (non-LTO). Fortran:
+  `libmultifloatsf-<lto|nolto>-<ftn-tag>.a`. The CMake targets files and the
+  `find_package` selectors were renamed to match; consumers using
+  `find_package(multifloats)` / `find_package(multifloatsf)` are unaffected.
+  The non-LTO release tarball infix changed from `-no-lto` to `-nolto` for
+  consistency.
+
 ## [0.8.0] — 2026-06-16
 
 ### Fixed

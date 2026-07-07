@@ -327,8 +327,9 @@ float64x2 pi = float64x2(4.0) * atan(x);
 std::cout << to_string(pi, 32) << "\n";   // scientific, 32 digits
 ```
 
-Link `libmultifloats.a` (C / C++) or `libmultifloatsf-<compiler>.a`
-(Fortran); see the [Building](#building) section.
+Link `libmultifloats-lto-<compiler>.a` (C / C++) or
+`libmultifloatsf-lto-<compiler>.a` (Fortran); see the [Building](#building)
+section.
 
 ## Building
 
@@ -349,14 +350,16 @@ cmake --build build
 
 A default build produces only the two installable libraries:
 
-- `libmultifloats.a` (or `libmultifloats-<compiler>.a` when LTO is on —
-  see `MULTIFLOATS_USE_LTO` below) — the C++ kernels (header-only API via
+- `libmultifloats-lto-<compiler>.a` (LTO, the default) or the portable
+  compiler-agnostic `libmultifloats-nolto.a` when LTO is off — see
+  `MULTIFLOATS_USE_LTO` below — the C++ kernels (header-only API via
   `include/multifloats/float64x2.h`; this static archive holds the
   out-of-line math bodies and the extern "C" `*dd` entry points declared
   in the same header).
-- `libmultifloatsf-<compiler>.a` — the Fortran module library (the
-  compiler tag comes from `cmake/FortranCompiler.cmake`; the generated
-  `.mod` files live under `build/fmod/`).
+- `libmultifloatsf-<lto|nolto>-<compiler>.a` — the Fortran module library,
+  always compiler-tagged since a `.mod` is version-locked (the compiler tag
+  comes from `cmake/FortranCompiler.cmake`; the generated `.mod` files live
+  under `build/fmod/`).
 
 Both targets are exported as a CMake package; consumers should prefer
 `find_package(multifloats)` / `find_package(multifloatsf)` over hard-coded
@@ -372,7 +375,7 @@ options. None of them are pulled in by a default consumer build.
 | `-DMULTIFLOATS_BUILD_BENCH=ON`      | OFF     | `cpp_bench`, `fortran_bench`, `fortran_bench_abi` micro-benchmarks. |
 | `-DBUILD_MPFR_TESTS=ON`             | OFF     | `cpp_fuzz_mpfr` 3-way precision test (needs `libmpfr-dev`). Implies `BUILD_TESTING`. |
 | `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF  | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89 via FetchContent). |
-| `-DMULTIFLOATS_USE_LTO=ON/OFF`      | ON      | LTO + fat-LTO objects on the installed archives. When ON, the C++ archive is named `libmultifloats-<compiler>.a` so per-compiler LTO builds can coexist; when OFF, it is the portable untagged `libmultifloats.a`. The generated `multifloatsConfig.cmake` selects the best match at `find_package` time. |
+| `-DMULTIFLOATS_USE_LTO=ON/OFF`      | ON      | LTO + fat-LTO objects on the installed archives. When ON, the C++ archive is named `libmultifloats-lto-<compiler>.a` so per-compiler LTO builds can coexist; when OFF, it is the portable compiler-agnostic `libmultifloats-nolto.a`. The generated `multifloatsConfig.cmake` selects the best match at `find_package` time. |
 | `-DMULTIFLOATS_HIDDEN_VISIBILITY=ON/OFF` | ON | Apply `-fvisibility=hidden` + `-fvisibility-inlines-hidden` to the C++ kernels so only the `extern "C" dd_*` ABI is exported. Turn OFF if you need full C++ symbol visibility (debugging, profiling, or re-exporting through a downstream shared library). |
 | `-DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON` | OFF | Additionally install a compiler-tagged precompiled `.mod` + tagged Fortran archive. The default ships the fypp-expanded `.f90` source under `<prefix>/share/multifloatsf/src/` and lets consumers compile the module with their own Fortran compiler at `find_package` time, sidestepping `.mod` format incompatibilities. |
 

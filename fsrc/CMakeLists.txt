@@ -174,18 +174,31 @@ install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/multifloats.fypp
 # fallback); it would clobber the unified Config we install below. So
 # we inline just the tagged-archive + tagged-export install pieces.
 if(MULTIFLOATSF_INSTALL_PRECOMPILED_MOD)
+    # Unlike the C++ archive, a Fortran archive is never compiler-agnostic:
+    # its `.mod` interface and module-mangled symbols are version-locked to
+    # the producing compiler, so BOTH the LTO and non-LTO Fortran archives
+    # carry the compiler tag. The extra `-lto-`/`-nolto-` axis lets the two
+    # coexist under one prefix and mirrors the C++ archive labelling.
+    if(MULTIFLOATSF_LTO_ON)
+        set(_mff_lto_tag "lto")
+    else()
+        set(_mff_lto_tag "nolto")
+    endif()
+    set(_mff_variant_tag "${_mff_lto_tag}-${FORTRAN_COMPILER_TAG}")
     set_target_properties(multifloatsf PROPERTIES
-        OUTPUT_NAME "multifloatsf-${FORTRAN_COMPILER_TAG}")
+        OUTPUT_NAME "multifloatsf-${_mff_variant_tag}")
     install(TARGETS multifloatsf
         EXPORT multifloatsfTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
         RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
     install(EXPORT multifloatsfTargets
-        FILE multifloatsfTargets-${FORTRAN_COMPILER_TAG}.cmake
+        FILE multifloatsfTargets-${_mff_variant_tag}.cmake
         NAMESPACE multifloats::
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/multifloatsf)
     fortran_install_modules(multifloatsf)
+    unset(_mff_lto_tag)
+    unset(_mff_variant_tag)
 endif()
 
 # Config.cmake: unified selector (precompiled-first, source-fallback).

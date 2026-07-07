@@ -13,10 +13,12 @@ cmake --build build
 
 A default build produces only the two installable libraries:
 
-- **`libmultifloats.a`** — the C / C++ kernels. The API is header-only via
-  `include/multifloats/float64x2.h`; this archive holds the out-of-line math
-  bodies and the `extern "C"` `*dd` entry points.
-- **`libmultifloatsf-<compiler>.a`** — the Fortran module library.
+- **`libmultifloats-lto-<compiler>.a`** — the C / C++ kernels (LTO build,
+  the default; the portable non-LTO build is `libmultifloats-nolto.a`). The
+  API is header-only via `include/multifloats/float64x2.h`; this archive holds
+  the out-of-line math bodies and the `extern "C"` `*dd` entry points.
+- **`libmultifloatsf-<lto|nolto>-<compiler>.a`** — the Fortran module library
+  (always compiler-tagged, since a Fortran `.mod` is version-locked).
 
 Both are exported as CMake packages. Prefer `find_package(multifloats)` /
 `find_package(multifloatsf)` over hard-coded `-l` flags so the
@@ -75,7 +77,7 @@ program demo
 end program
 ```
 
-Link against `libmultifloatsf-<compiler>.a`. The `real64x2` interface is
+Link against `libmultifloatsf-<lto|nolto>-<compiler>.a`. The `real64x2` interface is
 designed to mirror `REAL(KIND=16)`, so porting existing quad-precision code is
 mostly a matter of changing the type declaration.
 

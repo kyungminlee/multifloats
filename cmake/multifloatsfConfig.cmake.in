@@ -53,10 +53,24 @@ if(NOT TARGET multifloats::fortran_module)
   unset(_fc_family)
   unset(_fc_abi_version)
 
-  set(_MULTIFLOATSF_TARGETS
-    "${CMAKE_CURRENT_LIST_DIR}/multifloatsfTargets-${_MULTIFLOATSF_CONSUMER_TAG}.cmake")
+  # Prefer the LTO archive when one was shipped for this exact compiler,
+  # then the non-LTO archive for the same compiler. Both are compiler-tagged
+  # (a Fortran `.mod` is version-locked), so the only choice at a matching
+  # tag is the LTO axis; LTO wins for speed, non-LTO is the portable-link
+  # fallback for consumers whose linker lacks the matching LTO plugin.
+  set(_MULTIFLOATSF_TARGETS "")
+  foreach(_mff_axis lto nolto)
+    set(_mff_candidate
+      "${CMAKE_CURRENT_LIST_DIR}/multifloatsfTargets-${_mff_axis}-${_MULTIFLOATSF_CONSUMER_TAG}.cmake")
+    if(EXISTS "${_mff_candidate}")
+      set(_MULTIFLOATSF_TARGETS "${_mff_candidate}")
+      break()
+    endif()
+  endforeach()
+  unset(_mff_axis)
+  unset(_mff_candidate)
 
-  if(EXISTS "${_MULTIFLOATSF_TARGETS}")
+  if(_MULTIFLOATSF_TARGETS)
     # Exact precompiled match for this compiler. Includes the tagged
     # archive and the .mod directory via its INSTALL_INTERFACE include
     # path (wired by fortran_module_layout at library build time).

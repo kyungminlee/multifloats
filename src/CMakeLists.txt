@@ -193,9 +193,18 @@ if(MULTIFLOATS_LTO_ON)
     set(MULTIFLOATS_CXX_TAG "${_mf_cxx_tag}")
     unset(_mf_cxx_tag)
     set_target_properties(multifloats PROPERTIES
-        OUTPUT_NAME "multifloats-${MULTIFLOATS_CXX_TAG}")
+        OUTPUT_NAME "multifloats-lto-${MULTIFLOATS_CXX_TAG}")
     message(STATUS
-        "multifloats: LTO on — archive will be libmultifloats-${MULTIFLOATS_CXX_TAG}.a")
+        "multifloats: LTO on — archive will be libmultifloats-lto-${MULTIFLOATS_CXX_TAG}.a")
+else()
+    # Non-LTO archive is plain machine code, portable across compilers of the
+    # same platform ABI, so it carries no compiler tag — only the `-nolto-`
+    # axis label that keeps it distinct from the per-compiler LTO archives
+    # when both are installed into one prefix.
+    set_target_properties(multifloats PROPERTIES
+        OUTPUT_NAME "multifloats-nolto")
+    message(STATUS
+        "multifloats: LTO off — archive will be libmultifloats-nolto.a")
 endif()
 
 # Install: library + header + export targets + Config.cmake
@@ -209,13 +218,13 @@ install(FILES
     ${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats/float64x2.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/multifloats)
 
-# Targets file: tagged when LTO is on so multiple per-compiler builds
-# can coexist under the same install prefix. Untagged otherwise (a
-# non-LTO archive contains only plain machine code and is portable).
+# Targets file: LTO builds are per-compiler-tagged (`-lto-<tag>`) so several
+# can coexist under one prefix; the non-LTO build carries the compiler-agnostic
+# `-nolto` label (its archive is plain machine code, portable across compilers).
 if(MULTIFLOATS_LTO_ON)
-    set(_mf_targets_filename "multifloatsTargets-${MULTIFLOATS_CXX_TAG}.cmake")
+    set(_mf_targets_filename "multifloatsTargets-lto-${MULTIFLOATS_CXX_TAG}.cmake")
 else()
-    set(_mf_targets_filename "multifloatsTargets.cmake")
+    set(_mf_targets_filename "multifloatsTargets-nolto.cmake")
 endif()
 install(EXPORT multifloatsTargets
     FILE ${_mf_targets_filename}
@@ -227,23 +236,23 @@ install(EXPORT multifloatsTargets
 # same prefix don't overwrite each other's Config with a less-capable
 # variant. The selector at consumer find_package() time:
 #   1. Derives the consumer's compiler tag (gcc-15 / clang-19 / ...).
-#   2. Looks for an exact-match `multifloatsTargets-<tag>.cmake` (an LTO
+#   2. Looks for an exact-match `multifloatsTargets-lto-<tag>.cmake` (an LTO
 #      build keyed to that exact compiler).
-#   3. Falls back to `multifloatsTargets.cmake` (an untagged non-LTO
-#      build, which contains plain machine code and is portable).
+#   3. Falls back to `multifloatsTargets-nolto.cmake` (the compiler-agnostic
+#      non-LTO build, which contains plain machine code and is portable).
 #   4. Errors out only if neither exists.
 include(CMakePackageConfigHelpers)
 file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfig.cmake"
 "# multifloatsConfig.cmake — auto-generated, best-fit selector.
 # Tries an exact compiler-tag match first (LTO build), falls back to
-# the untagged variant (portable non-LTO build).
+# the compiler-agnostic non-LTO build.
 ${_MF_CXX_DETECT_CODE}
-set(_mf_targets \"\${CMAKE_CURRENT_LIST_DIR}/multifloatsTargets-\${_mf_cxx_tag}.cmake\")
+set(_mf_targets \"\${CMAKE_CURRENT_LIST_DIR}/multifloatsTargets-lto-\${_mf_cxx_tag}.cmake\")
 if(NOT EXISTS \"\${_mf_targets}\")
-    set(_mf_targets \"\${CMAKE_CURRENT_LIST_DIR}/multifloatsTargets.cmake\")
+    set(_mf_targets \"\${CMAKE_CURRENT_LIST_DIR}/multifloatsTargets-nolto.cmake\")
 endif()
 if(NOT EXISTS \"\${_mf_targets}\")
-    file(GLOB _mf_available \"\${CMAKE_CURRENT_LIST_DIR}/multifloatsTargets-*.cmake\")
+    file(GLOB _mf_available \"\${CMAKE_CURRENT_LIST_DIR}/multifloatsTargets-lto-*.cmake\")
     set(_mf_avail_tags \"\")
     foreach(_mf_f IN LISTS _mf_available)
         get_filename_component(_mf_fn \"\${_mf_f}\" NAME)
@@ -252,7 +261,7 @@ if(NOT EXISTS \"\${_mf_targets}\")
         if(_mf_fn MATCHES \"-(noconfig|release|debug|relwithdebinfo|minsizerel)\\\\.cmake$\")
             continue()
         endif()
-        string(REGEX REPLACE \"^multifloatsTargets-(.*)\\\\.cmake$\" \"\\\\1\" _mf_t \"\${_mf_fn}\")
+        string(REGEX REPLACE \"^multifloatsTargets-lto-(.*)\\\\.cmake$\" \"\\\\1\" _mf_t \"\${_mf_fn}\")
         list(APPEND _mf_avail_tags \"\${_mf_t}\")
     endforeach()
     list(SORT _mf_avail_tags)
