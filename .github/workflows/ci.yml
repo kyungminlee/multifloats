@@ -30,11 +30,14 @@ jobs:
 
       - name: Configure
         run: |
+          # BUILD_TESTING=ON: it defaults OFF (a plain build ships only the
+          # library), so CI must opt in or the Test step below runs zero tests.
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-14 \
             -DCMAKE_CXX_COMPILER=g++-14 \
-            -DCMAKE_Fortran_COMPILER=gfortran-14
+            -DCMAKE_Fortran_COMPILER=gfortran-14 \
+            -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build build -j$(nproc)
@@ -67,7 +70,8 @@ jobs:
             -DCMAKE_CXX_COMPILER=g++-14 \
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
-            -DMULTIFLOATS_BUILD_BENCH=OFF
+            -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DBUILD_TESTING=ON
 
       - name: Build
         run: cmake --build build -j$(sysctl -n hw.ncpu)
