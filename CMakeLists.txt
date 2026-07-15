@@ -290,6 +290,18 @@ if(BUILD_TESTING)
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_exported_symbols.sh
                 $<TARGET_FILE:multifloats>
                 ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats/float64x2.h)
+
+    # Shared-library ABI is stricter than the archive: the .so dynsym must
+    # export ONLY the extern "C" C ABI (the multifloats:: C++ API is GLOBAL
+    # HIDDEN, header inlines are WEAK HIDDEN). Gated on the shared target
+    # existing and on ELF (nm -D) — the Mach-O .dylib surface is enforced by
+    # ld64's default handling of hidden visibility. See scripts/check_shared_exports.sh.
+    if(MULTIFLOATS_BUILD_SHARED AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_test(NAME check_shared_exports
+            COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_shared_exports.sh
+                    $<TARGET_FILE:multifloats_shared>
+                    ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats/float64x2.h)
+    endif()
 endif()  # BUILD_TESTING
 
 # ----------------------------------------------------------------------
