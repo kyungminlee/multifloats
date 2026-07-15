@@ -6,6 +6,30 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.9.1] — 2026-07-15
+
+Release-pipeline fixes only — no changes to numeric behavior, the ABI, or
+the shipped library sources.
+
+### Fixed
+
+- **The release workflow now runs the test suite.** Every release job that
+  invoked `ctest` configured with `BUILD_TESTING` left at its default (`OFF`),
+  so each per-job test step executed **zero** tests — the matrix built the
+  artifacts but validated nothing. `BUILD_TESTING` is now enabled wherever a
+  test step runs (GCC entries on the LTO matrix, both non-LTO jobs, and the
+  newest macOS entry), so the full suite — including the `check_exported_symbols`
+  Mach-O audit — actually gates a release. Non-GCC LTO entries stay untested:
+  their C++ tests need libquadmath / `-fext-numeric-literals` (GCC-only).
+
+- **`workflow_dispatch` validation runs no longer fail at packaging.** The
+  archive-naming steps derived the tarball name from `GITHUB_REF_NAME`
+  assuming a slash-free tag (`v0.9.0`); a manual run from a branch whose name
+  contains `/` made `tar` target a nonexistent subdirectory and failed every
+  job. The ref name is now slash-sanitized at each naming site (a no-op on
+  real `v*` tags), restoring the workflow's documented "verify the full matrix
+  without cutting a tag" path.
+
 ## [0.9.0] — 2026-07-14
 
 New distributable artifact — no changes to numeric behavior or the ABI.
