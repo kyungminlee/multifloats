@@ -66,8 +66,14 @@ c++filt < "$MANGLED" > "$DEMANGLED"
 
 LEAKS=$(paste "$MANGLED" "$DEMANGLED" | awk -F'\t' -v cabi="$CABI" '
   BEGIN { while ((getline n < cabi) > 0) ok[n] = 1 }
-  # (1) declared extern "C" ABI (nm name == demangled name for these).
-  $2 in ok { next }
+  # (1) declared extern "C" ABI (nm name == demangled name for these). Mach-O
+  #     prefixes every C symbol with an underscore (addf64x2 -> _addf64x2),
+  #     while the header keep-list carries the bare name; strip one leading
+  #     underscore before the lookup. No-op on ELF (no such prefix), and the
+  #     C++ mangled names are unaffected — libiberty demangles Mach-O `__Z…`
+  #     straight to `multifloats::…`, handled by rule (2) below.
+  { cname = $2; sub(/^_/, "", cname) }
+  cname in ok { next }
   # (2) C++ API: any function in namespace multifloats (incl. detail:: and
   #     operator<<). The demangled form starts with "multifloats::".
   $2 ~ /^multifloats::/ { next }
