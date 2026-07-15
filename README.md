@@ -444,6 +444,13 @@ The C++ kernels follow the algorithms in
 under `external/`); the Fortran kernels are direct translations of the same
 double-double algorithms.
 
+## Contributing
+
+Developer docs live in [`doc/developer/`](doc/developer/README.md) — an index
+covering the full loop: configure, build, test, debug a precision or ABI
+failure, understand the DD/triple-double internals, and cut a release
+([`RELEASING.md`](doc/developer/RELEASING.md)).
+
 ## License
 
 See [LICENSE](LICENSE) (if present) or the source headers for licensing terms.
