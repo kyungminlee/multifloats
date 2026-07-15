@@ -161,6 +161,14 @@ jobs:
           if [ "${{ matrix.compiler }}" = "intel" ]; then
             source /opt/intel/oneapi/setvars.sh 2>/dev/null || true
           fi
+          # BUILD_TESTING only on GCC: it defaults OFF, and only the GCC
+          # entries build + run the suite (the Test step below is gcc-gated
+          # because the C++ tests need libquadmath / -fext-numeric-literals,
+          # GCC-only — see the Build step). Without this the gcc Test step
+          # runs zero tests. (if-block, not `[ ] && x=ON`: the && form exits
+          # 1 on the non-gcc branch and would fail the step under set -e.)
+          TESTING=OFF
+          if [ "${{ matrix.compiler }}" = "gcc" ]; then TESTING=ON; fi
           # MULTIFLOATS_BUILD_BENCH=OFF: CI doesn't run microbenchmarks
           # and the Fortran bench source uses gfortran-13+-only
           # `!GCC$ ATTRIBUTES NOINLINE` (would break gcc-12). Saves
@@ -172,6 +180,7 @@ jobs:
             -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
             -DMULTIFLOATS_USE_LTO=ON \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DBUILD_TESTING=${TESTING} \
             -DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
 
@@ -229,7 +238,12 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          # Slash-sanitize the ref name: a v* tag is already slash-free
+          # (v0.9.0), but a workflow_dispatch validation run carries the
+          # branch name (e.g. ci/release-enable-testing), whose `/` makes
+          # tar try to write into a nonexistent subdir. Manual runs never
+          # publish (the release job is tag-gated), so this is cosmetic there.
+          TAG="${GITHUB_REF_NAME//\//-}"
           ARCHIVE="multifloats-${TAG}-linux-x86_64-lto-${{ matrix.compiler }}-${{ matrix.version }}.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -324,6 +338,12 @@ jobs:
 
       - name: Configure
         run: |
+          # BUILD_TESTING tracks matrix.run_tests: only the entry that runs
+          # the suite (gcc, newest) builds the test executables, keeping the
+          # other matrix entries lean. Defaults OFF, so without this the
+          # Test step below runs zero tests.
+          TESTING=OFF
+          if [ "${{ matrix.run_tests }}" = "true" ]; then TESTING=ON; fi
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=${{ matrix.cc }} \
@@ -331,6 +351,7 @@ jobs:
             -DCMAKE_Fortran_COMPILER=${{ matrix.fc }} \
             -DMULTIFLOATS_USE_LTO=ON \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DBUILD_TESTING=${TESTING} \
             -DMULTIFLOATSF_INSTALL_PRECOMPILED_MOD=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
 
@@ -384,7 +405,7 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           ARCHIVE="multifloats-${TAG}-darwin-arm64-lto-${{ matrix.compiler }}-${{ matrix.version }}.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -415,6 +436,9 @@ jobs:
 
       - name: Configure & build
         run: |
+          # BUILD_TESTING=ON: it defaults OFF, so the Test step below would
+          # otherwise run zero tests. This gcc-14 job also exercises the
+          # Mach-O symbol audit (check_exported_symbols) at release time.
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-14 \
@@ -423,6 +447,7 @@ jobs:
             -DMULTIFLOATS_USE_LTO=OFF \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
             -DMULTIFLOATS_BUILD_SHARED=ON \
+            -DBUILD_TESTING=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(sysctl -n hw.ncpu)
 
@@ -434,7 +459,7 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           ARCHIVE="multifloats-${TAG}-darwin-arm64-nolto.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -472,6 +497,9 @@ jobs:
 
       - name: Configure & build
         run: |
+          # BUILD_TESTING=ON: it defaults OFF, so the Test step below would
+          # otherwise run zero tests. (The shared-export audit further down
+          # runs independently of BUILD_TESTING.)
           cmake -B build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_C_COMPILER=gcc-14 \
@@ -480,6 +508,7 @@ jobs:
             -DMULTIFLOATS_USE_LTO=OFF \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
             -DMULTIFLOATS_BUILD_SHARED=ON \
+            -DBUILD_TESTING=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(nproc)
 
@@ -505,7 +534,7 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           ARCHIVE="multifloats-${TAG}-linux-x86_64-nolto.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -536,7 +565,7 @@ jobs:
       # mixing archs in a single prefix would just be confusing.
       - name: Create combined archives
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           mkdir -p combined-linux combined-mac
           # actions/download-artifact@v8 layout is artifacts/<name>/<file>.tar.gz.
           # Sort each tarball into the right per-platform combined dir by
