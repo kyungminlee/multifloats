@@ -238,7 +238,12 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          # Slash-sanitize the ref name: a v* tag is already slash-free
+          # (v0.9.0), but a workflow_dispatch validation run carries the
+          # branch name (e.g. ci/release-enable-testing), whose `/` makes
+          # tar try to write into a nonexistent subdir. Manual runs never
+          # publish (the release job is tag-gated), so this is cosmetic there.
+          TAG="${GITHUB_REF_NAME//\//-}"
           ARCHIVE="multifloats-${TAG}-linux-x86_64-lto-${{ matrix.compiler }}-${{ matrix.version }}.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -400,7 +405,7 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           ARCHIVE="multifloats-${TAG}-darwin-arm64-lto-${{ matrix.compiler }}-${{ matrix.version }}.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -454,7 +459,7 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           ARCHIVE="multifloats-${TAG}-darwin-arm64-nolto.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -529,7 +534,7 @@ jobs:
 
       - name: Package
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           ARCHIVE="multifloats-${TAG}-linux-x86_64-nolto.tar.gz"
           tar czf "${ARCHIVE}" -C install .
           echo "ARCHIVE=${ARCHIVE}" >> $GITHUB_ENV
@@ -560,7 +565,7 @@ jobs:
       # mixing archs in a single prefix would just be confusing.
       - name: Create combined archives
         run: |
-          TAG="${GITHUB_REF_NAME}"
+          TAG="${GITHUB_REF_NAME//\//-}"  # slash-sanitized (see build-lto Package)
           mkdir -p combined-linux combined-mac
           # actions/download-artifact@v8 layout is artifacts/<name>/<file>.tar.gz.
           # Sort each tarball into the right per-platform combined dir by
