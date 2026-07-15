@@ -6,6 +6,41 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.9.0] — 2026-07-14
+
+New distributable artifact — no changes to numeric behavior or the ABI.
+
+### Added
+
+- **Prebuilt shared library (`libmultifloats.so.2` / `libmultifloats.2.dylib`).**
+  The release now ships a versioned shared object per platform (Linux x86-64
+  and macOS arm64), built from the same non-LTO objects as the portable static
+  archive and installed alongside it with the usual soname + developer symlinks
+  (`libmultifloats.so.2.0.0` ← `.so.2` ← `.so`). Its `SOVERSION` tracks
+  `MULTIFLOATS_ABI_VERSION`, so the shared object is versioned on exactly the
+  stable C-ABI axis. Its dynamic symbol table exports **only** the extern `"C"`
+  C ABI (286 symbols): hidden visibility keeps the `multifloats::` C++ API and
+  the weak-COMDAT header inlines out of the `dynsym`, so the DSO surface is
+  exactly the C ABI a `-lmultifloats` / `dlopen` consumer relies on. The ELF
+  build links with full RELRO + `BIND_NOW` (`-z relro -z now`) and
+  `--no-undefined` (self-contained: `libstdc++`/`libm` recorded `NEEDED`);
+  the Mach-O build uses `-bind_at_load`.
+
+  `find_package(multifloats)` is unchanged — it still routes to the static
+  archive via its LTO/non-LTO selector; the shared object is for direct binary
+  linking and `dlopen`.
+
+- **`MULTIFLOATS_BUILD_SHARED` build option** (default `OFF`). Opt in to also
+  build the versioned shared library from the same compiled objects as the
+  static archive. The release turns it on in its non-LTO jobs.
+
+- **`check_shared_exports` ctest** (`scripts/check_shared_exports.sh`). Audits
+  the shared object's dynamic symbol table, asserting it exports only the
+  declared extern `"C"` C ABI — stricter than `check_exported_symbols` (which
+  also permits the `multifloats::` C++ API in the static archive). Fails —
+  naming the demangled offender — on any visibility regression that widens the
+  DSO ABI. ELF-only; runs in the Linux release job against the built `.so`.
+
 ## [0.8.2] — 2026-07-06
 
 Build and packaging only — no changes to numeric behavior or the ABI.

@@ -4,17 +4,11 @@ include(GNUInstallDirs)
 
 set(MULTIFLOATS_PUBLIC_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/../include)
 
-add_library(multifloats STATIC multifloats_math.cc multifloats_io.cc)
-target_compile_features(multifloats PUBLIC cxx_std_17)
-target_include_directories(multifloats
-    PUBLIC $<BUILD_INTERFACE:${MULTIFLOATS_PUBLIC_INCLUDE_DIR}>
-           $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 # ABI bookkeeping — parse MULTIFLOATS_ABI_VERSION straight out of the header
 # so a bump there is the single source of truth. Without this, SOVERSION and
-# the header constant drift silently and a future shared-library build would
-# ship a wrongly-tagged soname. SOVERSION is only honored on shared libraries,
-# but we set it anyway so `BUILD_SHARED_LIBS=ON` records the right soname.
+# the header constant drift silently and the shared-library build would ship a
+# wrongly-tagged soname. SOVERSION is only honored on shared libraries, but the
+# static archive carries it too so `BUILD_SHARED_LIBS=ON` records the right one.
 file(STRINGS "${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats/float64x2.h"
      _mf_abi_line REGEX "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+[0-9]+")
 if(NOT _mf_abi_line)
@@ -22,13 +16,6 @@ if(NOT _mf_abi_line)
 endif()
 string(REGEX REPLACE "^#define[ \t]+MULTIFLOATS_ABI_VERSION[ \t]+([0-9]+).*$"
        "\\1" MULTIFLOATS_ABI_VERSION "${_mf_abi_line}")
-set_target_properties(multifloats PROPERTIES
-    VERSION   ${MULTIFLOATS_ABI_VERSION}.0.0
-    SOVERSION ${MULTIFLOATS_ABI_VERSION}
-    # PIC unconditionally so consumers can embed the static archive into
-    # a downstream shared library (the `.so` linker requires every input
-    # .o to be PIC). Negligible cost on x86_64 / arm64.
-    POSITION_INDEPENDENT_CODE ON)
 
 # Hide all C++ symbols; only extern "C" dd_* functions are exported.
 # Optional because some consumers want full visibility for debugging,
@@ -36,11 +23,102 @@ set_target_properties(multifloats PROPERTIES
 # the archive into a library that re-exports a wider surface.
 option(MULTIFLOATS_HIDDEN_VISIBILITY
        "Hide non-API C++ symbols (-fvisibility=hidden) in libmultifloats" ON)
-if(MULTIFLOATS_HIDDEN_VISIBILITY)
-    set_target_properties(multifloats PROPERTIES
-        CXX_VISIBILITY_PRESET     hidden
-        VISIBILITY_INLINES_HIDDEN ON)
-endif()
+
+# Runtime FMA dispatch for the matmul kernels (see multifloats_math.cc). ON: the
+# matmul implementation is compiled twice — a portable baseline and an AVX2+FMA
+# copy whose panels vectorize to packed FMA (vfmadd…pd) — and the public entries
+# pick one by CPUID at runtime, so a single binary uses packed FMA where present
+# and runs on any CPU otherwise. OFF: a single baseline build (no second copy,
+# no runtime branch). Effective only on x86-64 GCC — only GCC's vectorizer packs
+# this compensated DD loop; a no-op on Clang/icx (they use the baseline), on
+# AArch64 (FMA is baseline), and on Apple/Mach-O.
+option(MULTIFLOATS_MM_DISPATCH
+       "Runtime FMA-dispatch the matmul kernels (x86-64 GCC)" ON)
+
+# Also build a versioned shared library (libmultifloats.so.<ABI> / .dylib)
+# alongside the static archive, from the same compiled objects. OFF by default
+# so an ordinary build produces only the static archive; the release turns it
+# on in its non-LTO jobs to ship one portable shared object per platform.
+option(MULTIFLOATS_BUILD_SHARED
+       "Also build a versioned shared library (libmultifloats.so.N / .dylib)" OFF)
+
+# NOTE on hardware FMA: the library deliberately does NOT compile with -mfma
+# (or any FMA-enabling -march). Every DD multiply bottoms out in std::fma,
+# which the compiler lowers to a call to glibc's `fma` — and that symbol is a
+# GNU IFUNC: its resolver runs CPUID at load time and binds to the hardware
+# FMA (vfmadd) implementation on capable CPUs, or a software fallback
+# otherwise. So a single portable binary already uses hardware FMA at runtime
+# where present and NEVER executes an illegal instruction on an older CPU.
+# Statically inlining vfmadd (via -mfma) would only save the call/ifunc
+# indirection (~12% on the transcendental kernels) but would SIGILL on any CPU
+# without FMA — unacceptable for a library that must run anywhere. A consumer
+# who fully controls their target CPUs can still pass -mfma/-march via
+# CMAKE_CXX_FLAGS at their own risk.
+
+# _mf_configure_objects(<target>): apply every setting that shapes the compiled
+# objects. Called for BOTH the static archive and the optional shared library
+# so their code is byte-identical (same fp semantics, visibility, and matmul
+# dispatch) — this is the single source of truth for object-level config, so a
+# new option added here automatically reaches both. Purely link-level and
+# packaging differences (soname, hardening flags, LTO archiver) stay on the
+# individual targets below.
+function(_mf_configure_objects tgt)
+    target_compile_features(${tgt} PUBLIC cxx_std_17)
+    target_include_directories(${tgt}
+        PUBLIC $<BUILD_INTERFACE:${MULTIFLOATS_PUBLIC_INCLUDE_DIR}>
+               $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+
+    # PIC unconditionally so consumers can embed the static archive into
+    # a downstream shared library (the `.so` linker requires every input
+    # .o to be PIC) and so our own shared library can link. Negligible cost
+    # on x86_64 / arm64.
+    set_target_properties(${tgt} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+    if(MULTIFLOATS_HIDDEN_VISIBILITY)
+        set_target_properties(${tgt} PROPERTIES
+            CXX_VISIBILITY_PRESET     hidden
+            VISIBILITY_INLINES_HIDDEN ON)
+    endif()
+
+    # Correctness — IntelLLVM. icpx defaults to -fp-model=fast at -O2+, which
+    # reassociates the DD error-free transformations (2Sum / Fast2Sum / Dekker)
+    # and contracts add-of-mul into FMAs — either corrupts the `lo`
+    # compensation and breaks every DD operation. Unconditional (not gated on
+    # build type): the optimizer rearranges expressions at -O1 too.
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
+        target_compile_options(${tgt} PRIVATE -fp-model=precise)
+    endif()
+
+    # Correctness — GCC/Clang. The default -ffp-contract=fast fuses an
+    # incidental `a*b + c` into a single-rounded FMA on any FMA-capable target.
+    # That happens with NO special flag on AArch64 (FMA is in the base ISA) and
+    # whenever a consumer configures with -march=…/-mfma — silently changing the
+    # rounding the error-free transformations are built around (a future
+    # load-bearing `a*b+c` would be corrupted outright). Pin contraction off; it
+    # comes after any inherited CMAKE_CXX_FLAGS on the command line, so it
+    # neutralizes even -march=native. The explicit std::fma in two_prod is
+    # unaffected (it is an fma by name, still lowered to glibc's ifunc-dispatched
+    # hardware FMA), so no speed is lost — measured equal-or-faster. This is the
+    # GCC/Clang analog of the IntelLLVM -fp-model=precise above, and makes every
+    # build bit-identical to the reference regardless of target ISA.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(${tgt} PRIVATE -ffp-contract=off)
+    endif()
+
+    if(NOT MULTIFLOATS_MM_DISPATCH)
+        target_compile_definitions(${tgt} PRIVATE MULTIFLOATS_NO_MM_DISPATCH)
+    endif()
+endfunction()
+
+# ===========================================================================
+# Static archive — the default artifact.
+# ===========================================================================
+add_library(multifloats STATIC multifloats_math.cc multifloats_io.cc)
+_mf_configure_objects(multifloats)
+set_target_properties(multifloats PROPERTIES
+    VERSION   ${MULTIFLOATS_ABI_VERSION}.0.0
+    SOVERSION ${MULTIFLOATS_ABI_VERSION})
 
 # Namespace hygiene is enforced NON-destructively: the `check_exported_symbols`
 # ctest (see the top-level CMakeLists.txt) asserts that the archive's only
@@ -55,58 +133,6 @@ endif()
 # keeps the guarantee without touching the archive, so it works identically
 # for LTO and non-LTO builds. The primary source-level defense is unchanged:
 # TU-internal helpers live in anonymous namespaces / `static` / detail::.
-
-# Correctness — IntelLLVM. icpx defaults to -fp-model=fast at -O2+, which
-# reassociates the DD error-free transformations (2Sum / Fast2Sum / Dekker)
-# and contracts add-of-mul into FMAs — either corrupts the `lo`
-# compensation and breaks every DD operation. Unconditional (not gated on
-# build type): the optimizer rearranges expressions at -O1 too.
-if(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")
-    target_compile_options(multifloats PRIVATE -fp-model=precise)
-endif()
-
-# Correctness — GCC/Clang. The default -ffp-contract=fast fuses an incidental
-# `a*b + c` into a single-rounded FMA on any FMA-capable target. That happens
-# with NO special flag on AArch64 (FMA is in the base ISA) and whenever a
-# consumer configures with -march=…/-mfma — silently changing the rounding the
-# error-free transformations are built around (a future load-bearing `a*b+c`
-# would be corrupted outright). Pin contraction off; it comes after any
-# inherited CMAKE_CXX_FLAGS on the command line, so it neutralizes even
-# -march=native. The explicit std::fma in two_prod is unaffected (it is an
-# fma by name, still lowered to glibc's ifunc-dispatched hardware FMA), so no
-# speed is lost — measured equal-or-faster. This is the GCC/Clang analog of
-# the IntelLLVM -fp-model=precise above, and makes every build bit-identical
-# to the reference regardless of target ISA.
-if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-    target_compile_options(multifloats PRIVATE -ffp-contract=off)
-endif()
-
-# Runtime FMA dispatch for the matmul kernels (see multifloats_math.cc). ON: the
-# matmul implementation is compiled twice — a portable baseline and an AVX2+FMA
-# copy whose panels vectorize to packed FMA (vfmadd…pd) — and the public entries
-# pick one by CPUID at runtime, so a single binary uses packed FMA where present
-# and runs on any CPU otherwise. OFF: a single baseline build (no second copy,
-# no runtime branch). Effective only on x86-64 GCC — only GCC's vectorizer packs
-# this compensated DD loop; a no-op on Clang/icx (they use the baseline), on
-# AArch64 (FMA is baseline), and on Apple/Mach-O.
-option(MULTIFLOATS_MM_DISPATCH
-       "Runtime FMA-dispatch the matmul kernels (x86-64 GCC)" ON)
-if(NOT MULTIFLOATS_MM_DISPATCH)
-    target_compile_definitions(multifloats PRIVATE MULTIFLOATS_NO_MM_DISPATCH)
-endif()
-
-# NOTE on hardware FMA: the library deliberately does NOT compile with -mfma
-# (or any FMA-enabling -march). Every DD multiply bottoms out in std::fma,
-# which the compiler lowers to a call to glibc's `fma` — and that symbol is a
-# GNU IFUNC: its resolver runs CPUID at load time and binds to the hardware
-# FMA (vfmadd) implementation on capable CPUs, or a software fallback
-# otherwise. So a single portable binary already uses hardware FMA at runtime
-# where present and NEVER executes an illegal instruction on an older CPU.
-# Statically inlining vfmadd (via -mfma) would only save the call/ifunc
-# indirection (~12% on the transcendental kernels) but would SIGILL on any CPU
-# without FMA — unacceptable for a library that must run anywhere. A consumer
-# who fully controls their target CPUs can still pass -mfma/-march via
-# CMAKE_CXX_FLAGS at their own risk.
 
 # LTO via CMake's standard abstraction, gated on the project-wide
 # MULTIFLOATS_USE_LTO option (defined in the top-level CMakeLists.txt).
@@ -202,6 +228,62 @@ else()
         OUTPUT_NAME "multifloats-nolto")
     message(STATUS
         "multifloats: LTO off — archive will be libmultifloats-nolto.a")
+endif()
+
+# ===========================================================================
+# Optional shared library — same compiled objects as the static archive,
+# built as a versioned .so/.dylib.
+#
+# Its dynamic symbol table exports ONLY the extern "C" C ABI: hidden
+# visibility keeps the multifloats:: C++ API and the weak COMDAT header
+# inlines out of the dynsym, so the DSO surface is exactly the stable C ABI
+# (SOVERSION == MULTIFLOATS_ABI_VERSION). One shared object per platform is
+# built by the release's non-LTO jobs (plain machine code, compiler-agnostic).
+# The `check_shared_exports` ctest audits the resulting dynsym.
+# ===========================================================================
+if(MULTIFLOATS_BUILD_SHARED)
+    add_library(multifloats_shared SHARED multifloats_math.cc multifloats_io.cc)
+    _mf_configure_objects(multifloats_shared)
+    set_target_properties(multifloats_shared PROPERTIES
+        OUTPUT_NAME multifloats
+        VERSION   ${MULTIFLOATS_ABI_VERSION}.0.0
+        SOVERSION ${MULTIFLOATS_ABI_VERSION})
+
+    # Match the static archive's LTO setting when both are requested together.
+    # (In the release the shared library is built only in the non-LTO jobs, so
+    # this is normally a no-op; it keeps a hand `-DMULTIFLOATS_BUILD_SHARED=ON
+    # -DMULTIFLOATS_USE_LTO=ON` build consistent.)
+    if(MULTIFLOATS_LTO_ON)
+        set_target_properties(multifloats_shared PROPERTIES
+            INTERPROCEDURAL_OPTIMIZATION_RELEASE        TRUE
+            INTERPROCEDURAL_OPTIMIZATION_RELWITHDEBINFO TRUE
+            INTERPROCEDURAL_OPTIMIZATION_MINSIZEREL     TRUE)
+    endif()
+
+    # Link-time hardening + a fully self-contained shared object:
+    #   ELF   : -z relro,-z now → full RELRO + immediate binding (BIND_NOW), so
+    #           the GOT is read-only after load and there is no lazy-PLT
+    #           surface; --no-undefined fails the link if any symbol is
+    #           unresolved, forcing libstdc++/libm to be recorded NEEDED.
+    #   Mach-O: -bind_at_load is the -z now analog (bind everything at load);
+    #           ld64 already errors on undefined symbols by default.
+    if(APPLE)
+        target_link_options(multifloats_shared PRIVATE LINKER:-bind_at_load)
+    elseif(UNIX)
+        target_link_options(multifloats_shared PRIVATE
+            LINKER:-z,relro LINKER:-z,now LINKER:--no-undefined)
+        target_link_libraries(multifloats_shared PRIVATE m)
+    endif()
+
+    # Installed into libdir with the usual versioned soname + dev symlinks
+    # (libmultifloats.so.N.0.0 ← .so.N ← .so). Deliberately NOT added to the
+    # multifloatsTargets export set: find_package(multifloats) keeps routing
+    # to the static archive via its LTO/nolto selector, and the shared object
+    # is for direct `-lmultifloats` / dlopen binary consumers.
+    install(TARGETS multifloats_shared
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+    message(STATUS
+        "multifloats: shared library on — will build libmultifloats.so.${MULTIFLOATS_ABI_VERSION} / .dylib")
 endif()
 
 # Install: library + header + export targets + Config.cmake

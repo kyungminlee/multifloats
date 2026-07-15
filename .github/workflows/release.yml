@@ -422,6 +422,7 @@ jobs:
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DMULTIFLOATS_BUILD_SHARED=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(sysctl -n hw.ncpu)
 
@@ -478,11 +479,26 @@ jobs:
             -DCMAKE_Fortran_COMPILER=gfortran-14 \
             -DMULTIFLOATS_USE_LTO=OFF \
             -DMULTIFLOATS_BUILD_BENCH=OFF \
+            -DMULTIFLOATS_BUILD_SHARED=ON \
             -DCMAKE_INSTALL_PREFIX=${{ github.workspace }}/install
           cmake --build build -j$(nproc)
 
       - name: Test
         run: cd build && ctest --output-on-failure -j$(nproc)
+
+      # Audit the shipped .so's dynamic symbol table: it must export ONLY the
+      # extern "C" C ABI (SOVERSION == MULTIFLOATS_ABI_VERSION), never the
+      # hidden multifloats:: C++ API or a TU-internal helper. This is the
+      # check_shared_exports ctest run directly against the built shared object,
+      # so the shared-library surface is verified at release time regardless of
+      # BUILD_TESTING. Linux/ELF only (nm -D); the .dylib surface is enforced by
+      # ld64's default handling of hidden visibility.
+      - name: Verify shared-library exports
+        run: |
+          # The real versioned object (libmultifloats.so.N.0.0), not the
+          # .so.N soname symlink — a two-item glob would break arg parsing.
+          SO=$(ls build/src/libmultifloats.so.*.*.*)
+          bash scripts/check_shared_exports.sh "$SO" include/multifloats/float64x2.h
 
       - name: Install C++ only
         run: cmake --install build --component Unspecified
