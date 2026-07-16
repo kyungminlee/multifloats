@@ -124,7 +124,7 @@ re-attempt without new evidence that overrides the recorded trade-off.
 - **Karatsuba complex multiply.** Saves one mul at the cost of a
   catastrophic cancellation in `Im = (a+b)(c+d) − ac − bd` when the
   true Im is near zero. Witness `a=(1,ε), b=(−1,ε)` — pinned in
-  `test/test.cc::test_complex_mul_cancellation`. The 4-mul form stays.
+  `test/unit/test.cc::test_complex_mul_cancellation`. The 4-mul form stays.
 - **Bessel `pq0/pq1` branch tree → computed switch.** A 3-deep balanced
   tree on `xinv_d` already compiles to near-optimal code; replacing
   with `(int)(xinv_d·16.0)` + switch runs inside bench noise
@@ -151,7 +151,7 @@ re-attempt without new evidence that overrides the recorded trade-off.
 
 ### (Closed) fuzz-coverage gap for cbrt, fma, lerp, modulo, remainder, …
 
-Resolved: `test/fuzz.cc` now exercises every public scalar API in
+Resolved: `test/unit/fuzz.cc` now exercises every public scalar API in
 `include/multifloats/float64x2.h`. Recorded here for posterity and so
 nobody re-files the same audit:
 
@@ -277,7 +277,7 @@ bisect history stays clean.
 4. `cpp_bench` / `fortran_bench` — mean of ≥ 5 runs vs libquadmath.
    Run-to-run noise is ≈ ±0.15× on most ops; smaller deltas are
    indistinguishable from noise.
-5. For tolerance pins (`test/test.cc` "Tolerance sensitivity ratchet"),
+5. For tolerance pins (`test/unit/test.cc` "Tolerance sensitivity ratchet"),
    a ≥ 20× drop means the kernel got better — tighten the pin so the
    improvement is locked in. A ≥ 20× rise fails the build.
 
@@ -316,4 +316,4 @@ precision / speed numbers.
 ---
 
 Fixes land one-per-commit. Benchmark and fuzz deltas are the acceptance
-criteria; precision is pinned via tolerance ratchets in `test/test.cc`.
+criteria; precision is pinned via tolerance ratchets in `test/unit/test.cc`.

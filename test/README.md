@@ -10,7 +10,16 @@ The optional MPFR driver raises the reference to 200 bits.
 
 ## Layout
 
-### Curated unit tests
+Sources are grouped by scope:
+
+- `unit/` — per-op correctness, fuzz, and the microbenchmarks (the library's
+  own kernels in isolation), plus the shared C++ test helpers.
+- `integration/` — cross-language / cross-component checks: the Fortran ↔
+  C-ABI equivalence and differential crosscheck, and the installed-package
+  `consumer-fortran/` smoke build.
+- `data/` — fixtures (currently empty).
+
+### Curated unit tests (`unit/`)
 
 | File | Target | ctest name | Purpose |
 |---|---|---|---|
@@ -29,11 +38,13 @@ The optional MPFR driver raises the reference to 200 bits.
 Determinism is enforced by two extra ctest entries (`fuzz_cpp_determinism`,
 `fuzz_fortran_determinism`) that diff two back-to-back runs.
 
-### ABI equivalence
+### Cross-language (`integration/`)
 
 | File | Target | ctest name | Purpose |
 |---|---|---|---|
 | `abi_equivalence.f90` | `fortran_abi_equivalence` | `precision_abi_equivalence` | Pins native / C-ABI DD results to the same HI limb (bit-exact) and LO within 4 ulp on `add/sub/mul/div/sqrt`. |
+| `crosscheck.cc` + `crosscheck_bindings.f90` | `cpp_crosscheck` | `crosscheck_cpp_fortran` | Differential fuzz driving the C++ and Fortran kernels from one binary; requires bit-for-bit limb agreement. |
+| `consumer-fortran/` | — | `consumer_fortran_smoke` | Installs the package and rebuilds a minimal `find_package(multifloatsf)` consumer against the staged tree. |
 
 ### Benchmarks (not wired into ctest)
 
@@ -69,7 +80,7 @@ ctest -R precision_     # curated unit tests
 ctest -R fuzz_          # randomized fuzz
 ```
 
-The benchmark executables are under `build/test/` and are run ad-hoc (or
+The benchmark executables are built at the build-tree root and are run ad-hoc (or
 through `benchmark/run_benchmarks.py` — see `benchmark/README.md`).
 
 ## Fuzz input strategy

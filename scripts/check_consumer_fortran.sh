@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Drive the test/consumer-fortran smoke test against a staged install of
+# Drive the test/integration/consumer-fortran smoke test against a staged install of
 # the in-tree build. Proves that the source-distributed multifloatsf
 # package (shipped as pre-expanded .f90 + multifloatsfConfig.cmake) is
 # find_package()-able by a fresh CMake project and that the consumer can
@@ -44,7 +44,7 @@ MAIN_FC="$(get_compiler Fortran)"
 echo "    using CXX=$MAIN_CXX"
 echo "    using FC =$MAIN_FC"
 
-cmake -S "$REPO/test/consumer-fortran" -B "$CONSUMER_BUILD" \
+cmake -S "$REPO/test/integration/consumer-fortran" -B "$CONSUMER_BUILD" \
     -DCMAKE_PREFIX_PATH="$STAGE" \
     -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_CXX_COMPILER="$MAIN_CXX" \

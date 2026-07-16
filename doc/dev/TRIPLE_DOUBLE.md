@@ -65,7 +65,7 @@ The generator verifies each TD triple against MPFR at 300 bits; the
 
 All in `multifloats::detail`. Named for what they do, not for any
 particular caller. Unit-tested in
-`test/test.cc::test_td_primitives` against `__float128`.
+`test/unit/test.cc::test_td_primitives` against `__float128`.
 
 | Primitive                           | Contract                                                 |
 | ----------------------------------- | -------------------------------------------------------- |

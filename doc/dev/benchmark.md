@@ -17,8 +17,8 @@ Two executables per language, built only when `-DMULTIFLOATS_BUILD_BENCH=ON`
 | `cpp_bench` / `fortran_bench` | wall-clock speedup of the DD kernel vs the `__float128` / `real(16)` reference, per op. |
 | `cpp_fuzz` / `fortran_fuzz` | precision (`max_rel`, `mean_rel`) over 1M adversarial inputs per op. |
 
-The bench and fuzz *sources* live with the test suite (`test/bench.cc`,
-`test/bench.fypp`, `test/bench_abi.f90`, `test/fuzz.{cc,fypp}`); the harness
+The bench and fuzz *sources* live with the test suite (`test/unit/bench.cc`,
+`test/unit/bench.fypp`, `test/unit/bench_abi.f90`, `test/unit/fuzz.{cc,fypp}`); the harness
 under `benchmark/` only drives them and renders the results.
 
 ## The harness

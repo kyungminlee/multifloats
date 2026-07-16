@@ -34,7 +34,7 @@ run from here — they live next to the artifacts they compile into:
 
 - `fsrc/multifloats.fypp` — the Fortran module (also installed as source for
   downstream consumers, hence kept under `fsrc/`).
-- `test/bench.fypp`, `test/fuzz.fypp` — test-suite harnesses.
+- `test/unit/bench.fypp`, `test/unit/fuzz.fypp` — test-suite harnesses.
 
 `fypp` (listed in `requirements.txt`) is the preprocessor CMake invokes; you do
 not normally run it by hand.

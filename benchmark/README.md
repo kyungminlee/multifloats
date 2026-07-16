@@ -142,7 +142,7 @@ surfaces in the rendered table as `—`.
 
 `bench` keys match the label printed by the bench programs (e.g.
 `"add (dd+dp)"`, `"arr_matmul (8x8*8)"`); `fuzz` keys match the
-`update_stats(op, ...)` labels used in `test/fuzz.{cc,f90}` (e.g.
+`update_stats(op, ...)` labels used in `test/unit/fuzz.{cc,f90}` (e.g.
 `"cdd_div_re"` / `"cdd_div_im"` for the split complex ops).
 
 ## Adjusting what appears in the tables

@@ -36,4 +36,4 @@ Sphinx site** (`doc/conf.py`); the user-facing manual is in `doc/user/`.
 - **C++ is the source of truth** for the numeric kernels; port Fortran to C++
   when a compiler blocks optimization.
 - **Fixes land one-per-commit**, gated by the fuzz/bench deltas and the
-  tolerance ratchets in `test/test.cc` — see [`test.md`](test.md).
+  tolerance ratchets in `test/unit/test.cc` — see [`test.md`](test.md).

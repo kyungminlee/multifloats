@@ -7,8 +7,8 @@ Side-by-side comparison of the multifloats `float64x2` kernels against
 `frexp`, `ldexp`, `ilogb` natively; everything else is supplied by
 Boost.Math generics on top of the backend.
 
-The two harnesses live in `test/test_boost_dd.cc` (precision fuzz) and
-`test/bench_boost_dd.cc` (timing). Both gated by
+The two harnesses live in `test/unit/test_boost_dd.cc` (precision fuzz) and
+`test/unit/bench_boost_dd.cc` (timing). Both gated by
 `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` (default OFF, fetches Boost via
 `FetchContent`). Both use the same `__float128` (libquadmath) reference
 oracle as `cpp_fuzz` and `cpp_bench`.
@@ -23,7 +23,7 @@ four harnesses.
 ## Methodology
 
 - **Precision**: each op runs at 1,000,000 iterations against the same
-  random input distribution as `test/fuzz.cc` (10% non-finite, 10% close
+  random input distribution as `test/unit/fuzz.cc` (10% non-finite, 10% close
   pairs, 10% cancellation, 10% near-huge, 10% near-tiny, 50% wide
   random in 10⁶/10⁻⁶ × random sign). **Both harnesses use seed 42** —
   this is critical and was the source of an earlier misleading result
@@ -119,7 +119,7 @@ Initial reading at seed 42 had mf bjn = 5.06e-28 vs boost = 4.14e-29
 (after extending boost coverage to match multifloats' n ∈ {2,3,5,8}).
 Looked like a clean ~12× boost win in the only Bessel slot left.
 
-A regime-binned probe (`test/probe_bjn.cc`) checked all four jn
+A regime-binned probe (`test/unit/probe_bjn.cc`) checked all four jn
 regimes — forward (n ≤ x/2), forward-near (x/2 < n ≤ x), Miller-near
 (x < n ≤ 2x), Miller-far (n > 2x) — across both a deterministic grid
 sweep and a 1M-sample fuzz-style random sweep. Multifloats wins or
@@ -175,7 +175,7 @@ is one `xorpd`) and ties `abs` (boost's `fabs` skips the
 canonical-zero branch multifloats keeps for `(±0, ±0)` correctness).
 
 Why the bench keeps its current methodology: the file header at
-`test/bench.cc:1` calls out that this is timing through the C ABI on
+`test/unit/bench.cc:1` calls out that this is timing through the C ABI on
 purpose, because that's what a Fortran or `bind(c)` consumer
 *actually* sees. The win/loss verdict for those consumers is
 faithfully reported. C++ users calling the inline `multifloats::abs(x)`

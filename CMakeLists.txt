@@ -182,7 +182,7 @@ target_link_libraries(multifloatsf PUBLIC multifloats)
 # -O level comes from CMAKE_<LANG>_FLAGS_<CONFIG> (Release default is
 # -O3 -DNDEBUG on GNU/Clang). -fext-numeric-literals is a *correctness*
 # flag for GCC: it enables `1.0q` __float128 literals used by the
-# quadmath oracle in test/fuzz.cc and bench.cc. Not optional on GCC;
+# quadmath oracle in test/unit/fuzz.cc and bench.cc. Not optional on GCC;
 # Clang/icpx don't accept the flag at all (and don't need it — they
 # parse `1.0q` literals natively when __float128 is enabled).
 function(mf_add_cpp_executable name source)
@@ -210,10 +210,10 @@ endfunction()
 # time. Executable target names are unchanged (no rename cost for
 # downstream tooling / CI configs).
 if(BUILD_TESTING)
-    mf_add_cpp_executable(cpp_test ./test/test.cc)
+    mf_add_cpp_executable(cpp_test ./test/unit/test.cc)
     add_test(NAME precision_cpp COMMAND cpp_test)
 
-    mf_add_cpp_executable(cpp_fuzz ./test/fuzz.cc)
+    mf_add_cpp_executable(cpp_fuzz ./test/unit/fuzz.cc)
     add_test(NAME fuzz_cpp COMMAND cpp_fuzz)
 
     # Seed-determinism: the fuzz RNG must be byte-identical across runs
@@ -225,23 +225,23 @@ if(BUILD_TESTING)
         "diff <($<TARGET_FILE:cpp_fuzz> 2000 0xc0ffee) <($<TARGET_FILE:cpp_fuzz> 2000 0xc0ffee)")
 
     # Fortran tests
-    mf_add_fortran_executable(fortran_precision ./test/precision.f90)
+    mf_add_fortran_executable(fortran_precision ./test/unit/precision.f90)
     add_test(NAME precision_fortran COMMAND fortran_precision)
 
-    mf_add_fortran_executable(fortran_test ./test/test.f90)
+    mf_add_fortran_executable(fortran_test ./test/unit/test.f90)
     add_test(NAME precision_fortran_unit COMMAND fortran_test)
 
     # fortran_fuzz is generated from a fypp template. The .fypp file uses
     # CHK1 / CHK2 / CHK_OP / CHKC1 / CHKC_OP macros to collapse per-op
-    # scaffolding (same pattern as test/bench.fypp).
-    set(_FUZZ_F90 ${CMAKE_CURRENT_BINARY_DIR}/test/fuzz.f90)
+    # scaffolding (same pattern as test/unit/bench.fypp).
+    set(_FUZZ_F90 ${CMAKE_CURRENT_BINARY_DIR}/test/unit/fuzz.f90)
     add_custom_command(
         OUTPUT ${_FUZZ_F90}
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/test
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/test/unit
         COMMAND ${FYPP_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/test/fuzz.fypp
+            ${CMAKE_CURRENT_SOURCE_DIR}/test/unit/fuzz.fypp
             ${_FUZZ_F90}
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/fuzz.fypp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/unit/fuzz.fypp
         VERBATIM)
     mf_add_fortran_executable(fortran_fuzz ${_FUZZ_F90})
     add_test(NAME fuzz_fortran COMMAND fortran_fuzz)
@@ -256,7 +256,7 @@ if(BUILD_TESTING)
     # must produce bit-identical HI and near-identical LO (4 dp ULPs) on
     # the same inputs. Catches ABI drift between the Fortran-native operator
     # path and the C-ABI kernels in multifloats_math.cc.
-    mf_add_fortran_executable(fortran_abi_equivalence ./test/abi_equivalence.f90)
+    mf_add_fortran_executable(fortran_abi_equivalence ./test/integration/abi_equivalence.f90)
     add_test(NAME precision_abi_equivalence COMMAND fortran_abi_equivalence)
 
     # Cross-language differential fuzz. Drives the C++ and Fortran kernels
@@ -266,16 +266,19 @@ if(BUILD_TESTING)
     # side within DD precision independently — they cannot catch sub-ULP
     # algorithmic drift between the two production code paths. Transcendentals
     # delegate to C++ on the Fortran side (see C_DELEGATE_UNARY_MAP in
-    # fsrc/multifloats.fypp) and are covered by test/abi_equivalence.f90.
-    add_library(crosscheck-bindings OBJECT ./test/crosscheck_bindings.f90)
+    # fsrc/multifloats.fypp) and are covered by test/integration/abi_equivalence.f90.
+    add_library(crosscheck-bindings OBJECT ./test/integration/crosscheck_bindings.f90)
     target_link_libraries(crosscheck-bindings PRIVATE multifloatsf)
     set_target_properties(crosscheck-bindings PROPERTIES
         Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fmod/test)
 
-    add_executable(cpp_crosscheck ./test/crosscheck.cc)
+    add_executable(cpp_crosscheck ./test/integration/crosscheck.cc)
     target_compile_options(cpp_crosscheck PRIVATE
         $<$<CXX_COMPILER_ID:GNU>:-fext-numeric-literals>)
-    target_include_directories(cpp_crosscheck PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    # test_common.hh lives with the unit tests; crosscheck reuses it.
+    target_include_directories(cpp_crosscheck PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/test/unit)
     target_link_libraries(cpp_crosscheck PRIVATE
         multifloats crosscheck-bindings multifloatsf quadmath)
     # Mixed C++/Fortran link. Main is .cc (so g++ is the default linker
@@ -327,19 +330,19 @@ endif()  # BUILD_TESTING
 # -DMULTIFLOATS_BUILD_BENCH=OFF on every matrix entry.
 # ----------------------------------------------------------------------
 if(MULTIFLOATS_BUILD_BENCH)
-    mf_add_cpp_executable(cpp_bench ./test/bench.cc)
+    mf_add_cpp_executable(cpp_bench ./test/unit/bench.cc)
 
-    set(_BENCH_F90 ${CMAKE_CURRENT_BINARY_DIR}/test/bench.f90)
+    set(_BENCH_F90 ${CMAKE_CURRENT_BINARY_DIR}/test/unit/bench.f90)
     add_custom_command(
         OUTPUT ${_BENCH_F90}
-        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/test
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/test/unit
         COMMAND ${FYPP_EXECUTABLE}
-            ${CMAKE_CURRENT_SOURCE_DIR}/test/bench.fypp
+            ${CMAKE_CURRENT_SOURCE_DIR}/test/unit/bench.fypp
             ${_BENCH_F90}
-        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/bench.fypp
+        DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/unit/bench.fypp
         VERBATIM)
     mf_add_fortran_executable(fortran_bench ${_BENCH_F90})
-    mf_add_fortran_executable(fortran_bench_abi ./test/bench_abi.f90)
+    mf_add_fortran_executable(fortran_bench_abi ./test/unit/bench_abi.f90)
 endif()
 
 # BLAS extensions (not installed). Compile-only smoke target, useful for
@@ -364,13 +367,13 @@ if(MULTIFLOATS_BUILD_BOOST_COMPARE)
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
     FetchContent_MakeAvailable(Boost)
 
-    mf_add_cpp_executable(boost_dd_fuzz  ./test/test_boost_dd.cc)
+    mf_add_cpp_executable(boost_dd_fuzz  ./test/unit/test_boost_dd.cc)
     target_link_libraries(boost_dd_fuzz  PRIVATE Boost::multiprecision Boost::math)
 
-    mf_add_cpp_executable(boost_dd_bench ./test/bench_boost_dd.cc)
+    mf_add_cpp_executable(boost_dd_bench ./test/unit/bench_boost_dd.cc)
     target_link_libraries(boost_dd_bench PRIVATE Boost::multiprecision Boost::math)
 
-    mf_add_cpp_executable(bjn_probe ./test/probe_bjn.cc)
+    mf_add_cpp_executable(bjn_probe ./test/unit/probe_bjn.cc)
     target_link_libraries(bjn_probe PRIVATE Boost::multiprecision Boost::math)
 
     if(BUILD_TESTING)
@@ -394,10 +397,10 @@ if(BUILD_MPFR_TESTS AND BUILD_TESTING)
         set(MPREAL_INCLUDE_DIR ${mpreal_SOURCE_DIR})
     endif()
 
-    # cpp_fuzz_mpfr reuses test/fuzz.cc with USE_MPFR defined — the single
+    # cpp_fuzz_mpfr reuses test/unit/fuzz.cc with USE_MPFR defined — the single
     # source file carries an MPFR oracle in one compile mode and the
     # quadmath-only fast regression gate in the other.
-    add_executable(cpp_fuzz_mpfr ./test/fuzz.cc)
+    add_executable(cpp_fuzz_mpfr ./test/unit/fuzz.cc)
     target_compile_options(cpp_fuzz_mpfr PRIVATE
         $<$<CXX_COMPILER_ID:GNU>:-fext-numeric-literals>)
     target_compile_definitions(cpp_fuzz_mpfr PRIVATE USE_MPFR)
