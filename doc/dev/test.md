@@ -20,7 +20,7 @@ Keep testing on GCC — the C++ test executables need libquadmath and
 | `precision_cpp` | C++ | Targeted vs-`__float128` checks. |
 | `fuzz_cpp` | C++ | C++ fuzz with the same precision-report machinery. |
 | `fuzz_*_determinism` | shell | Diff two fuzz runs to catch non-determinism. |
-| `dd_constants_up_to_date` | Python | `scripts/gen_constants.py --check` drift detection. See [Codegen](codegen.md). |
+| `dd_constants_up_to_date` | Python | `codegen/gen_constants.py --check` drift detection. See [Codegen](codegen.md). |
 | `fortran_abi_sync` | shell | Every `bind(c, name=*dd*)` matches a `MULTIFLOATS_API` entry. See [Codegen](codegen.md). |
 
 The fuzz drivers are **seeded** (`seed = 42`), so runs are deterministic and

@@ -11,7 +11,7 @@ are reusable for any future kernel with the same cancellation shape.
 Source: `include/multifloats.h` (primitives), `src/float64x2_exp_log.inc`
 (TD exp), `src/float64x2_trig.inc` (TD sincos),
 `src/complex64x2_abi.inc::cexpm1dd` (consumer),
-`scripts/gen_constants.py` → `src/dd_constants.hh` (TD constants).
+`codegen/gen_constants.py` → `src/dd_constants.hh` (TD constants).
 
 ## 1. Why TD (and why only narrowly)
 
@@ -47,7 +47,7 @@ The decisive lesson: **TD arithmetic over DD constants still clamps at
 every constant inside the kernel imposed the DD-precision ceiling
 regardless of how precise the arithmetic around them was.
 
-Fix: promote every load-bearing constant to TD in `scripts/gen_constants.py`
+Fix: promote every load-bearing constant to TD in `codegen/gen_constants.py`
 and emit the extra limb as `*_lo2` alongside the existing `_hi` / `_lo`.
 Current TD constants (listed here so future kernels know what is already
 available before generating more):
@@ -105,7 +105,7 @@ Invariants both kernels preserve:
 Adding a new TD kernel? The checklist:
 
 1. Identify every constant the kernel loads; generate a TD companion
-   limb in `scripts/gen_constants.py`.
+   limb in `codegen/gen_constants.py`.
 2. Rewrite Horner / Taylor / table multiplies with `td_mul_td` +
    `tsum3` accumulators.
 3. FMA-capture every `n·cw_k` range-reduction product.

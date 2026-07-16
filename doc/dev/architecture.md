@@ -56,7 +56,7 @@ produces wrong answers or ships with the wrong ABI tag.
   intentionally asymmetric — Fortran reimplements arithmetic natively,
   so the C header stays a superset.
 - **`dd_constants.hh` regenerates cleanly.** ctest
-  `dd_constants_up_to_date` runs `scripts/gen_constants.py --check`
+  `dd_constants_up_to_date` runs `codegen/gen_constants.py --check`
   (via `uv` when available, falling back to system `python3`). Drift
   between script and header is a test failure.
 

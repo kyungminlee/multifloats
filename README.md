@@ -403,7 +403,7 @@ ctest --test-dir build --output-on-failure
 | `precision_cpp`            | C++      | Targeted vs-`__float128` precision checks for `include/multifloats.h`. |
 | `fuzz_cpp`                 | C++      | C++ fuzz with the same precision-report machinery as the Fortran fuzz. |
 | `fuzz_cpp_determinism` / `fuzz_fortran_determinism` | shell | Diff two runs of the fuzz binaries to catch non-deterministic state. |
-| `dd_constants_up_to_date`  | Python   | Re-runs `scripts/gen_constants.py --check` to detect drift between `src/dd_constants.hh` and the generator. |
+| `dd_constants_up_to_date`  | Python   | Re-runs `codegen/gen_constants.py --check` to detect drift between `src/dd_constants.hh` and the generator. |
 | `fortran_abi_sync`         | shell    | `scripts/check_fortran_abi_sync.sh`: every `bind(c, name=*dd*)` in the generated Fortran module must match a `MULTIFLOATS_API` entry in `multifloats.h`. |
 
 ### Optional: MPFR-based 3-way precision test

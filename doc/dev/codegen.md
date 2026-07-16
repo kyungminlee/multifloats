@@ -6,8 +6,14 @@ output drifts from its generator.
 
 | Generator | Output | Committed? | Drift ctest |
 | --------- | ------ | ---------- | ----------- |
-| `scripts/gen_constants.py` (mpmath) | `src/dd_constants.hh` | yes | `dd_constants_up_to_date` |
+| `codegen/gen_constants.py` (mpmath) | `src/dd_constants.hh` | yes | `dd_constants_up_to_date` |
 | `fsrc/multifloats.fypp` (fypp) | `multifloats-{quad,noquad}.f90` | no (build-time) | `fortran_abi_sync` |
+
+The standalone generator (`gen_constants.py`) and its `requirements.txt` live
+under [`codegen/`](../../codegen/). The `.fypp` sources stay next to the
+artifacts they compile into — `fsrc/multifloats.fypp` is also installed as
+source for downstream consumers, and the `test/*.fypp` harnesses belong with
+the test suite — so only the constants generator was relocated.
 
 ## DD constants — `gen_constants.py`
 
@@ -18,8 +24,8 @@ value split into a `(hi, lo)` pair. They are computed at 60 decimal digits
 emitted as `inline constexpr` arrays.
 
 ```sh
-python3 scripts/gen_constants.py          # regenerate src/dd_constants.hh
-python3 scripts/gen_constants.py --check   # verify without writing (exit ≠ 0 on drift)
+python3 codegen/gen_constants.py          # regenerate src/dd_constants.hh
+python3 codegen/gen_constants.py --check   # verify without writing (exit ≠ 0 on drift)
 ```
 
 Requires `mpmath` (`pip install mpmath`). The header is **committed**: a plain

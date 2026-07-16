@@ -1,0 +1,11 @@
+# Python toolchain for the multifloats code generators.
+#
+#   python3 -m pip install -r codegen/requirements.txt
+#   # or, with uv:  uv run --with-requirements codegen/requirements.txt ...
+#
+# mpmath — arbitrary-precision reference used by gen_constants.py to compute
+#          the double-double constant tables (src/dd_constants.hh).
+# fypp   — the preprocessor that expands the .fypp sources (fsrc/multifloats.fypp
+#          and the test/*.fypp harnesses) at build time.
+mpmath
+fypp
