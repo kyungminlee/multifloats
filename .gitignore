@@ -1,9 +1,17 @@
+# Build trees (including per-preset build/<preset>/ from CMakePresets.json)
 build/
+build-*/
 .cache/
 .claude/
 compile_commands.json
 Testing/
+
+# Generated sources (fypp-expanded Fortran, configured headers) — produced
+# into the build tree, never committed.
+*.mod
+
+# Compiled objects / archives
 *.o
 *.a
-*.mod
+
 __pycache__/

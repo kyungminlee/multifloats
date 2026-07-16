@@ -19,7 +19,23 @@ if(NOT DEFINED CMAKE_Fortran_COMPILER)
     endif()
 endif()
 
-project(multifloats-dev LANGUAGES CXX Fortran)
+# Semantic (release) version — single source of truth in the VERSION file at
+# the repository root, read here so the project version, the generated
+# multifloats/version.h, and the docs all derive from one place. The C-ABI
+# compatibility number (MULTIFLOATS_ABI_VERSION, parsed from the header below)
+# is a separate axis and drives SOVERSION, not this.
+file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" MULTIFLOATS_VERSION LIMIT_COUNT 1)
+string(STRIP "${MULTIFLOATS_VERSION}" MULTIFLOATS_VERSION)
+if(NOT MULTIFLOATS_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+")
+    message(FATAL_ERROR "multifloats: VERSION file must contain a semantic version (got '${MULTIFLOATS_VERSION}')")
+endif()
+string(REPLACE "." ";" _mf_ver_parts "${MULTIFLOATS_VERSION}")
+list(GET _mf_ver_parts 0 MULTIFLOATS_VERSION_MAJOR)
+list(GET _mf_ver_parts 1 MULTIFLOATS_VERSION_MINOR)
+list(GET _mf_ver_parts 2 MULTIFLOATS_VERSION_PATCH)
+unset(_mf_ver_parts)
+
+project(multifloats-dev VERSION ${MULTIFLOATS_VERSION} LANGUAGES CXX Fortran)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)

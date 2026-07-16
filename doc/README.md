@@ -39,7 +39,7 @@ doc/
     index.md         landing page + toctree
     api/             Breathe-extracted C/C++ API reference
   dev/               contributor docs (excluded from the built site)
-  CHANGELOG.md       release history (linked from user/index)
+  changelog.md       stub that {include}s the root CHANGELOG.md into the site
   requirements.txt   Python toolchain (sphinx, breathe, myst-parser, furo, ...)
   build.sh, Makefile build drivers
 ```

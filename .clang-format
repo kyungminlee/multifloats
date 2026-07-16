@@ -1,0 +1,16 @@
+# multifloats C/C++ style. The tree is written LLVM-style: 2-space indent,
+# 80-column soft limit, pointer binds to the type. Run `clang-format -i` on
+# C/C++ sources before sending a change. The .inc files are C++ translation-
+# unit fragments (#included into a .cc); format them with `--assume-filename`
+# set to a .cc, e.g. `clang-format --assume-filename=x.cc src/foo.inc`.
+Language: Cpp
+BasedOnStyle: LLVM
+IndentWidth: 2
+ColumnLimit: 80
+DerivePointerAlignment: false
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: Inline
+AlwaysBreakTemplateDeclarations: Yes
+IndentPPDirectives: None
+KeepEmptyLinesAtTheStartOfBlocks: false
+SpaceAfterCStyleCast: true

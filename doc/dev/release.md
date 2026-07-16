@@ -8,7 +8,7 @@ How a versioned release is cut and published. The whole pipeline lives in
 Semantic versioning ([semver](https://semver.org/)). Two independent axes:
 
 - **Release version** (`vMAJOR.MINOR.PATCH`) lives in exactly two places:
-  the top entry of `doc/CHANGELOG.md` and the git tag. There is no version
+  the top entry of `CHANGELOG.md` and the git tag. There is no version
   string in `CMakeLists.txt` or any header — nothing else to bump.
 - **ABI version** is `#define MULTIFLOATS_ABI_VERSION` in
   `include/multifloats/float64x2.h`. It is the single source of truth for the
@@ -22,7 +22,7 @@ bump `MULTIFLOATS_ABI_VERSION`).
 
 ## Cut a release
 
-1. **Update `doc/CHANGELOG.md`.** Add a `## [X.Y.Z] — YYYY-MM-DD` (ISO-8601
+1. **Update `CHANGELOG.md`.** Add a `## [X.Y.Z] — YYYY-MM-DD` (ISO-8601
    UTC) entry above the previous one, grouped `Added` / `Changed` / `Fixed` /
    `Removed`. Lead with one line stating whether numeric behavior or the ABI
    changed. Commit to `main` (`docs(changelog): cut X.Y.Z`).

@@ -453,6 +453,10 @@ failure, understand the DD/triple-double internals, and cut a release
 
 ## License
 
-See [LICENSE](LICENSE) (if present) or the source headers for licensing terms.
+multifloats is released under the [MIT License](LICENSE).
+
+The vendored `external/libquadmath/` tree is a third-party dependency under its
+own terms (LGPL; see `external/libquadmath/COPYING.LIB`) and is not part of the
+MIT-licensed library.
 
 [fypp]: https://fypp.readthedocs.io/

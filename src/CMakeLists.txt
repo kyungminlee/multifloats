@@ -4,6 +4,17 @@ include(GNUInstallDirs)
 
 set(MULTIFLOATS_PUBLIC_INCLUDE_DIR ${CMAKE_CURRENT_LIST_DIR}/../include)
 
+# Generated version header. configure_file() substitutes the
+# MULTIFLOATS_VERSION_* values (set at the top level from the VERSION file, and
+# inherited here) into version.h.in, writing the result into the build tree. It
+# is added to the public include path below and installed with the hand-written
+# headers, so consumers can `#include <multifloats/version.h>`.
+set(MULTIFLOATS_GENERATED_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated/include)
+configure_file(
+    ${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats/version.h.in
+    ${MULTIFLOATS_GENERATED_INCLUDE_DIR}/multifloats/version.h
+    @ONLY)
+
 # ABI bookkeeping — parse MULTIFLOATS_ABI_VERSION straight out of the header
 # so a bump there is the single source of truth. Without this, SOVERSION and
 # the header constant drift silently and the shared-library build would ship a
@@ -66,6 +77,7 @@ function(_mf_configure_objects tgt)
     target_compile_features(${tgt} PUBLIC cxx_std_17)
     target_include_directories(${tgt}
         PUBLIC $<BUILD_INTERFACE:${MULTIFLOATS_PUBLIC_INCLUDE_DIR}>
+               $<BUILD_INTERFACE:${MULTIFLOATS_GENERATED_INCLUDE_DIR}>
                $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -295,6 +307,7 @@ install(FILES
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(FILES
     ${MULTIFLOATS_PUBLIC_INCLUDE_DIR}/multifloats/float64x2.h
+    ${MULTIFLOATS_GENERATED_INCLUDE_DIR}/multifloats/version.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/multifloats)
 
 # Targets file: LTO builds are per-compiler-tagged (`-lto-<tag>`) so several

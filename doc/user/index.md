@@ -33,7 +33,7 @@ error-handling
 :caption: Reference
 
 api/index
-/CHANGELOG
+/changelog
 ```
 
 ## Quick taste

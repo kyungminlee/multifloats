@@ -1,0 +1,21 @@
+# multifloats clang-tidy configuration. Focused on correctness and portability
+# checks that matter for a numeric kernel library; the noisier stylistic and
+# "modernize everything" checks are left off so the signal stays high.
+#
+# Run against the compile database CMake emits (compile_commands.json):
+#   clang-tidy -p build src/multifloats_math.cc
+Checks: >
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  portability-*,
+  misc-*,
+  cppcoreguidelines-narrowing-conversions,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-branch-clone,
+  -misc-no-recursion,
+  -misc-non-private-member-variables-in-classes,
+  -misc-include-cleaner
+WarningsAsErrors: ''
+HeaderFilterRegex: '(include/multifloats|src)/.*\.(h|hh|inc)$'
+FormatStyle: file

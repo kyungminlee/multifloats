@@ -1,0 +1,15 @@
+/* multifloats version — generated from the top-level VERSION file by CMake.
+ * Do not edit; edit VERSION at the repository root instead.
+ *
+ * This is the semantic (release) version. The C-ABI compatibility number is
+ * separate and lives as MULTIFLOATS_ABI_VERSION in <multifloats/float64x2.h>.
+ */
+#ifndef MULTIFLOATS_VERSION_H
+#define MULTIFLOATS_VERSION_H
+
+#define MULTIFLOATS_VERSION_MAJOR @MULTIFLOATS_VERSION_MAJOR@
+#define MULTIFLOATS_VERSION_MINOR @MULTIFLOATS_VERSION_MINOR@
+#define MULTIFLOATS_VERSION_PATCH @MULTIFLOATS_VERSION_PATCH@
+#define MULTIFLOATS_VERSION_STRING "@MULTIFLOATS_VERSION@"
+
+#endif /* MULTIFLOATS_VERSION_H */
