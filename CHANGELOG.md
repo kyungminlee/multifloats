@@ -6,6 +6,29 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.10.0] — 2026-07-16
+
+Repository reorganization only — no changes to numeric behavior, the ABI, the
+public headers, or the contents of the shipped artifacts.
+
+### Changed
+
+- **Source tree reorganized to a target-template layout.** Kernel `.inc`
+  fragments are grouped into per-module subdirectories (`src/float64x2/`,
+  `src/complex64x2/`); the test suite is split into `test/unit/`,
+  `test/integration/`, and `test/data/`; `external/` → `extern/`, the
+  constants generator moved to `codegen/`, and `bench/` → `benchmark/`.
+  Documentation was reorganized into `doc/user/` and `doc/dev/`, with
+  `conf.py` / `Doxyfile` now templated from the root `VERSION` file, and
+  `CHANGELOG.md` promoted to the repository root. Build target names, ctest
+  names, and installed-package layout are unchanged.
+
+### Added
+
+- **`example/`** — minimal, self-contained C++ and Fortran programs that
+  compute π to full double-double precision, wired against an installed
+  package with `find_package()` as a consumption template.
+
 ## [0.9.1] — 2026-07-15
 
 Release-pipeline fixes only — no changes to numeric behavior, the ABI, or
