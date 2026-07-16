@@ -7,9 +7,10 @@ How a versioned release is cut and published. The whole pipeline lives in
 
 Semantic versioning ([semver](https://semver.org/)). Two independent axes:
 
-- **Release version** (`vMAJOR.MINOR.PATCH`) lives in exactly two places:
-  the top entry of `CHANGELOG.md` and the git tag. There is no version
-  string in `CMakeLists.txt` or any header — nothing else to bump.
+- **Release version** (`vMAJOR.MINOR.PATCH`) lives in three places that must
+  agree: the root `VERSION` file (parsed at configure time and substituted
+  into the docs), the top entry of `CHANGELOG.md`, and the git tag. There is
+  no version string in `CMakeLists.txt` or any header.
 - **ABI version** is `#define MULTIFLOATS_ABI_VERSION` in
   `include/multifloats/float64x2.h`. It is the single source of truth for the
   shared library `SOVERSION` (parsed at configure time in `CMakeLists.txt` and
@@ -22,10 +23,11 @@ bump `MULTIFLOATS_ABI_VERSION`).
 
 ## Cut a release
 
-1. **Update `CHANGELOG.md`.** Add a `## [X.Y.Z] — YYYY-MM-DD` (ISO-8601
-   UTC) entry above the previous one, grouped `Added` / `Changed` / `Fixed` /
-   `Removed`. Lead with one line stating whether numeric behavior or the ABI
-   changed. Commit to `main` (`docs(changelog): cut X.Y.Z`).
+1. **Bump `VERSION` and update `CHANGELOG.md`.** Set the root `VERSION` file
+   to `X.Y.Z`, and add a `## [X.Y.Z] — YYYY-MM-DD` (ISO-8601 UTC) entry above
+   the previous one, grouped `Added` / `Changed` / `Fixed` / `Removed`. Lead
+   with one line stating whether numeric behavior or the ABI changed. Commit
+   both to `main` (`docs(changelog): cut X.Y.Z`).
 
 2. **(Optional) Dry-run the matrix** without publishing — see below. Recommended
    when the release touches the build or the workflow itself.
