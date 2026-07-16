@@ -21,11 +21,11 @@ changes; and a stable C ABI (the `*dd` entry points) bridges both.
 :maxdepth: 2
 :caption: Guides
 
-guides/getting-started
-guides/building
-guides/precision
-guides/matmul
-guides/error-handling
+installation
+usage
+precision
+matmul
+error-handling
 ```
 
 ```{toctree}
@@ -33,8 +33,7 @@ guides/error-handling
 :caption: Reference
 
 api/index
-BENCHMARK
-CHANGELOG
+/CHANGELOG
 ```
 
 ## Quick taste
@@ -73,4 +72,11 @@ print *, y
 The Fortran API reference is not yet part of this site. It will be added
 later via [FORD](https://forddocs.readthedocs.io/). For now the Fortran
 surface is documented narratively in the guides and in the project README.
+```
+
+```{note}
+Working *on* multifloats rather than *with* it? The contributor
+documentation (configure, build, test, debug, release, internals) lives in
+[`doc/dev/`](https://github.com/kyungminlee/multifloats/tree/main/doc/dev)
+and is read from the source tree, not this site.
 ```

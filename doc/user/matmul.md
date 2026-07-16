@@ -27,7 +27,7 @@ The C ABI exposes the three kernels directly as `matmuldd_mm` / `matmuldd_mv`
 These constraints are deliberate: the compensated DD kernels use a
 register-blocked panel design that assumes contiguous column-major storage.
 Relaxing them (GEMM-style trans/alpha/beta/LDA) is tracked as deferred work in
-`doc/developer/INTERNALS.md`.
+[`doc/dev/architecture.md`](https://github.com/kyungminlee/multifloats/blob/main/doc/dev/architecture.md).
 
 ## Renormalization interval
 

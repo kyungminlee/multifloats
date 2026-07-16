@@ -33,14 +33,15 @@ Output lands in `doc/_build/html/index.html`.
 
 ```
 doc/
-  conf.py            Sphinx configuration
+  conf.py            Sphinx configuration (site root = user/index)
   Doxyfile           Doxygen config (header -> _doxygen/xml, XML only)
-  index.md           landing page + toctree
-  guides/            narrative user guides (MyST Markdown)
-  api/               Breathe-extracted C/C++ API reference
+  user/              the published user manual (MyST Markdown)
+    index.md         landing page + toctree
+    api/             Breathe-extracted C/C++ API reference
+  dev/               contributor docs (excluded from the built site)
+  CHANGELOG.md       release history (linked from user/index)
   requirements.txt   Python toolchain (sphinx, breathe, myst-parser, furo, ...)
   build.sh, Makefile build drivers
-  developer/         developer-only notes (excluded from the built site)
 ```
 
 ## Notes

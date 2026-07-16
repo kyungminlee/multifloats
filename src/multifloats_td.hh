@@ -8,7 +8,7 @@
 // multifloat — just enough primitives to carry a residue through a
 // single TD × TD → TD ⊖ 1 pipeline and fold back to DD at the output.
 //
-// See doc/developer/TRIPLE_DOUBLE.md.
+// See doc/dev/TRIPLE_DOUBLE.md.
 #pragma once
 
 #include "multifloats.h"

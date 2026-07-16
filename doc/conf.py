@@ -12,6 +12,10 @@ author = "Kyungmin Lee"
 copyright = "2026, Kyungmin Lee"
 
 # -- General configuration ---------------------------------------------------
+# The user manual lives under doc/user/; its index is the site root. The
+# doc/dev/ tree is contributor-only and excluded below.
+root_doc = "user/index"
+
 extensions = [
     "myst_parser",        # Markdown (MyST) authoring
     "breathe",            # Doxygen XML -> Sphinx
@@ -27,7 +31,7 @@ exclude_patterns = [
     "Doxyfile",
     "requirements.txt",
     "README.md",          # build instructions, not a doc page
-    "developer",          # developer-only notes, not part of the user docs
+    "dev",                # contributor-only notes, not part of the user docs
 ]
 
 # -- MyST (Markdown) ---------------------------------------------------------

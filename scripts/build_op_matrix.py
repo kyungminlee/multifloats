@@ -2,7 +2,7 @@
 # Build the comprehensive multifloats vs boost op matrix from the four
 # harnesses' textual reports. Reads /tmp/{mf,bd}_{fuzz,bench}.txt and
 # emits Markdown to stdout, suitable for splicing into
-# doc/developer/BOOST_OP_MATRIX.md.
+# doc/dev/BOOST_OP_MATRIX.md.
 #
 # Run after:
 #   ./build/cpp_fuzz       1000000 42 > /tmp/mf_fuzz.txt
@@ -196,7 +196,7 @@ print("./build/cpp_fuzz       1000000 42 > /tmp/mf_fuzz.txt")
 print("./build/boost_dd_fuzz  1000000 42 > /tmp/bd_fuzz.txt")
 print("./build/cpp_bench                  > /tmp/mf_bench.txt")
 print("./build/boost_dd_bench             > /tmp/bd_bench.txt")
-print("python3 scripts/build_op_matrix.py > doc/developer/BOOST_OP_MATRIX.md")
+print("python3 scripts/build_op_matrix.py > doc/dev/BOOST_OP_MATRIX.md")
 print("```")
 print()
 print("Boost's `cpp_double_double` backend natively implements only")

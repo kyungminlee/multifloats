@@ -1,6 +1,6 @@
 # Benchmark automation
 
-Scripts that keep [`BENCHMARK.md`](../doc/BENCHMARK.md) in sync with
+Scripts that keep [`doc/dev/benchmarks.md`](../doc/dev/benchmarks.md) in sync with
 reproducible results collected on each target machine.
 
 ## Layout
@@ -10,14 +10,14 @@ bench/
 ├── ops.py                 # op metadata (categories, approaches, prec labels)
 ├── BENCHMARK.md.j2        # Jinja2 template for BENCHMARK.md
 ├── run_benchmarks.py      # builds + runs fuzz/bench, writes per-system JSON
-├── build_benchmark_md.py  # renders BENCHMARK.md from per-system JSON files
+├── build_benchmark_md.py  # renders benchmarks.md from per-system JSON files
 └── results/
     ├── benchmark-m1-max.json
     └── benchmark-raptor-lake.json
 ```
 
 The JSON files under `results/` are the single source of truth for the
-tables in `BENCHMARK.md`. Each file captures one system's bench speedups
+tables in `doc/dev/benchmarks.md`. Each file captures one system's bench speedups
 (from `fortran_bench` / `cpp_bench`) plus its fuzz `max_rel` values (from
 `fortran_fuzz` / `cpp_fuzz`), together with a short system description
 (CPU, OS, compiler, build flags).
@@ -77,7 +77,7 @@ On a warm toolchain:
 - `fortran_fuzz`: ~5–15 min (1M iterations × many ops).
 - `cpp_fuzz`: ~2–5 min.
 
-## Regenerating `BENCHMARK.md`
+## Regenerating `benchmarks.md`
 
 After collecting (or updating) a result JSON file, render the Markdown.
 The renderer is **single-architecture** — pass exactly one JSON path:
@@ -86,7 +86,7 @@ The renderer is **single-architecture** — pass exactly one JSON path:
 python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
 ```
 
-This writes `doc/BENCHMARK.md` from that one file as a single flat
+This writes `doc/dev/benchmarks.md` from that one file as a single flat
 table (one row per op, with C-ABI and Fortran-elemental measurements
 merged side-by-side in a `speedup (C / F)` column).
 
@@ -104,8 +104,8 @@ python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json -o /tmp/
 # On the target machine
 python3 bench/run_benchmarks.py --name "M1 Max"
 python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
-git add bench/results/benchmark-m1-max.json doc/BENCHMARK.md
-git commit -m "bench: refresh m1-max results + regenerate BENCHMARK.md"
+git add bench/results/benchmark-m1-max.json doc/dev/benchmarks.md
+git commit -m "bench: refresh m1-max results + regenerate benchmarks.md"
 ```
 
 ## JSON schema

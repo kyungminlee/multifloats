@@ -16,7 +16,7 @@ cmake --build build -j --target cpp_fuzz cpp_bench boost_dd_fuzz boost_dd_bench
 ./build/boost_dd_fuzz  1000000 42 > /tmp/bd_fuzz.txt
 ./build/cpp_bench                  > /tmp/mf_bench.txt
 ./build/boost_dd_bench             > /tmp/bd_bench.txt
-python3 scripts/build_op_matrix.py > doc/developer/BOOST_OP_MATRIX.md
+python3 scripts/build_op_matrix.py > doc/dev/BOOST_OP_MATRIX.md
 ```
 
 Boost's `cpp_double_double` backend natively implements only

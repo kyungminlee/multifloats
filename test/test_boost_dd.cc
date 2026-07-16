@@ -304,7 +304,7 @@ int main(int argc, char **argv) {
   long iterations = 1000000;
   // Match cpp_fuzz default (42) so a no-arg run of either binary draws the
   // same input sequence — important for diffing precision rows. See
-  // doc/developer/BOOST_COMPARISON.md "Sampling-variance correction".
+  // doc/dev/BOOST_COMPARISON.md "Sampling-variance correction".
   uint64_t seed = 42ULL;
   if (argc > 1) iterations = std::atol(argv[1]);
   if (argc > 2) seed = std::strtoull(argv[2], nullptr, 0);

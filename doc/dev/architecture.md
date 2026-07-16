@@ -1,14 +1,14 @@
-# Library internals
+# Architecture
 
 Cross-cutting reference for contributors working on the DD kernels,
 build, and test surface. Distilled from the April-2026 source-tree
 audit and the precision-improvement tiers that followed; the
 item-by-item roadmap with resolutions, measurements, and commit
-hashes lived in `doc/developer/AUDIT_TODO.md` and
-`doc/developer/PROGRESS-PRECISION.md`, both of which were removed
+hashes lived in `doc/dev/AUDIT_TODO.md` and
+`doc/dev/PROGRESS-PRECISION.md`, both of which were removed
 from the tree post-audit and now exist only in git history.
 
-Companion: `doc/developer/TRIPLE_DOUBLE.md` covers the narrow TD path
+Companion: `doc/dev/TRIPLE_DOUBLE.md` covers the narrow TD path
 (`float64x3`, `exp_full_td`, `sincos_full_td`, `cexpm1dd` regime
 split). This file points into it wherever the TD infrastructure is
 the answer to a question raised here.
@@ -104,7 +104,7 @@ From `cpp_fuzz_mpfr` at 200-bit MPFR reference, post-audit:
 
 1 ulp_dd ≈ 2⁻¹⁰⁵ ≈ 2.47e-32. These numbers are the bar: a change that
 regresses any of them is rejected unless traded for a proportional win
-elsewhere (documented in `doc/BENCHMARK.md`).
+elsewhere (documented in `doc/dev/benchmarks.md`).
 
 ## 4. Designs measured and rejected
 
@@ -187,7 +187,7 @@ the sqrt rewrite. Not a regression gate yet; informational.
 
 ### (Open) `bjn` precision: 19× behind boost.math
 
-See `doc/developer/BOOST_COMPARISON.md`. multifloats `jn(int, x)` uses
+See `doc/dev/BOOST_COMPARISON.md`. multifloats `jn(int, x)` uses
 2 dispatch regimes (forward when `n ≤ x`, Miller's CF1 when `n > x`),
 boost uses 4 (asymptotic / forward / power-series / CF1+backward) and
 its CF1 path stabilizes seed error in the regime where multifloats
