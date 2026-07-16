@@ -351,8 +351,8 @@ endif()
 # depends on it (it exists to exercise the Fortran ABI surface).
 if(BUILD_TESTING)
     add_library(blas-multifloat STATIC
-        ./blas/wgemm.f90
-        ./blas/wtrsm.f90)
+        ./test/integration/blas/wgemm.f90
+        ./test/integration/blas/wtrsm.f90)
     target_link_libraries(blas-multifloat PRIVATE multifloatsf)
 endif()
 

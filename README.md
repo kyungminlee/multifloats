@@ -244,7 +244,8 @@ trans/alpha/beta/LDA) is tracked under "Deferred / out-of-scope work"
 in `doc/dev/architecture.md` for a future release; it requires a
 new set of panel dispatchers to cover the additional shapes.
 
-**BLAS shims.** `blas/wgemm.f90` and `blas/wtrsm.f90` provide
+**BLAS shims.** `test/integration/blas/wgemm.f90` and
+`test/integration/blas/wtrsm.f90` provide
 `real(qp)`-mangled DGEMM/DTRSM-style wrappers that route to the DD
 kernels for the non-transposed cases (for use with LAPACK routines that
 need quad-precision substitutes).
@@ -438,12 +439,11 @@ include/multifloats/float64x2.h        -- unified C / C++ public header
 include/multifloats.h                  -- compatibility shim (forwards to the header above)
 src/                                   -- C++ .cc sources + implementation-detail .inc fragments,
                                           grouped by module: src/float64x2/, src/complex64x2/
-blas/                                  -- BLAS shims for real64x2
 codegen/                               -- offline generators (mpmath DD constants) + their deps
 example/                               -- minimal find_package() consumer programs (C++ + Fortran)
 benchmark/                             -- benchmark harness (Python; opt-in via MULTIFLOATS_BUILD_BENCH)
 test/                                  -- test suites: unit/ (per-op, fuzz, bench), integration/
-                                          (cross-language + consumer smoke), data/ (fixtures)
+                                          (cross-language, consumer + BLAS-shim smoke), data/ (fixtures)
 extern/                                -- vendored references (MultiFloats.jl, LAPACK)
 doc/                                   -- user manual (doc/user/) and developer docs (doc/dev/)
 ```
