@@ -5,21 +5,21 @@
 // `cexpdd → multifloats::exp + multifloats::sincos`) without depending
 // on -flto.
 //
-//   float64x2_exp_log.inc     exp / exp2 / expm1 / log /
+//   float64x2/exp_log.inc     exp / exp2 / expm1 / log /
 //                                    log2 / log10 / log1p / pow
-//   float64x2rig.inc        sin / cos / tan / sincos /
+//   float64x2/trig.inc        sin / cos / tan / sincos /
 //                                    sinpi / cospi / tanpi +
 //                                    inverse π-scaled helpers
-//   float64x2_hyp.inc         sinh / cosh / tanh / sinhcosh
-//   float64x2_inv_trig.inc    atan / asin / acos / atan2 +
+//   float64x2/hyp.inc         sinh / cosh / tanh / sinhcosh
+//   float64x2/inv_trig.inc    atan / asin / acos / atan2 +
 //                                    asinh / acosh / atanh
-//   float64x2_special.inc     erf / erfc / erfc_scaled /
+//   float64x2/special.inc     erf / erfc / erfc_scaled /
 //                                    tgamma / lgamma
-//   float64x2_bessel.inc      J0 / J1 / Y0 / Y1 / Jn / Yn
-//   float64x2_matmul.inc      compensated GEMM panels
-//   float64x2_abi.inc  extern "C" scalar wrappers,
+//   float64x2/bessel.inc      J0 / J1 / Y0 / Y1 / Jn / Yn
+//   float64x2/matmul.inc      compensated GEMM panels
+//   float64x2/abi.inc         extern "C" scalar wrappers,
 //                                    matmul entry points, comparisons
-//   complex64x2_abi.inc extern "C" complex DD kernels
+//   complex64x2/abi.inc       extern "C" complex DD kernels
 //
 // Public transcendental kernels live in `namespace multifloats` with
 // matching declarations in multifloats.h. The `extern "C" *dd` shims
@@ -40,8 +40,8 @@
 // same-TU inline bodies they did before.
 namespace multifloats {
 namespace detail {
-#include "float64x2_td.inc"
-#include "float64x2_poly.inc"
+#include "float64x2/td.inc"
+#include "float64x2/poly.inc"
 } // namespace detail
 } // namespace multifloats
 
@@ -53,13 +53,13 @@ namespace detail {
 // qualifier.
 namespace multifloats {
 using namespace multifloats::detail;  // neval, deval, horner, float64x3, kernels
-#include "float64x2_exp_log.inc"
-#include "float64x2_trig.inc"
-#include "float64x2_hyp.inc"
-#include "float64x2_inv_trig.inc"
-#include "float64x2_td_log_atan2.inc"
-#include "float64x2_special.inc"
-#include "float64x2_bessel.inc"
+#include "float64x2/exp_log.inc"
+#include "float64x2/trig.inc"
+#include "float64x2/hyp.inc"
+#include "float64x2/inv_trig.inc"
+#include "float64x2/td_log_atan2.inc"
+#include "float64x2/special.inc"
+#include "float64x2/bessel.inc"
 } // namespace multifloats
 
 // Complex overloads for Kind-D parity (sinpi/cospi/expm1/log2/log10/log1p
@@ -67,7 +67,7 @@ using namespace multifloats::detail;  // neval, deval, horner, float64x3, kernel
 // the inclusion of multifloats.h at top.
 namespace multifloats {
 using namespace multifloats::detail;  // sincos_td + TD primitives
-#include "complex64x2_abi_kernels.inc"
+#include "complex64x2/abi_kernels.inc"
 } // namespace multifloats
 
 // =============================================================================
@@ -77,7 +77,7 @@ using namespace multifloats::detail;  // sincos_td + TD primitives
 // Pull the two public types into TU-scope so the anon namespace helpers,
 // the matmul wrappers, and the extern "C" shim blocks below can all name
 // them unqualified. `complex64x2` is a distinct POD (two back-to-back
-// float64x2s); the C-ABI shims in complex64x2_abi.inc marshal it to/from
+// float64x2s); the C-ABI shims in complex64x2/abi.inc marshal it to/from
 // `std::complex<float64x2>` at the kernel boundary so C/C++/Fortran all
 // see the same struct at the ABI layer (LTO type-identity match).
 using multifloats::float64x2;
@@ -177,7 +177,7 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
 // attribute` path on Clang/icx. AArch64 has FMA in its base ISA (no dispatch);
 // Apple/Mach-O excluded. Opt out with -DMULTIFLOATS_NO_MM_DISPATCH.
 namespace mm_scalar {
-#include "float64x2_matmul.inc"
+#include "float64x2/matmul.inc"
 }
 #if defined(__x86_64__) && !defined(__APPLE__) && defined(__GNUC__) &&         \
     !defined(__clang__) && !defined(MULTIFLOATS_NO_MM_DISPATCH)
@@ -185,7 +185,7 @@ namespace mm_scalar {
 #pragma GCC push_options
 #pragma GCC target("arch=haswell")
 namespace mm_vec {
-#include "float64x2_matmul.inc"
+#include "float64x2/matmul.inc"
 }
 #pragma GCC pop_options
 #endif  // dispatch active
@@ -193,7 +193,7 @@ namespace mm_vec {
 
 // Public C++ matmul entry points. Each dispatches to the baseline (mm_scalar)
 // or the FMA-vectorized (mm_vec) copy of the driver by CPUID at runtime. The
-// `matmuldd_*` shims in float64x2_abi.inc forward to these one-for-one.
+// `matmuldd_*` shims in float64x2/abi.inc forward to these one-for-one.
 namespace multifloats {
 
 #ifdef MULTIFLOATS_MM_DISPATCH_ACTIVE
@@ -237,7 +237,7 @@ void matmul_vm(float64x2 const *x, float64x2 const *b, float64x2 *y,
 // Pulled into namespace std so the explicit specialization syntax is in
 // the right enclosing namespace.
 namespace std {
-#include "complex64x2_std.inc"
+#include "complex64x2/std.inc"
 } // namespace std
 
 // The C-ABI *dd shims live in `namespace multifloats` so their declarations
@@ -247,8 +247,8 @@ namespace std {
 // the namespace scope only affects C++ lookup/ADL.
 namespace multifloats {
 extern "C" {
-#include "float64x2_abi.inc"
-#include "complex64x2_abi.inc"
-#include "float64x2_f64x2_aliases.inc"
+#include "float64x2/abi.inc"
+#include "complex64x2/abi.inc"
+#include "float64x2/f64x2_aliases.inc"
 } // extern "C"
 } // namespace multifloats

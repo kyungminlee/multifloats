@@ -5,11 +5,11 @@
 //
 // The authoritative C++ kernels still operate on `std::complex<float64x2>`:
 //   • transcendentals + abs/arg/proj → std:: specializations in
-//     complex64x2_std.inc (pulled into multifloats_math.cc
+//     complex64x2/std.inc (pulled into multifloats_math.cc
 //     inside `namespace std`)
 //   • Kind-D overloads (log2/log10/log1p/expm1/sinpi/cospi) →
 //     `namespace multifloats` overloads in
-//     complex64x2_abi_kernels.inc
+//     complex64x2/abi_kernels.inc
 //
 // Each shim marshals the POD → `std::complex<float64x2>` at entry and back
 // at exit. The marshal is two float64x2 copies; the static_asserts in the
