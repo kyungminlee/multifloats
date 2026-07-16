@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Run the fortran_fuzz / fortran_bench / cpp_fuzz / cpp_bench executables
-and produce a per-system JSON blob suitable for ``bench/build_benchmark_md.py``.
+and produce a per-system JSON blob suitable for ``benchmark/build_benchmark_md.py``.
 
 Usage (simplest form):
 
-    python3 bench/run_benchmarks.py --name "M1 Max"
+    python3 benchmark/run_benchmarks.py --name "M1 Max"
 
-The output lands at ``bench/results/benchmark-<slug>.json`` where ``<slug>``
+The output lands at ``benchmark/data/benchmark-<slug>.json`` where ``<slug>``
 is the ``--name`` slugified (lowercased, spaces → hyphens). All system
 description fields auto-detect, but every one can be overridden with the
 matching flag.
@@ -28,7 +28,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_BUILD_DIR = REPO_ROOT / "build"
-RESULTS_DIR = REPO_ROOT / "bench" / "results"
+RESULTS_DIR = REPO_ROOT / "benchmark" / "data"
 
 
 # ---------------------------------------------------------------------------

@@ -70,7 +70,7 @@ ctest -R fuzz_          # randomized fuzz
 ```
 
 The benchmark executables are under `build/test/` and are run ad-hoc (or
-through `bench/run_benchmarks.py` — see `bench/README.md`).
+through `benchmark/run_benchmarks.py` — see `benchmark/README.md`).
 
 ## Fuzz input strategy
 

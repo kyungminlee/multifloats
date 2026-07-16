@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Render ``BENCHMARK.md`` from one per-system JSON file produced by
-``bench/run_benchmarks.py``.
+``benchmark/run_benchmarks.py``.
 
-    python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
-    python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json --stdout
-    python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json -o /tmp/BENCHMARK.md
+    python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-max.json
+    python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-max.json --stdout
+    python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-max.json -o /tmp/BENCHMARK.md
 
 The output is a single-architecture flat table — one row per op,
 merging C-ABI and Fortran-elemental measurements side-by-side.
@@ -25,7 +25,7 @@ import ops as ops_mod  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_DIR = Path(__file__).resolve().parent
-DEFAULT_OUTPUT = REPO_ROOT / "doc" / "dev" / "benchmarks.md"
+DEFAULT_OUTPUT = REPO_ROOT / "doc" / "dev" / "benchmark" / "results.md"
 
 EMDASH = "—"  # —
 TIMES = "×"   # ×
@@ -151,12 +151,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("input", type=Path,
-                    help="per-system JSON file (e.g. bench/results/benchmark-m1-max.json)")
+                    help="per-system JSON file (e.g. doc/dev/benchmark/baseline/benchmark-m1-max.json)")
     ap.add_argument("-o", "--output", type=Path, default=DEFAULT_OUTPUT,
                     help=f"output path (default: {DEFAULT_OUTPUT.relative_to(REPO_ROOT)})")
     ap.add_argument("--template", type=Path,
                     default=TEMPLATE_DIR / "BENCHMARK.md.j2",
-                    help="Jinja2 template (default: bench/BENCHMARK.md.j2)")
+                    help="Jinja2 template (default: benchmark/BENCHMARK.md.j2)")
     ap.add_argument("--stdout", action="store_true", help="print to stdout instead of --output")
     args = ap.parse_args()
 

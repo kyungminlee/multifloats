@@ -1,26 +1,32 @@
 # Benchmark automation
 
-Scripts that keep [`doc/dev/benchmarks.md`](../doc/dev/benchmarks.md) in sync with
-reproducible results collected on each target machine.
+Scripts that keep [`doc/dev/benchmark/results.md`](../doc/dev/benchmark/results.md)
+in sync with reproducible results collected on each target machine.
 
 ## Layout
 
 ```
-bench/
+benchmark/
 ├── ops.py                 # op metadata (categories, approaches, prec labels)
-├── BENCHMARK.md.j2        # Jinja2 template for BENCHMARK.md
+├── BENCHMARK.md.j2        # Jinja2 template for the results page
 ├── run_benchmarks.py      # builds + runs fuzz/bench, writes per-system JSON
-├── build_benchmark_md.py  # renders benchmarks.md from per-system JSON files
-└── results/
+├── build_benchmark_md.py  # renders results.md from one per-system JSON file
+└── data/                  # fresh run output (git-ignored, transient)
+
+doc/dev/benchmark/
+├── results.md             # the rendered page (committed)
+└── baseline/              # curated per-system JSONs (committed)
     ├── benchmark-m1-max.json
     └── benchmark-raptor-lake.json
 ```
 
-The JSON files under `results/` are the single source of truth for the
-tables in `doc/dev/benchmarks.md`. Each file captures one system's bench speedups
-(from `fortran_bench` / `cpp_bench`) plus its fuzz `max_rel` values (from
-`fortran_fuzz` / `cpp_fuzz`), together with a short system description
-(CPU, OS, compiler, build flags).
+The curated JSONs under `doc/dev/benchmark/baseline/` are the committed source
+of truth for the tables in `doc/dev/benchmark/results.md`. Each file captures
+one system's bench speedups (from `fortran_bench` / `cpp_bench`) plus its fuzz
+`max_rel` values (from `fortran_fuzz` / `cpp_fuzz`), together with a short
+system description (CPU, OS, compiler, build flags). Fresh runs land under
+`benchmark/data/` (git-ignored); promote one to `baseline/` when you want it
+committed.
 
 ## Requirements
 
@@ -34,7 +40,7 @@ tables in `doc/dev/benchmarks.md`. Each file captures one system's bench speedup
 From the repo root:
 
 ```bash
-python3 bench/run_benchmarks.py --name "M1 Max"
+python3 benchmark/run_benchmarks.py --name "M1 Max"
 ```
 
 That will:
@@ -43,7 +49,7 @@ That will:
    `cpp_fuzz` under `build/` (reusing an existing cache if present).
 2. Run each binary, parse its stdout.
 3. Auto-detect CPU / OS / compiler / build info.
-4. Write `bench/results/benchmark-m1-max.json`.
+4. Write `benchmark/data/benchmark-m1-max.json`.
 
 The filename slug is derived from `--name` (lowercased, non-alphanumeric
 → `-`). Pass `--slug` to override.
@@ -53,7 +59,7 @@ The filename slug is derived from `--name` (lowercased, non-alphanumeric
 Auto-detection is best-effort; override any field that comes out wrong:
 
 ```bash
-python3 bench/run_benchmarks.py \
+python3 benchmark/run_benchmarks.py \
     --name "Skylake" \
     --cpu  "Intel Xeon family 6 model 85 (Skylake-SP / Cascade Lake), 2.8 GHz, 16 cores, AVX-512 (KVM), 22 GB" \
     --os   "Ubuntu 24.04.4 LTS" \
@@ -77,16 +83,16 @@ On a warm toolchain:
 - `fortran_fuzz`: ~5–15 min (1M iterations × many ops).
 - `cpp_fuzz`: ~2–5 min.
 
-## Regenerating `benchmarks.md`
+## Regenerating `results.md`
 
 After collecting (or updating) a result JSON file, render the Markdown.
 The renderer is **single-architecture** — pass exactly one JSON path:
 
 ```bash
-python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
+python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-max.json
 ```
 
-This writes `doc/dev/benchmarks.md` from that one file as a single flat
+This writes `doc/dev/benchmark/results.md` from that one file as a single flat
 table (one row per op, with C-ABI and Fortran-elemental measurements
 merged side-by-side in a `speedup (C / F)` column).
 
@@ -94,18 +100,19 @@ Pass `--stdout` to preview without touching the file, or `-o <path>` to
 write elsewhere:
 
 ```bash
-python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json --stdout | head -60
-python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json -o /tmp/B.md
+python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-max.json --stdout | head -60
+python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-max.json -o /tmp/B.md
 ```
 
 ## Typical end-to-end flow
 
 ```bash
 # On the target machine
-python3 bench/run_benchmarks.py --name "M1 Max"
-python3 bench/build_benchmark_md.py bench/results/benchmark-m1-max.json
-git add bench/results/benchmark-m1-max.json doc/dev/benchmarks.md
-git commit -m "bench: refresh m1-max results + regenerate benchmarks.md"
+python3 benchmark/run_benchmarks.py --name "M1 Max"       # -> benchmark/data/
+cp benchmark/data/benchmark-m1-max.json doc/dev/benchmark/baseline/
+python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-max.json
+git add doc/dev/benchmark/baseline/benchmark-m1-max.json doc/dev/benchmark/results.md
+git commit -m "bench: refresh m1-max results + regenerate results.md"
 ```
 
 ## JSON schema

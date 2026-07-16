@@ -56,7 +56,7 @@ history stays clean:
 3. **`cpp_fuzz` / `fortran_fuzz`** — fast, deterministic fuzz against
    `__float128`. Good for quick iteration, weaker at the reference cliff.
 4. **`cpp_bench` / `fortran_bench`** — mean of ≥ 5 runs vs libquadmath;
-   run-to-run noise is ≈ ±0.15× on most ops. See [Benchmarks](benchmarks.md).
+   run-to-run noise is ≈ ±0.15× on most ops. See [Benchmark](benchmark.md).
 5. **Tolerance ratchets** (`test/test.cc` "Tolerance sensitivity ratchet") —
    a ≥ 20× drop means the kernel got better; tighten the pin to lock it in. A
    ≥ 20× rise fails the build.

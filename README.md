@@ -434,7 +434,7 @@ include/multifloats/float64x2.h        -- unified C / C++ public header
 include/multifloats.h                  -- compatibility shim (forwards to the header above)
 src/                                   -- C++ .cc sources and implementation-detail .inc fragments
 blas/                                  -- BLAS shims for real64x2
-bench/                                 -- microbenchmarks (opt-in via MULTIFLOATS_BUILD_BENCH)
+benchmark/                             -- benchmark harness (Python; opt-in via MULTIFLOATS_BUILD_BENCH)
 test/                                  -- Fortran and C++ test suites
 extern/                                -- vendored references (MultiFloats.jl, LAPACK)
 ```

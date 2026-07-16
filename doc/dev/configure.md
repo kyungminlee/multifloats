@@ -37,7 +37,7 @@ else is opt-in through the options below.
 | Option | Default | What it adds |
 | ------ | ------- | ------------ |
 | `-DBUILD_TESTING=ON` | OFF | C++ + Fortran test/fuzz executables and ctest registrations. |
-| `-DMULTIFLOATS_BUILD_BENCH=ON` | OFF | `cpp_bench`, `fortran_bench`, `fortran_bench_abi` micro-benchmarks. See [Benchmarks](benchmarks.md). |
+| `-DMULTIFLOATS_BUILD_BENCH=ON` | OFF | `cpp_bench`, `fortran_bench`, `fortran_bench_abi` micro-benchmarks. See [Benchmark](benchmark.md). |
 | `-DBUILD_MPFR_TESTS=ON` | OFF | `cpp_fuzz_mpfr` 3-way precision test (needs `libmpfr-dev`). Implies `BUILD_TESTING`. |
 | `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89). See [BOOST_COMPARISON.md](BOOST_COMPARISON.md). |
 | `-DMULTIFLOATS_USE_LTO=ON/OFF` | ON | LTO + fat-LTO objects on the installed archives. When ON the C++ archive is named `libmultifloats-lto-<compiler>.a`; when OFF it is the portable compiler-agnostic `libmultifloats-nolto.a`. |

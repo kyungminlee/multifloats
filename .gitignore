@@ -14,6 +14,10 @@ Testing/
 doc/conf.py
 doc/Doxyfile
 
+# Transient benchmark run output; curated results live in
+# doc/dev/benchmark/baseline/ and are committed explicitly.
+benchmark/data/*.json
+
 # Compiled objects / archives
 *.o
 *.a

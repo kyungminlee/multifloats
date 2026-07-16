@@ -104,7 +104,7 @@ From `cpp_fuzz_mpfr` at 200-bit MPFR reference, post-audit:
 
 1 ulp_dd ≈ 2⁻¹⁰⁵ ≈ 2.47e-32. These numbers are the bar: a change that
 regresses any of them is rejected unless traded for a proportional win
-elsewhere (documented in `doc/dev/benchmarks.md`).
+elsewhere (documented in `doc/dev/benchmark/results.md`).
 
 ## 4. Designs measured and rejected
 

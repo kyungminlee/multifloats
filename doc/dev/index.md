@@ -13,7 +13,7 @@ Sphinx site** (`doc/conf.py`); the user-facing manual is in `doc/user/`.
 | **Codegen** | [`codegen.md`](codegen.md) — the mpmath constant generator and the fypp Fortran template, plus their drift-detection ctests. |
 | **Test** | [`test.md`](test.md) — every ctest target, the MPFR 3-way oracle, and the checklist for validating a precision/speed change. |
 | **Debug** | [`debugging.md`](debugging.md) — reproduce, isolate kernel-vs-reference, sanitizers, gdb on DD values, symbol/ABI failures. |
-| **Benchmark** | [`benchmarks.md`](benchmarks.md) — measured DD-vs-quad speedups and precision per op. |
+| **Benchmark** | [`benchmark.md`](benchmark.md) — the benchmark harness, how to run it, and the measured DD-vs-quad speedups ([`benchmark/results.md`](benchmark/results.md)). |
 | **Release** | [`release.md`](release.md) — versioning, cutting a tag, what the release workflow does, artifacts, dry-runs. |
 
 ## Internals & reference
