@@ -31,7 +31,7 @@ ulp ≈ 2⁻¹¹² ≈ 1.93e-34).
 
 | Tag | Meaning |
 |---|---|
-| **Julia** | Ported from `external/MultiFloats.jl/src/` |
+| **Julia** | Ported from `extern/MultiFloats.jl/src/` |
 | **original** | Developed for this project |
 | **sample** | Ad-hoc implementation in the benchmark harness, not exported from the library |
 

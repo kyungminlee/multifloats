@@ -1406,9 +1406,9 @@ def collect_all():
     scalar_td('pi_quarter', pi / 4, 'pi/4')
     scalar('three_pi_quarter', 3 * pi / 4, '3*pi/4')
 
-    j0_path = os.path.join(PROJECT_DIR, 'external', 'libquadmath', 'math',
+    j0_path = os.path.join(PROJECT_DIR, 'extern', 'libquadmath', 'math',
                            'j0q.c')
-    j1_path = os.path.join(PROJECT_DIR, 'external', 'libquadmath', 'math',
+    j1_path = os.path.join(PROJECT_DIR, 'extern', 'libquadmath', 'math',
                            'j1q.c')
     j0_data = extract_float128_arrays(j0_path)
     j1_data = extract_float128_arrays(j1_path)

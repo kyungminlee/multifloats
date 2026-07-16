@@ -436,12 +436,12 @@ src/                                   -- C++ .cc sources and implementation-det
 blas/                                  -- BLAS shims for real64x2
 bench/                                 -- microbenchmarks (opt-in via MULTIFLOATS_BUILD_BENCH)
 test/                                  -- Fortran and C++ test suites
-external/                              -- vendored references (MultiFloats.jl, LAPACK)
+extern/                                -- vendored references (MultiFloats.jl, LAPACK)
 ```
 
 The C++ kernels follow the algorithms in
 [Julia's MultiFloats.jl](https://github.com/dzhang314/MultiFloats.jl) (vendored
-under `external/`); the Fortran kernels are direct translations of the same
+under `extern/`); the Fortran kernels are direct translations of the same
 double-double algorithms.
 
 ## Contributing
@@ -455,8 +455,8 @@ failure, understand the DD/triple-double internals, and cut a release
 
 multifloats is released under the [MIT License](LICENSE).
 
-The vendored `external/libquadmath/` tree is a third-party dependency under its
-own terms (LGPL; see `external/libquadmath/COPYING.LIB`) and is not part of the
+The vendored `extern/libquadmath/` tree is a third-party dependency under its
+own terms (LGPL; see `extern/libquadmath/COPYING.LIB`) and is not part of the
 MIT-licensed library.
 
 [fypp]: https://fypp.readthedocs.io/

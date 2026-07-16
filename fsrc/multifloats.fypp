@@ -2,7 +2,7 @@
 #!
 #! The public generic interface is inherited from the mock scaffold, but the
 #! core Float64x2 arithmetic uses explicit 2-limb double-double kernels
-#! adapted from external/MultiFloats.jl. Broader transformational and
+#! adapted from extern/MultiFloats.jl. Broader transformational and
 #! transcendental coverage still routes through REAL(16)/COMPLEX(16) helpers.
 #!
 #! The interface for real64x2 mirrors REAL(KIND=16) as closely as possible:
