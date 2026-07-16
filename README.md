@@ -331,6 +331,10 @@ Link `libmultifloats-lto-<compiler>.a` (C / C++) or
 `libmultifloatsf-lto-<compiler>.a` (Fortran); see the [Building](#building)
 section.
 
+For complete, buildable versions of the C++ and Fortran snippets above —
+wired up with `find_package()` against an installed package — see
+[`example/`](example/).
+
 ## Building
 
 Requires:
@@ -432,11 +436,16 @@ build/cpp_fuzz_mpfr 10000 42   # iterations, seed
 fsrc/multifloats.fypp                  -- Fortran source (fypp template)
 include/multifloats/float64x2.h        -- unified C / C++ public header
 include/multifloats.h                  -- compatibility shim (forwards to the header above)
-src/                                   -- C++ .cc sources and implementation-detail .inc fragments
+src/                                   -- C++ .cc sources + implementation-detail .inc fragments,
+                                          grouped by module: src/float64x2/, src/complex64x2/
 blas/                                  -- BLAS shims for real64x2
+codegen/                               -- offline generators (mpmath DD constants) + their deps
+example/                               -- minimal find_package() consumer programs (C++ + Fortran)
 benchmark/                             -- benchmark harness (Python; opt-in via MULTIFLOATS_BUILD_BENCH)
-test/                                  -- Fortran and C++ test suites
+test/                                  -- test suites: unit/ (per-op, fuzz, bench), integration/
+                                          (cross-language + consumer smoke), data/ (fixtures)
 extern/                                -- vendored references (MultiFloats.jl, LAPACK)
+doc/                                   -- user manual (doc/user/) and developer docs (doc/dev/)
 ```
 
 The C++ kernels follow the algorithms in
