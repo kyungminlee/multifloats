@@ -10,6 +10,7 @@
 set -euo pipefail
 
 DOC_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$DOC_DIR/.." && pwd)"
 VENV="$DOC_DIR/.venv"
 SPHINX="$VENV/bin/sphinx-build"
 
@@ -22,6 +23,11 @@ if [[ ! -x "$SPHINX" ]]; then
     echo "    uv venv doc/.venv && uv pip install --python doc/.venv -r doc/requirements.txt" >&2
     exit 1
 fi
+
+echo ">> configure (VERSION -> conf.py, Doxyfile)"
+MF_VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
+sed "s/@MULTIFLOATS_VERSION@/$MF_VERSION/g" "$DOC_DIR/conf.py.in"   > "$DOC_DIR/conf.py"
+sed "s/@MULTIFLOATS_VERSION@/$MF_VERSION/g" "$DOC_DIR/Doxyfile.in" > "$DOC_DIR/Doxyfile"
 
 echo ">> doxygen (header -> XML)"
 ( cd "$DOC_DIR" && doxygen Doxyfile )

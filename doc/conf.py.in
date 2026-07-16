@@ -1,5 +1,8 @@
 # Sphinx configuration for the multifloats documentation.
 #
+# This is a template: @MULTIFLOATS_VERSION@ is substituted from the root VERSION
+# file by doc/build.sh (or the doc/Makefile) to produce the generated conf.py.
+#
 # Build (after `doxygen Doxyfile` has produced the XML):
 #     doc/.venv/bin/sphinx-build -b html doc doc/_build/html
 # or use the Makefile / build.sh in this directory.
@@ -10,6 +13,10 @@ import os.path
 project = "multifloats"
 author = "Kyungmin Lee"
 copyright = "2026, Kyungmin Lee"
+
+# Single source of truth: the root VERSION file (see doc/build.sh).
+version = "@MULTIFLOATS_VERSION@"  # X.Y.Z, shown in the docs
+release = "@MULTIFLOATS_VERSION@"  # full version string
 
 # -- General configuration ---------------------------------------------------
 # The user manual lives under doc/user/; its index is the site root. The
@@ -29,6 +36,7 @@ exclude_patterns = [
     ".venv",
     "_doxygen",
     "Doxyfile",
+    "*.in",               # conf.py.in / Doxyfile.in templates
     "requirements.txt",
     "README.md",          # build instructions, not a doc page
     "dev",                # contributor-only notes, not part of the user docs
@@ -57,3 +65,4 @@ breathe_domain_by_extension = {"h": "cpp"}  # treat .h as C++
 html_theme = "furo"
 html_title = "multifloats"
 html_static_path = ["_static"]
+templates_path = ["_templates"]

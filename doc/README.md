@@ -33,16 +33,22 @@ Output lands in `doc/_build/html/index.html`.
 
 ```
 doc/
-  conf.py            Sphinx configuration (site root = user/index)
-  Doxyfile           Doxygen config (header -> _doxygen/xml, XML only)
+  conf.py.in         Sphinx config template (@MULTIFLOATS_VERSION@ from VERSION)
+  Doxyfile.in        Doxygen config template (header -> _doxygen/xml, XML only)
   user/              the published user manual (MyST Markdown)
-    index.md         landing page + toctree
+    index.md         landing page + toctree (site root = user/index)
     api/             Breathe-extracted C/C++ API reference
   dev/               contributor docs (excluded from the built site)
   changelog.md       stub that {include}s the root CHANGELOG.md into the site
+  _static/           static assets copied verbatim into the site
+  _templates/        Jinja template overrides for the theme
   requirements.txt   Python toolchain (sphinx, breathe, myst-parser, furo, ...)
   build.sh, Makefile build drivers
 ```
+
+`conf.py` and `Doxyfile` are **generated** from the `.in` templates by
+`build.sh` / `make` (the version string is read from the root `VERSION` file)
+and are git-ignored — edit the `.in` files, not the generated ones.
 
 ## Notes
 

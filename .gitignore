@@ -10,6 +10,10 @@ Testing/
 # into the build tree, never committed.
 *.mod
 
+# Generated docs config (substituted from the .in templates by doc/build.sh).
+doc/conf.py
+doc/Doxyfile
+
 # Compiled objects / archives
 *.o
 *.a

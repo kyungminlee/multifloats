@@ -1,10 +1,13 @@
 # Minimal Doxygen config for multifloats — XML only, consumed by Breathe.
 # Doxygen fills in defaults for every key not set here.
 #
+# This is a template: @MULTIFLOATS_VERSION@ is substituted from the root VERSION
+# file by doc/build.sh (or the doc/Makefile) to produce the generated Doxyfile.
 # Run from the doc/ directory:  doxygen Doxyfile
 # Produces XML under doc/_doxygen/xml/, which Sphinx/Breathe reads (see conf.py).
 
 PROJECT_NAME           = multifloats
+PROJECT_NUMBER         = @MULTIFLOATS_VERSION@
 PROJECT_BRIEF          = "Double-double arithmetic for C, C++ and Fortran"
 
 # --- Inputs ----------------------------------------------------------------
