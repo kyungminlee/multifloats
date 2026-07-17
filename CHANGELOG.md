@@ -6,6 +6,21 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.10.1] — 2026-07-17
+
+Repository-internal cleanup only — no changes to numeric behavior, the ABI, the
+public headers, or the contents of the shipped artifacts.
+
+### Changed
+
+- **Comment and dead-code cleanup.** Corrected stale post-refactor path
+  references in source comments, fixed comments that had drifted from the
+  code, removed two orphaned comment blocks describing implementations that
+  were never adopted, dropped a redundant local in the Bessel recurrence, and
+  deleted an unused private Fortran helper (`from_cqp`).
+- **Test smoke shims** for the BLAS consumer moved under
+  `test/integration/blas/`.
+
 ## [0.10.0] — 2026-07-16
 
 Repository reorganization only — no changes to numeric behavior, the ABI, the
