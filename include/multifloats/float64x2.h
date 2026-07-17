@@ -732,7 +732,7 @@ MULTIFLOATS_API int gedd(float64x2 a, float64x2 b);
 /* libquadmath parity — every NAMEq in <quadmath.h> has a NAMEdd entry
  * here. Implementations are the canonical `multifloats::NAME` C++
  * helpers in the header section below; the C-ABI symbols in
- * src/float64x2_abi.inc are thin marshaling shims. */
+ * src/float64x2/abi.inc are thin marshaling shims. */
 
 /* Cube root, integer rounding (toward ±inf, nearest-current-mode), exponent
  * split / rescale, integer/fractional split, ulp-step, IEEE remainder. */
@@ -1260,7 +1260,7 @@ inline float64x2 cimagdd(std::complex<float64x2> const &z) { return z.imag(); }
 // Canonical-implementation convention: every header-inline definition below
 // is the *single source of truth* for that operation. The extern "C"
 // `NAMEdd` symbols in the C-ABI block above (declared, defined in
-// src/float64x2_abi.inc) are thin marshaling shims that call the
+// src/float64x2/abi.inc) are thin marshaling shims that call the
 // corresponding `multifloats::NAME` here — never separate implementations
 // that could drift. Out-of-line transcendentals (exp, log, trig, …) flip
 // the relationship: the header carries only the `multifloats::NAME`
@@ -2175,7 +2175,7 @@ namespace detail {
 // erf/erfc rational-approximation constants also live in the .cc file.
 //
 // horner / neval / deval (DD polynomial evaluators) used to live here as
-// inline definitions but have been moved to src/float64x2_poly.inc,
+// inline definitions but have been moved to src/float64x2/poly.inc,
 // which is pulled into namespace multifloats::detail inside
 // multifloats_math.cc. Every call site lives in that TU, so inlining
 // decisions are unchanged; the public header no longer carries ~250 lines
@@ -2580,7 +2580,7 @@ std::ostream &operator<<(std::ostream &os, float64x2 const &x);
 //
 // Explicit specializations for the C++17 <complex> free-function templates
 // on `std::complex<multifloats::float64x2>`. Definitions live in
-// multifloats_math.cc (complex64x2_std.inc); the C-ABI
+// multifloats_math.cc (complex64x2/std.inc); the C-ABI
 // `c*dd` symbols in the C section above are now thin wrappers that marshal
 // complex64x2 ↔ std::complex<multifloats::float64x2> and call these.
 //

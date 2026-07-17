@@ -1,6 +1,6 @@
 namespace {
 // Non-finite DD inputs (NaN / ±Inf) are routed through the scalar std:: lib
-// call, with a zero lo-limb. The six inverse-trig `*_full` functions below
+// call, with a zero lo-limb. The six inverse-trig functions below
 // share this preamble verbatim except for the std:: callee.
 template <typename ScalarFn>
 inline float64x2 _nonfinite_scalar_fallback(float64x2 const &x, ScalarFn fn) {

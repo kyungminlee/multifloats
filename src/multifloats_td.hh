@@ -1,6 +1,6 @@
 // Triple-double scratch primitives — internal header. NOT part of the
 // public ABI surface in multifloats.h. Pulled in by multifloats_math.cc
-// and by the direct-primitive tests in test/test.cc.
+// and by the direct-primitive tests in test/unit/test.cc.
 //
 // Narrow-scope toolkit used by kernels whose DD output would otherwise
 // suffer cancellation below the DD floor (e.g. cexpm1 Re near the

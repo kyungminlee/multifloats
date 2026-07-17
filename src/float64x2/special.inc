@@ -423,15 +423,6 @@ float64x2 lgamma(float64x2 const &x) {
   return lgamma_positive(x);
 }
 
-// Direct DD Stirling for Γ(x), positive x in the asymptotic range (≥ ~24).
-// Returns `ret` with `exp2_adj` set so Γ(x) = ret · 2^exp2_adj, keeping
-// intermediates bounded. Mirrors libquadmath's gammal_positive
-// (external/libquadmath/math/tgammaq.c).
-//
-// Γ(x) = sqrt(2π/x) · (x/e)^x · (1 + expm1(Σ c_k/x^(2k-1)))
-// Factor x = mant · 2^e with mant ∈ [√½, √2), split x = x_int + x_frac.
-// Then (x/e)^x = mant^x · 2^(e·x_int) · 2^(e·x_frac) · e^-x; the 2^(e·x_int)
-// is exact and factored out as exp2_adj so nothing overflows in stages.
 // log Γ(x) for x in the Stirling-convergent range (x ≳ 28), to triple-double:
 //   log Γ(x) = (x − ½)·log x − x + ½·log(2π) + Σ_{k=1..13} c_k / x^(2k−1)
 // The dominant (x − ½)·log x − x is carried in TD (log via log_td); the small
@@ -528,7 +519,6 @@ float64x2 tgamma(float64x2 const &x) {
       s.limbs[1] = -s.limbs[1];
     }
     float64x2 pi_dd = float64x2(pi_dd_hi, pi_dd_lo);
-    // Γ(1-x): direct path when 1-x is in asymptotic range, else exp(lgamma).
     // Γ(1-x): direct shift-Stirling once 1-x is large enough; for 1-x near 1
     // (x near 0) exp(lgamma) is more accurate (lgamma ≈ 0, no amplification).
     float64x2 g1mx = (one_minus_x.limbs[0] >= 4.0)
