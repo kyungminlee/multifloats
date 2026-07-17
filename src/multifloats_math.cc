@@ -36,7 +36,7 @@
 
 // Triple-double primitive bodies (declarations in multifloats_td.hh) and
 // DD polynomial evaluators (horner/neval/deval — previously inline in
-// multifloats.h). Defined here so the kernel .inc files see the same
+// multifloats.h). Defined here so the kernel .inc files see the
 // same-TU inline bodies they did before.
 namespace multifloats {
 namespace detail {

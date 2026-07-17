@@ -34,7 +34,7 @@
 #!
 #! To get the fastest possible DD arithmetic from Fortran without LTO,
 #! call the C-ABI wrappers in include/multifloats.h directly via
-#! iso_c_binding interfaces (see test/bench_abi.f90 for an example).
+#! iso_c_binding interfaces (see test/unit/bench_abi.f90 for an example).
 #! =====================================================================
 
 #! =====================================================================
@@ -120,7 +120,7 @@ module multifloats
         end function
     end interface
 
-    ! Public elemental fma wrapper. Test code (test/test.f90) needs an
+    ! Public elemental fma wrapper. Test code (test/unit/test.f90) needs an
     ! ieee_fma replacement that works on every supported gfortran
     ! version; expose `mf_fma` so callers don't need their own libc
     ! binding. Internal uses keep calling `c_fma` directly.
@@ -847,13 +847,6 @@ contains
         type(cmplx64x2), intent(in) :: cdd
         complex(qp) :: res
         res = cmplx(to_qp(cdd%re), to_qp(cdd%im), kind=qp)
-    end function
-
-    elemental function from_cqp(v) result(res)
-        complex(qp), intent(in) :: v
-        type(cmplx64x2) :: res
-        res%re = from_qp(real(v, qp))
-        res%im = from_qp(aimag(v))
     end function
 #:endif
 
@@ -2794,7 +2787,7 @@ $:dd_minmax_body(func, n)
 
 #! Complex result: lift any non-complex operand to a cmplx64x2 via
 #! assignment overloads, then delegate to the C kernel c${opname}$dd so
-#! the arithmetic lives in C++ (see src/complex64x2_abi.inc).
+#! the arithmetic lives in C++ (see src/complex64x2/abi.inc).
 #:def cdd_arith_body(opname)
         block
             type(cmplx64x2) :: ca, cb

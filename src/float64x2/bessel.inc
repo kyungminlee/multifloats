@@ -110,10 +110,9 @@ static void bessel_hankel_phase(float64x2 const &x, bool three_quarter,
 // is exact. (c + ccorr)·b is then accumulated in TD.
 static float64x3 bessel_recur_term(float64x3 const &b, double twok,
                                    float64x2 const &x) {
-  double tk = twok;
-  float64x2 c = float64x2(tk) / x;
+  float64x2 c = float64x2(twok) / x;
   float64x3 cx = td_mul_dd(td_from_dd(c), x);                   // c·x (TD)
-  float64x2 resid = td_to_dd(td_add_double(td_negate(cx), tk)); // 2k − c·x
+  float64x2 resid = td_to_dd(td_add_double(td_negate(cx), twok)); // 2k − c·x
   float64x2 ccorr = resid / x;                                  // 2k/x − c
   return td_add_td(td_mul_dd(b, c), td_mul_dd(b, ccorr));
 }

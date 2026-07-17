@@ -3,9 +3,9 @@
 // function to specialize (expm1, log2, log1p) or whose name is outside
 // the standard library (sinpi, cospi).
 //
-// log10 has a std::complex free-function template in C++17; placing it
-// as a std:: specialization in complex64x2/std.inc lets
-// `std::log10(z)` route to the DD path. The other five live here.
+// log10 has a std::complex free-function template in C++17, but there is no
+// std:: specialization for it; it is defined here as a `namespace multifloats`
+// overload alongside the other five.
 //
 // Bodies mirror the original extern "C" c*dd implementations in
 // complex64x2/abi.inc; the C shim wrappers over there now

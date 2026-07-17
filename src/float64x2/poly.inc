@@ -27,10 +27,9 @@ inline float64x2 horner(float64x2 const &y, double const *hi, double const *lo,
 // Tier 3 measurements (cpp_bench, relative to Horner baseline):
 //   exp/exp2 (case 13), sin/cos (case 12), sinh/cosh (case 8),
 //   asinh/atanh (case 14): 1.78×–1.88× speedup with no precision loss
-//   outside 1 DD ULP. Extending with an x^16 case would benefit
-//   expm1_taylor (degree 24) and log1p_taylor (degree 17); that
-//   extension was skipped as the additional gain (~1.5× on small-|x|
-//   branches only) did not justify the code size.
+//   outside 1 DD ULP. The x^16 extension (cases 17 and 24 below) covers
+//   log1p_taylor (degree 17) and expm1_taylor (degree 24), building
+//   x16 = x8·x8 for the top coefficients.
 inline float64x2 neval(float64x2 const &x, double const *hi, double const *lo,
                       int n) {
   auto c = [&](int i) { return float64x2(hi[i], lo[i]); };

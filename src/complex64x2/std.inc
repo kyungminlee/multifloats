@@ -11,9 +11,9 @@
 // std:: specialization directly — within this TU the compiler sees the
 // complete definition chain.
 //
-// Shared anon-namespace helpers `dd_cross_diff` and `dd_x2y2m1` are pulled
-// in at file scope in multifloats_math.cc; unqualified name lookup from
-// inside namespace std walks up to global scope to find them.
+// Shared anon-namespace helper `dd_x2y2m1` is pulled in at file scope in
+// multifloats_math.cc; unqualified name lookup from inside namespace std
+// walks up to global scope to find it.
 
 // ---- Exponential / logarithmic --------------------------------------------
 

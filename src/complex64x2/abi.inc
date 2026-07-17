@@ -19,9 +19,9 @@
 // The compensated complex DD multiply and divide keep their full bodies
 // here: std::complex's `operator*` / `operator/` templates are not
 // specializable, so the cancellation-gated paths are only reachable via
-// this C-ABI surface. Anon-namespace helpers `dd_cross_diff` and
-// `dd_x2y2m1` at file scope in multifloats_math.cc are used by those
-// kernels and by the std:: log/asinh/atanh bodies.
+// this C-ABI surface. Anon-namespace helper `dd_cross_diff` at file scope
+// in multifloats_math.cc is used by those kernels; the sibling `dd_x2y2m1`
+// is used by the std:: log/atanh bodies.
 
 // Reuse the header-inline marshaling helpers (multifloats::detail::cx_*).
 using multifloats::detail::cx_from_pod;
@@ -70,7 +70,7 @@ complex64x2 cmuldd(complex64x2 a, complex64x2 b) {
   // (|R|/max < 1/16 on ~6% of uniform-quadrant inputs). Tighter 2⁻¹
   // triggered on ~25% and more than halved cdd_mul bench speedup;
   // looser 2⁻⁸ let the 100+-ulp regime through. See the `cmuldd`
-  // landmark in doc/developer/INTERNALS.md §6.
+  // landmark in doc/dev/architecture.md §6.
   constexpr double kCancelThresh = 0x1p-4;
 
   double abs_re   = std::fabs(re_dd.limbs[0]);
@@ -228,20 +228,3 @@ complex64x2 conjdd  (complex64x2 z) { return { z.re, -z.im }; }
 // real/imag: trivial accessors.
 float64x2   crealdd (complex64x2 z) { return z.re; }
 float64x2   cimagdd (complex64x2 z) { return z.im; }
-
-// ---- Matrix multiply (column-major) --------------------------------------
-//
-// Inner accumulator uses Neumaier-style compensation on the DD-product stream:
-//   p, e = two_prod(ah, bh)          (exact)
-//   cross = fma(ah, bl, al*bh)       (DD-mul cross term, ignoring bl*bl)
-//   (s_hi, s_lo) += (p + cross + e)  via two_sum on s_hi
-// A final two_sum renormalizes s_hi/s_lo into the DD result; if
-// `renorm_interval > 0`, intermediate two_sums also fire every
-// that-many reductions to keep s_lo bounded at large k.
-//
-// Loop order is AXPY / gaxpy: outer p (shared dim), inner i (output row)
-// so A is read as contiguous columns and the output accumulators are
-// m-way data-parallel. The row dimension is register-blocked to MR=8
-// via a compile-time-sized panel template; any m is handled by
-// MR panels + a 1..7 tail. mm calls the same mv dispatch per output
-// column.

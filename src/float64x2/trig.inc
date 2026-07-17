@@ -294,7 +294,7 @@ float64x2 tan(float64x2 const &x) {
 // cw1..cw4, pi_quarter, inv_sqrt2, sin_taylor, cos_taylor) is lifted to
 // TD precision in dd_constants.hh — a TD kernel over DD constants
 // would still floor at the DD-cos `2⁻¹⁰⁵` ceiling. See
-// doc/developer/TRIPLE_DOUBLE.md §2 "constants must be TD".
+// doc/dev/TRIPLE_DOUBLE.md §2 "constants must be TD".
 namespace detail {
 
 void reduce_pi_half_td(float64x2 const &x, float64x3 &r, int &n_mod4) {
