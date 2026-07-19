@@ -6,8 +6,9 @@
 // both legs. The DD result is compared against the __float128 reference and
 // per-op relative-error statistics are printed at the end.
 //
-// Input generation mirrors fuzz.f90's `generate_pair`: 10% non-finite, 10%
-// close numbers, 10% sum-near-zero cancellation, 10% near-huge, 10% near-tiny,
+// Input generation uses the shared multifloats_test::Rng (test_common.hh),
+// which mirrors fuzz.f90's `generate_pair`: 10% non-finite, 10% close
+// numbers, 10% sum-near-zero cancellation, 10% near-huge, 10% near-tiny,
 // 50% wide random 10^[-30,30]. This exposes cancellation, overflow, and
 // subnormal regimes that uniform-magnitude inputs miss.
 //
@@ -39,7 +40,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <random>
 #include <vector>
 
 namespace mf = multifloats;
@@ -52,6 +52,7 @@ using multifloats_test::q_rel_err;
 using multifloats_test::q_isfinite;
 using multifloats_test::q_isnan;
 using multifloats_test::qstr;
+using multifloats_test::Rng;
 
 // Inline wrappers so complex arithmetic on __complex128 reads as
 // caddq/csubq/cmulq/cdivq function calls, matching the cSTEMdd /
@@ -74,6 +75,76 @@ inline float64x2 lngamma(float64x2 const &x) { return lgamma(x); }
 }  // namespace multifloats
 static inline q_t gammaq  (q_t x) { return tgammaq(x); }
 static inline q_t lngammaq(q_t x) { return lgammaq(x); }
+
+// C23 fmaximum / fminimum (NaN-propagating) and *_num (NaN-quiet) qp
+// references. libquadmath has no q-suffixed C23 variants, so the reference
+// is open-coded against q_t. Signed-zero pinning matches the multifloats
+// DD definitions.
+static q_t qp_fmaximum(q_t a, q_t b) {
+  if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
+  if (a == 0 && b == 0)
+    return (signbitq(a) && signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
+  return a < b ? b : a;
+}
+static q_t qp_fminimum(q_t a, q_t b) {
+  if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
+  if (a == 0 && b == 0)
+    return (signbitq(a) || signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
+  return a < b ? a : b;
+}
+static q_t qp_fmaximum_num(q_t a, q_t b) {
+  bool an = q_isnan(a), bn = q_isnan(b);
+  if (an && bn) return (q_t)(0.0/0.0);
+  if (an) return b;
+  if (bn) return a;
+  if (a == 0 && b == 0)
+    return (signbitq(a) && signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
+  return a < b ? b : a;
+}
+static q_t qp_fminimum_num(q_t a, q_t b) {
+  bool an = q_isnan(a), bn = q_isnan(b);
+  if (an && bn) return (q_t)(0.0/0.0);
+  if (an) return b;
+  if (bn) return a;
+  if (a == 0 && b == 0)
+    return (signbitq(a) || signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
+  return a < b ? a : b;
+}
+
+// C23 by-magnitude variants. Same NaN / signed-zero rules; the tie-break
+// on |a|==|b| is the canonical (non-mag) helper.
+static q_t qp_mag_max(q_t a, q_t b) {
+  if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
+  q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+  if (aa > ab) return a;
+  if (aa < ab) return b;
+  return qp_fmaximum(a, b);
+}
+static q_t qp_mag_min(q_t a, q_t b) {
+  if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
+  q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+  if (aa < ab) return a;
+  if (aa > ab) return b;
+  return qp_fminimum(a, b);
+}
+static q_t qp_mag_max_num(q_t a, q_t b) {
+  bool an = q_isnan(a), bn = q_isnan(b);
+  if (an && bn) return (q_t)(0.0/0.0);
+  if (an) return b; if (bn) return a;
+  q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+  if (aa > ab) return a;
+  if (aa < ab) return b;
+  return qp_fmaximum(a, b);
+}
+static q_t qp_mag_min_num(q_t a, q_t b) {
+  bool an = q_isnan(a), bn = q_isnan(b);
+  if (an && bn) return (q_t)(0.0/0.0);
+  if (an) return b; if (bn) return a;
+  q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
+  if (aa < ab) return a;
+  if (aa > ab) return b;
+  return qp_fminimum(a, b);
+}
 
 // =============================================================================
 // USE_MPFR mode — all mpreal-specific types, helpers, the complex oracle,
@@ -465,9 +536,9 @@ static void report_fail(char const *op, char const *detail) {
 // Shorthand wrappers over CHK. Each one token-pastes the op name into
 // the DD / qp / mp function names following a convention, then forwards
 // to CHK. The scope names they depend on (f1/q1/m1 for scalar ops,
-// zd1/zq1/zm1/mag for complex ops) are set up once per main-loop
-// iteration — relocating a call site out of that scope means reverting
-// to raw CHK.
+// zd1/zq1/zm1/mag for complex ops) are parameters or locals of the
+// per-family fuzz_* functions below — relocating a call site out of
+// such a scope means reverting to raw CHK.
 //
 // Ops that don't follow the naming convention (abs, bjn, fmadd, sincos,
 // π-scaled trig, erfcx, cconjg/cproj/carg/cabs/cpow/cexpm1/clog1p/clog2/
@@ -642,90 +713,6 @@ static void check(char const *op, mf::float64x2 const &got, q_t expected,
 }
 
 // =============================================================================
-// Random input generation — mirrors fuzz.f90's generate_pair
-// =============================================================================
-
-struct Rng {
-  std::mt19937_64 engine;
-  std::uniform_real_distribution<double> u01{0.0, 1.0};
-
-  explicit Rng(uint64_t seed) : engine(seed) {}
-  double u() { return u01(engine); }
-
-  q_t pick_nonfinite(double r) {
-    if (r < 0.25) return (q_t) (+1.0 / 0.0);
-    if (r < 0.50) return (q_t) (-1.0 / 0.0);
-    if (r < 0.70) return (q_t) (0.0 / 0.0);
-    if (r < 0.85) return (q_t) (+0.0);
-    return (q_t) (-0.0);
-  }
-
-  // Wide random: sign * uniform(0.5) * 10^k  with k ∈ [-30, 30].
-  q_t wide(double r, double rexp) {
-    int k = (int)(rexp * 60.0) - 30;
-    q_t mag = powq((q_t)10.0q, (q_t)k);
-    return (q_t)(r - 0.5) * mag;
-  }
-
-  // Narrow random: sign * uniform(0.5) * 10^k with k ∈ [-3, 3]. Used for
-  // complex inputs — keeps re*re - im*im in c_mul / the cdivq division
-  // well away from overflow and catastrophic-cancellation regimes so the
-  // qp oracle stays a clean reference.
-  q_t narrow(double r, double rexp) {
-    int k = (int)(rexp * 6.0) - 3;
-    q_t mag = powq((q_t)10.0q, (q_t)k);
-    return (q_t)(r - 0.5) * mag;
-  }
-
-  void generate_pair(q_t &q1, q_t &q2) {
-    double r1 = u(), r2 = u(), r3 = u(), r4 = u();
-    int mode = (int)(r1 * 10.0);
-    switch (mode) {
-    case 0: {
-      q1 = pick_nonfinite(r2);
-      q2 = pick_nonfinite(r3);
-      break;
-    }
-    case 1: {
-      int k = (int)(r3 * 20.0) - 10;
-      q1 = (q_t)(r2 - 0.5) * powq((q_t)10.0q, (q_t)k);
-      q2 = q1 * ((q_t)1.0q + (q_t)((r4 - 0.5) * 2e-15));
-      break;
-    }
-    case 2: {
-      int k = (int)(r3 * 20.0) - 10;
-      q1 = (q_t)(r2 - 0.5) * powq((q_t)10.0q, (q_t)k);
-      q2 = -q1 * ((q_t)1.0q + (q_t)((r4 - 0.5) * 2e-15));
-      break;
-    }
-    case 3: {
-      // Near-huge: magnitudes in 10^[20, 30]; stays clear of DBL_MAX so
-      // binary ops don't all overflow, while still exercising the
-      // large-exponent regime.
-      int k = (int)(r3 * 10.0) + 20;
-      q1 = (q_t)(r2 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      q2 = (q_t)(r4 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      break;
-    }
-    case 4: {
-      // Near-tiny: magnitudes in 10^[-30, -20]; kept above the
-      // kSubnormalFloor=1e-290 gate so the stat recorder doesn't
-      // silently discard every draw.
-      int k = -((int)(r3 * 10.0) + 20);
-      q1 = (q_t)(r2 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      q2 = (q_t)(r4 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      break;
-    }
-    default: {
-      q1 = wide(r2, r3);
-      q2 = wide(r4, r1);
-      break;
-    }
-    }
-  }
-};
-
-// =============================================================================
 // Driver
 // =============================================================================
 
@@ -858,6 +845,884 @@ static void check_comp(mf::float64x2 const &f1, mf::float64x2 const &f2, q_t q1,
   if ((f1 >= f2) != (q1 >= q2) && !near) cmp_fail("ge", f1 >= f2, q1 >= q2);
   if ((f1 == f2) != (q1 == q2) && !near) cmp_fail("eq", f1 == f2, q1 == q2);
   if ((f1 != f2) != (q1 != q2) && !near) cmp_fail("ne", f1 != f2, q1 != q2);
+}
+
+// =============================================================================
+// Per-iteration op families. main() calls these in a fixed order; stat rows
+// register in first-seen order (see find_or_create_stat), so reordering the
+// calls — or check sites within them — reorders the precision report.
+// Parameter names deliberately match the scope names the CHK macro family
+// expects (f1/f2/q1/q2 and, under USE_MPFR, m1/m2); the sampling gates
+// (i % 10, i % 100, both_finite) stay in main().
+// =============================================================================
+
+static void fuzz_arith(mf::float64x2 const &f1, mf::float64x2 const &f2,
+                       q_t q1, q_t q2
+                       MP_PARAM(mp_t const &m1, mp_t const &m2)) {
+  // add/sub/neg/abs are non-finite safe. mul/div/etc use two_prod, whose
+  // error limb becomes NaN when a hi-limb is ±inf even if the IEEE product
+  // is well-defined; gate the multiplicative path on finite inputs.
+  bool const both_finite = q_isfinite(q1) && q_isfinite(q2);
+
+  CHK("add", f1 + f2, q1 + q2, q1, q2, m1 + m2);
+  CHK("sub", f1 - f2, q1 - q2, q1, q2, m1 - m2);
+  CHK_IF(both_finite, "mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
+  CHK_IF(both_finite && q2 != (q_t)0, "div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
+  CHK1_IF(sqrt, q_isfinite(q1) && q1 >= (q_t)0);
+  // C23 rsqrt(x) = 1/sqrt(x). Reference: 1/sqrtq(x) at qp precision.
+  // Gate: x > 0 finite (rsqrt(0) = +inf, rsqrt(<0) = NaN — IEEE specials
+  // are returned by the kernel directly, no rel-err to record).
+  CHK_IF(q_isfinite(q1) && q1 > (q_t)0, "rsqrt",
+         mf::rsqrt(f1), (q_t)1.0q / sqrtq(q1), q1, (q_t)0,
+         mp_t(1) / mpfr::sqrt(m1));
+  // cbrt: defined on all finite reals (including negatives). The qp
+  // reference cbrtq is the analogue of multifloats' Karp/Markstein
+  // refinement, and mpreal exposes cbrt via ADL.
+  CHK1_IF(cbrt, q_isfinite(q1));
+  CHK("abs", mf::abs(f1), q1 < 0 ? -q1 : q1, q1, (q_t)0, mpfr::abs(m1));
+  CHK("neg", -f1, -q1, q1, (q_t)0, -m1);
+}
+static void fuzz_fp_properties(mf::float64x2 const &f1,
+                               mf::float64x2 const &f2, q_t q1, q_t q2) {
+  // fpclassify: integer return — both DD and qp inspect the hi-limb
+  // of their representation, so the classification must agree. libquadmath
+  // has no fpclassifyq, so reconstruct the qp class from its primitive
+  // predicates. The subnormal class differs between DD (|hi| < 2^-1022)
+  // and qp (|q| < ~3.4e-4932) — gate it out so subnormals never reach
+  // here as a false fail.
+  {
+    int dd_cls = mf::fpclassify(f1);
+    int qp_cls;
+    if (q_isnan(q1)) qp_cls = FP_NAN;
+    else if (!q_isfinite(q1)) qp_cls = FP_INFINITE;
+    else if (q1 == (q_t)0) qp_cls = FP_ZERO;
+    else qp_cls = FP_NORMAL;  // qp subnormals don't appear in our distribution
+    // DD says SUBNORMAL when |hi| < 2^-1022 — those samples skip this check.
+    if (dd_cls != FP_SUBNORMAL && dd_cls != qp_cls) {
+      char buf[64];
+      std::snprintf(buf, sizeof(buf),
+                    "dd_cls=%d qp_cls=%d  (q1=%s)", dd_cls, qp_cls, qstr(q1));
+      report_fail("fpclassify", buf);
+    }
+  }
+
+  // nextafter / nexttoward: deterministic invariants rather than max_rel
+  // (DD's step ≈ ulp(hi)·2⁻⁵³ doesn't match qp's 113-bit step). We assert
+  // the four properties: identity at equal inputs, strict ordering toward
+  // the target, monotonicity in y, and one-step round-trip.
+  if (q_isfinite(q1) && q_isfinite(q2) && q1 != q2) {
+    mf::float64x2 nA = mf::nextafter(f1, f2);
+    mf::float64x2 nT = mf::nexttoward(f1, f2);
+    bool ok =
+        mf::nextafter(f1, f1) == f1 &&
+        nA == nT &&
+        ((q1 < q2) ? (nA > f1 && nA <= f2)
+                   : (nA < f1 && nA >= f2)) &&
+        mf::nextafter(nA, f1) == f1;
+    if (!ok) {
+      char buf[160];
+      std::snprintf(buf, sizeof(buf),
+                    "q1=%s q2=%s nA=(%a, %a)", qstr(q1), qstr(q2),
+                    nA.limbs[0], nA.limbs[1]);
+      report_fail("nextafter", buf);
+    }
+  }
+
+  // C23 nextup / nextdown: equivalence to nextafter(x, ±inf). Property
+  // test (no max_rel) — DD step doesn't match qp step.
+  if (q_isfinite(q1)) {
+    mf::float64x2 up   = mf::nextup(f1);
+    mf::float64x2 down = mf::nextdown(f1);
+    mf::float64x2 inf_p( std::numeric_limits<double>::infinity());
+    mf::float64x2 inf_m(-std::numeric_limits<double>::infinity());
+    bool ok = (up   == mf::nextafter(f1, inf_p)) &&
+              (down == mf::nextafter(f1, inf_m)) &&
+              (up >= f1) && (down <= f1);
+    if (!ok) report_fail("nextup", "property failed");
+  }
+
+  // C23 metadata cluster — property tests (no max_rel column).
+  //   canonicalize(x) is the identity for finite DD.
+  //   iseqsig(a, b) ⇔ (a == b).
+  //   totalorder is a total preorder: trichotomy + transitivity-on-pairs.
+  //   getpayload/setpayload round-trip.
+  if (q_isfinite(q1)) {
+    mf::float64x2 c = mf::canonicalize(f1);
+    if (!(c == f1)) report_fail("canonicalize", "non-identity on finite");
+    if (mf::iseqsig(f1, f1) != true) report_fail("iseqsig", "x != x");
+    // totalorder must classify f1 vs itself as true (reflexive) and
+    // give consistent ordering with `<` on distinct finite values.
+    if (!mf::totalorder(f1, f1)) report_fail("totalorder", "reflex fail");
+    if (q_isfinite(q2) && q1 < q2 && !mf::totalorder(f1, f2))
+      report_fail("totalorder", "ordered pair miss");
+  }
+  // setpayload(0) round-trip: load 42, get back 42.
+  {
+    mf::float64x2 dst;
+    if (mf::setpayload(dst, mf::float64x2(42.0)) == 0) {
+      mf::float64x2 got = mf::getpayload(dst);
+      if (!(got == mf::float64x2(42.0)))
+        report_fail("setpayload", "round-trip mismatch");
+    }
+  }
+}
+static void fuzz_rounding(mf::float64x2 const &f1, q_t q1
+                          MP_PARAM(mp_t const &m1)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  // C23 fromfp / ufromfp / fromfpx / ufromfpx — round-to-int with
+  // overflow detection. Property test: fromfp(x, FP_INT_TONEAREST, 64)
+  // must agree with llrint(x) inside the gate where llrint is
+  // exactly representable. (The rounding-mode arg is a C23 FP_INT_*
+  // constant, not an FE_* one.)
+  if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
+    intmax_t iv = mf::fromfp(f1, FP_INT_TONEAREST, 64);
+    long long lv = mf::llrint(f1);
+    if (iv != static_cast<intmax_t>(lv))
+      report_fail("fromfp", "FP_INT_TONEAREST mismatch with llrint");
+    if (q1 >= (q_t)0) {
+      uintmax_t uv = mf::ufromfp(f1, FP_INT_TONEAREST, 64);
+      if (uv != static_cast<uintmax_t>(lv))
+        report_fail("ufromfp", "FP_INT_TONEAREST mismatch with llrint");
+    }
+  }
+  CHK1_IF(trunc, q_isfinite(q1) && aq1 < (q_t)1e15q);
+  CHK1_IF(round, q_isfinite(q1) && aq1 < (q_t)1e15q);
+  // floor/ceil share trunc/round's magnitude gate: beyond 2^52 ≈ 4.5e15
+  // every DD input is already integer-valued and the op is identity, so
+  // the oracle comparison is uninformative. mpreal wraps both.
+  CHK1_IF(floor, q_isfinite(q1) && aq1 < (q_t)1e15q);
+  CHK1_IF(ceil,  q_isfinite(q1) && aq1 < (q_t)1e15q);
+  // nearbyint / rint use the default rounding mode (round-half-to-even).
+  // mpreal does not wrap nearbyint (no mpfr_nearbyint in MPFR), so pass
+  // the qp result through to_mp as the MP oracle; pass/fail still runs
+  // on DD-vs-qp which is what we care about. rint uses the same
+  // passthrough for uniformity.
+  CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "nearbyint",
+         mf::nearbyint(f1), nearbyintq(q1), q1, (q_t)0,
+         to_mp(nearbyintq(q1)));
+  CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "rint",
+         mf::rint(f1), rintq(q1), q1, (q_t)0, to_mp(rintq(q1)));
+  // C23 roundeven: ties-to-even regardless of FE rounding mode. qp
+  // oracle: nearbyint with current rounding mode (the harness runs
+  // under the default FE_TONEAREST so they match).
+  CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "roundeven",
+         mf::roundeven(f1), nearbyintq(q1), q1, (q_t)0,
+         to_mp(nearbyintq(q1)));
+
+  // Integer-rounding ops (return long / long long). Gate at 2^50 ≈ 1e15
+  // so the cast (long) → double in the adapter is exact (long has up to
+  // 63 mantissa bits, double only 53). The same gate keeps the DD inputs
+  // small enough that lround's half-integer correction never overflows.
+  if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
+    auto dd_of_llong = [](long long v) {
+      mf::float64x2 r;
+      r.limbs[0] = (double)v;
+      r.limbs[1] = 0.0;
+      return r;
+    };
+    CHK("lround",  dd_of_llong(mf::lround(f1)),
+        (q_t)lroundq(q1),  q1, (q_t)0, mp_t((long long)lroundq(q1)));
+    CHK("llround", dd_of_llong(mf::llround(f1)),
+        (q_t)llroundq(q1), q1, (q_t)0, mp_t((long long)llroundq(q1)));
+    CHK("lrint",   dd_of_llong(mf::lrint(f1)),
+        (q_t)lrintq(q1),   q1, (q_t)0, mp_t((long long)lrintq(q1)));
+    CHK("llrint",  dd_of_llong(mf::llrint(f1)),
+        (q_t)llrintq(q1),  q1, (q_t)0, mp_t((long long)llrintq(q1)));
+  }
+
+  // logb / ilogb: exponent extraction. Gate on finite nonzero — logb(0)
+  // is -inf and ilogb(0) is FP_ILOGB0 (implementation-defined), both
+  // oracle-matching on the qp side but not a useful precision check.
+  // Use qp-passthrough for the MP oracle; mpreal's logb binding may or
+  // may not exist depending on the mpreal version, and pass/fail runs
+  // on rel_err(DD vs qp) regardless.
+  CHK_IF(q_isfinite(q1) && q1 != (q_t)0, "logb",
+         mf::logb(f1), logbq(q1), q1, (q_t)0, to_mp(logbq(q1)));
+  if (q_isfinite(q1) && q1 != (q_t)0) {
+    mf::float64x2 ilogb_dd;
+    ilogb_dd.limbs[0] = (double)mf::ilogb(f1);
+    ilogb_dd.limbs[1] = 0.0;
+    CHK("ilogb", ilogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
+        mp_t((long long)ilogbq(q1)));
+    // C23 llogb: long version of ilogb. Same value range, just wider
+    // return type — DD inputs span exponents in roughly [-1074, 1023]
+    // so all fit in int already; the column is a presence test.
+    mf::float64x2 llogb_dd;
+    llogb_dd.limbs[0] = (double)mf::llogb(f1);
+    llogb_dd.limbs[1] = 0.0;
+    CHK("llogb", llogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
+        mp_t((long long)ilogbq(q1)));
+  }
+}
+static void fuzz_mixed_binary(mf::float64x2 const &f1, mf::float64x2 const &f2,
+                              q_t q1, q_t q2, double d1, double d2
+                              MP_PARAM(mp_t const &m1, mp_t const &m2)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  CHK("add_fd", f1 + mf::float64x2(d2), q1 + (q_t)d2,
+      q1, (q_t)d2, m1 + to_mp(d2));
+  CHK("mul_df", mf::float64x2(d1) * f2, (q_t)d1 * q2,
+      (q_t)d1, q2, to_mp(d1) * m2);
+  CHK2(fmin);
+  CHK2(fmax);
+  // mpreal has no fmaximum/_num either; reuse our qp reference under
+  // MP_PARAM by lifting qp result through to_mp (lossless, since our
+  // result is one of the inputs or qNaN).
+  CHK("fmaximum",     mf::fmaximum(f1, f2),     qp_fmaximum(q1, q2),     q1, q2,
+      to_mp(qp_fmaximum(q1, q2)));
+  CHK("fminimum",     mf::fminimum(f1, f2),     qp_fminimum(q1, q2),     q1, q2,
+      to_mp(qp_fminimum(q1, q2)));
+  CHK("fmaximum_num", mf::fmaximum_num(f1, f2), qp_fmaximum_num(q1, q2), q1, q2,
+      to_mp(qp_fmaximum_num(q1, q2)));
+  CHK("fminimum_num", mf::fminimum_num(f1, f2), qp_fminimum_num(q1, q2), q1, q2,
+      to_mp(qp_fminimum_num(q1, q2)));
+
+  CHK("fmaximum_mag",     mf::fmaximum_mag(f1, f2),     qp_mag_max(q1, q2),     q1, q2,
+      to_mp(qp_mag_max(q1, q2)));
+  CHK("fminimum_mag",     mf::fminimum_mag(f1, f2),     qp_mag_min(q1, q2),     q1, q2,
+      to_mp(qp_mag_min(q1, q2)));
+  CHK("fmaximum_mag_num", mf::fmaximum_mag_num(f1, f2), qp_mag_max_num(q1, q2), q1, q2,
+      to_mp(qp_mag_max_num(q1, q2)));
+  CHK("fminimum_mag_num", mf::fminimum_mag_num(f1, f2), qp_mag_min_num(q1, q2), q1, q2,
+      to_mp(qp_mag_min_num(q1, q2)));
+  CHK2(copysign);
+  CHK2(fdim);
+  CHK2(hypot);
+
+  q_t aq2 = q2 < 0 ? -q2 : q2;
+  CHK2_IF(fmod, q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q);
+
+  // fmadd(a, b, c) = a·b + c. Use d1 as the third input (DD-
+  // representable) so the qp reference is exactly fmaq(q1, q2, d1).
+  CHK("fmadd",
+      mf::float64x2(fmadd(
+          static_cast<float64x2>(f1),
+          static_cast<float64x2>(f2),
+          static_cast<float64x2>(mf::float64x2(d1)))),
+      fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
+  // The C++-named `multifloats::fma` overload routes through the same
+  // DD x*y+z path and must match fmadd to within the same tolerance.
+  // Pinning the public name catches a future refactor that diverges
+  // the C ABI symbol from the C++ overload.
+  CHK("fma_cxx",
+      mf::fma(f1, f2, mf::float64x2(d1)),
+      fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
+
+  // lerp: C++20 endpoint-exact a + t*(b - a). Use d1 ∈ [-1, 1]-ish
+  // as the interpolant (DD-representable scalar t) so the qp
+  // reference parses cleanly as `q1 + (q_t)d1 * (q2 - q1)`.
+  // Endpoint exactness is implicit — sweeping t == 0 / t == 1
+  // explicitly would need its own branch and is covered by the
+  // C++20 contract reading test/test.cc.
+  CHK("lerp",
+      mf::lerp(f1, f2, mf::float64x2(d1)),
+      q1 + (q_t)d1 * (q2 - q1),
+      q1, q2, mpfr::lerp(m1, m2, to_mp(d1)));
+
+  // modulo: same gate as fmod (`q2 != 0 && |q1| < 1e20 && |q2| > 1e-20`).
+  // Definition: fmod-style remainder but sign-corrected so the result
+  // takes y's sign — Python's `%` semantics, not C's. The mpfr wrapper
+  // above mirrors exactly the multifloats branch.
+  // Hoist the qp reference so the comma-rich Python-mod expression
+  // doesn't tangle with the CHK macro's argument splitting.
+  q_t modulo_ref = fmodq(q1, q2);
+  if (modulo_ref != (q_t)0 &&
+      (signbitq(modulo_ref) != 0) != (signbitq(q2) != 0)) {
+    modulo_ref = modulo_ref + q2;
+  }
+  CHK_IF(q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q,
+         "modulo",
+         mf::modulo(f1, f2),
+         modulo_ref,
+         q1, q2, mpfr::modulo(m1, m2));
+
+  // remainder / remquo: IEEE-754 round-half-to-even remainder.
+  // Stricter input gate than fmod because the round(x/y) step's
+  // amplification fails for very small |y|.
+  CHK2_IF(remainder, q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q);
+  if (q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q) {
+    int dd_quo = 0;
+    mf::float64x2 dd_rem = mf::remquo(f1, f2, &dd_quo);
+    // mpreal lacks remquo; compose by hand at MP precision.
+    CHK("remquo",
+        dd_rem, remainderq(q1, q2),
+        q1, q2, m1 - mpfr::round(m1 / m2) * m2);
+    // Quotient sanity: the round-to-nearest of x/y must agree
+    // (gated to small magnitudes so the int cast doesn't overflow).
+    if (aq1 / aq2 < (q_t)1e9q) {
+      int qp_quo = (int)std::round((double)(q1 / q2));
+      if (dd_quo != qp_quo) {
+        char buf[96];
+        std::snprintf(buf, sizeof(buf),
+                      "dd_quo=%d qp_quo=%d", dd_quo, qp_quo);
+        report_fail("remquo.q", buf);
+      }
+    }
+  }
+}
+static void fuzz_explog(mf::float64x2 const &f1, q_t q1
+                        MP_PARAM(mp_t const &m1)) {
+  CHK1_IF(exp,   q_isfinite(q1) && q_isfinite(expq(q1)));
+  CHK1_IF(log,   q_isfinite(q1) && q1 > (q_t)0);
+  CHK1_IF(log10, q_isfinite(q1) && q1 > (q_t)0);
+  CHK1_IF(expm1, q_isfinite(q1) && q_isfinite(expm1q(q1)));
+  CHK1_IF(log1p, q_isfinite(q1) && q1 > (q_t)-1);
+  CHK1_IF(exp2,  q_isfinite(q1) && q_isfinite(exp2q(q1)));
+  CHK1_IF(log2,  q_isfinite(q1) && q1 > (q_t)0);
+  // exp10 oracle: 10^q via libquadmath's powq.
+  {
+    q_t exp10_ref = powq((q_t)10, q1);
+    CHK_IF(q_isfinite(q1) && q_isfinite(exp10_ref),
+           "exp10", mf::exp10(f1), exp10_ref, q1, (q_t)0,
+           mpfr::pow(mpfr::mpreal(10), m1));
+    // C23 exp2m1 / exp10m1 — 2^x − 1, 10^x − 1. We can't use
+    // `exp2q(x) - 1` / `powq(10, x) - 1` as oracles because
+    // libquadmath's exp2q / powq lose ~1% relative precision when
+    // |x| ≲ 1e-30 (the result is correct to qp ulp absolutely, but
+    // reaches its small-x floor of ~1e-34 — the dominant Taylor term
+    // x·ln(base) below that floor is plain wrong). Use the
+    // cancellation-free identities `expm1q(x · ln(base))` instead;
+    // libquadmath's expm1q is precise across the small-x range.
+    q_t ln2_q  = (q_t)0.6931471805599453094172321214581765680755q;
+    q_t ln10_q = (q_t)2.3025850929940456840179914546843642076011q;
+    q_t exp2m1_ref  = expm1q(q1 * ln2_q);
+    q_t exp10m1_ref = expm1q(q1 * ln10_q);
+    // mpreal references: use the same cancellation-free identities as the
+    // qp refs above (the naive `exp2(m1)-1` / `log2(1+m1)` forms lose
+    // precision for small x even at 200 bits — the bug this block warns
+    // about, which must not be reintroduced in the oracle).
+    CHK_IF(q_isfinite(q1) && q_isfinite(exp2q(q1)),
+           "exp2m1", mf::exp2m1(f1), exp2m1_ref, q1, (q_t)0,
+           mpfr::expm1(m1 * mpfr::log(mp_t(2))));
+    CHK_IF(q_isfinite(q1) && q_isfinite(exp10_ref),
+           "exp10m1", mf::exp10m1(f1), exp10m1_ref, q1, (q_t)0,
+           mpfr::expm1(m1 * mpfr::log(mp_t(10))));
+    // log2p1 / log10p1: log2(1+x), log10(1+x). For |x| small, the
+    // identity `log1pq(x) · log2(e)` (resp. `… · log10(e)`) is the
+    // precision-safe form; libquadmath's log2q(1+x) and log10q(1+x)
+    // hit the same near-1 ulp floor that motivates log1p existing.
+    q_t log2_e_q  = (q_t)1.4426950408889634073599246810018921374267q;
+    q_t log10_e_q = (q_t)0.4342944819032518276511289189166050822944q;
+    q_t log2p1_ref  = log1pq(q1) * log2_e_q;
+    q_t log10p1_ref = log1pq(q1) * log10_e_q;
+    CHK_IF(q_isfinite(q1) && q1 > (q_t)-1,
+           "log2p1", mf::log2p1(f1), log2p1_ref, q1, (q_t)0,
+           mpfr::log1p(m1) / mpfr::log(mp_t(2)));
+    CHK_IF(q_isfinite(q1) && q1 > (q_t)-1,
+           "log10p1", mf::log10p1(f1), log10p1_ref, q1, (q_t)0,
+           mpfr::log1p(m1) / mpfr::log(mp_t(10)));
+  }
+}
+static void fuzz_trig(long i, mf::float64x2 const &f1, q_t q1
+                      MP_PARAM(mp_t const &m1)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  // Trig: keep magnitudes moderate.
+  if (q_isfinite(q1) && aq1 < (q_t)1e6q) {
+    CHK1(sin);
+    CHK1(cos);
+    CHK1_IF(tan, fabsq(cosq(q1)) > (q_t)1e-12q);
+
+    // Fused sincos: one range-reduction feeds both outputs.
+    float64x2 sc_s, sc_c;
+    sincosdd(static_cast<float64x2>(f1), &sc_s, &sc_c);
+    CHK("sincos_s", mf::float64x2(sc_s), sinq(q1),
+        q1, (q_t)0, mpfr::sin(m1));
+    CHK("sincos_c", mf::float64x2(sc_c), cosq(q1),
+        q1, (q_t)0, mpfr::cos(m1));
+  }
+
+  // Trig at huge arguments: |x| in [1e6, 1e15]. The Cody-Waite + π/8
+  // split range reduction is supposed to hold full DD precision up
+  // to ~2^55 ≈ 3.6e16. Without this bucket, the random distribution
+  // (10^±30 magnitude) almost never lands in this regime, and the
+  // |x|<1e6 gate above explicitly excludes it from the headline trig
+  // stat. Sample every 4 iterations to amortize cost without
+  // dominating the run.
+#ifdef USE_MPFR
+  if ((i & 3) == 0 && q_isfinite(q1) && aq1 > (q_t)1e-3q && aq1 < (q_t)1) {
+    // Synthesize q_huge = q1 * 2^scale, scale ∈ {20, 30, 40, 50},
+    // covering 10^6 .. 10^15. Multiply is exact (power of two).
+    int scales[4] = {20, 30, 40, 50};
+    int scale = scales[(unsigned)(i >> 2) & 3];
+    q_t q_huge = scalbnq(q1, scale);
+    if (fabsq(q_huge) < (q_t)1e15q) {
+      mf::float64x2 f_huge =
+          mf::scalbn(f1, scale);  // exact in DD too
+      mp_t m_huge = scalbn(m1, scale);
+      CHK("sin_huge", mf::sin(f_huge), sinq(q_huge),
+          q_huge, (q_t)0, mpfr::sin(m_huge));
+      CHK("cos_huge", mf::cos(f_huge), cosq(q_huge),
+          q_huge, (q_t)0, mpfr::cos(m_huge));
+    }
+  }
+#endif
+  CHK1_IF(asin, q_isfinite(q1) && aq1 <= (q_t)1);
+  CHK1_IF(acos, q_isfinite(q1) && aq1 <= (q_t)1);
+  CHK1_IF(atan, q_isfinite(q1));
+}
+static void fuzz_hyperbolic(mf::float64x2 const &f1, q_t q1
+                            MP_PARAM(mp_t const &m1)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  if (q_isfinite(q1) && aq1 < (q_t)700) {
+    CHK1(sinh);
+    CHK1(cosh);
+    CHK1(tanh);
+
+    // Fused sinhcosh.
+    float64x2 hc_s, hc_c;
+    sinhcoshdd(static_cast<float64x2>(f1), &hc_s, &hc_c);
+    CHK("sinhcosh_s", mf::float64x2(hc_s), sinhq(q1),
+        q1, (q_t)0, mpfr::sinh(m1));
+    CHK("sinhcosh_c", mf::float64x2(hc_c), coshq(q1),
+        q1, (q_t)0, mpfr::cosh(m1));
+  }
+  CHK1_IF(asinh, q_isfinite(q1));
+  CHK1_IF(acosh, q_isfinite(q1) && q1 >= (q_t)1);
+  CHK1_IF(atanh, q_isfinite(q1) && aq1 <  (q_t)1);
+}
+static void fuzz_special(mf::float64x2 const &f1, q_t q1
+                         MP_PARAM(mp_t const &m1)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  CHK1_IF(erf,  q_isfinite(q1) && aq1 < (q_t)100);
+  CHK1_IF(erfc, q_isfinite(q1) && aq1 < (q_t)100);
+  // erfcx(x) = exp(x²) * erfc(x). The DD kernel is precision-preserving
+  // for the tail-tail cancellation; the qp oracle is the naive product.
+  // Gate |x| < 26 so exp(x²) stays well inside qp's exponent range
+  // and the product stays representable.
+  CHK_IF(q_isfinite(q1) && aq1 < (q_t)26, "erfcx",
+         mf::erfcx(f1), expq(q1 * q1) * erfcq(q1),
+         q1, (q_t)0,
+         mpfr::exp(m1 * m1) * mpfr::erfc(m1));
+  if (q_isfinite(q1) && q1 > (q_t)0 && q1 < (q_t)100) {
+    CHK1(gamma);
+    CHK1(lngamma);
+  }
+}
+static void fuzz_atan2(mf::float64x2 const &f1, mf::float64x2 const &f2,
+                       q_t q1, q_t q2
+                       MP_PARAM(mp_t const &m1, mp_t const &m2)) {
+  CHK2(atan2);
+
+  // atan2pi(y, x) = atan2(y, x) / π. Division by π has low
+  // amplification, so full-DD tolerance holds here (unlike forward
+  // sin/cos/tanpi — see is_pi_trig).
+  CHK("atan2pi",
+      mf::float64x2(atan2pidd(
+          static_cast<float64x2>(f1), static_cast<float64x2>(f2))),
+      atan2q(q1, q2) / (q_t)M_PIq,
+      q1, q2,
+      mpfr::atan2(m1, m2) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+}
+static void fuzz_pow(long i, mf::float64x2 const &f1, mf::float64x2 const &f2,
+                     q_t q1, q_t q2, double d1, double d2
+                     MP_PARAM(mp_t const &m1, mp_t const &m2)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  // Power: positive base, modest exponent.
+  q_t aq2 = q2 < 0 ? -q2 : q2;
+  if (q_isfinite(q1) && q1 > (q_t)1e-3q && q1 < (q_t)1e3q &&
+      q_isfinite(q2) && aq2 < (q_t)30) {
+    CHK2(pow);
+    CHK("pow_md", mf::pow(f1, mf::float64x2(d2)), powq(q1, (q_t)d2),
+        q1, (q_t)d2, mpfr::pow(m1, to_mp(d2)));
+    CHK("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2),
+        (q_t)d1, q2, mpfr::pow(to_mp(d1), m2));
+    // C23 powr: pow restricted to x >= 0. Same oracle as pow inside
+    // the strict domain (the gate above already guarantees q1 > 0).
+    CHK("powr", mf::powr(f1, f2), powq(q1, q2), q1, q2, mpfr::pow(m1, m2));
+    // C23 rootn: x^(1/n). Use small odd n so DD precision is meaningful
+    // and the negative-x path is reachable. Reference: x^(1/n) at qp.
+    for (int n : {3, 5, -3, -5}) {
+      q_t inv_n = (q_t)1 / (q_t)n;
+      q_t res_q = powq(q1, inv_n);
+      q_t a_res = res_q < 0 ? -res_q : res_q;
+      if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
+        CHK("rootn", mf::rootn(f1, n), res_q, q1, (q_t)n,
+            mpfr::pow(m1, mp_t(1) / to_mp((double)n)));
+      }
+    }
+    // C23 compoundn: (1+x)^n. Gate q1 ∈ (-1, 100) so result stays
+    // representable. Reference: powq(1+q1, n).
+    if (q1 > (q_t)-1 && q1 < (q_t)100) {
+      for (int n : {1, 2, 5, 10, -3}) {
+        q_t res_q = powq((q_t)1 + q1, (q_t)n);
+        q_t a_res = res_q < 0 ? -res_q : res_q;
+        if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
+          CHK("compoundn", mf::compoundn(f1, n), res_q, q1, (q_t)n,
+              mpfr::pow(mp_t(1) + m1, to_mp((double)n)));
+        }
+      }
+    }
+
+#ifdef USE_MPFR
+    // pow = exp2(y·log2(x)) decomposition diagnostic. Three stat
+    // rows isolate each stage so we can see which one dominates the
+    // observed `pow` ulp floor:
+    //   pow_diag_log2  — mf::log2 vs mpfr::log2 (the A leg alone)
+    //   pow_diag_exp2  — mf::exp2 on a DD-rounded exact y·log2(x)
+    //                    (the C leg alone)
+    //   pow_diag_nomul — same DD-rounded input through exp2, vs
+    //                    mpfr::pow(x,y) directly (A+C with a
+    //                    correctly-rounded mul intermediate)
+    // If pow's max_rel ≫ pow_diag_nomul, the multiply is the
+    // bottleneck. If pow ≈ nomul, the mul is fine and the A+C
+    // kernels set the ceiling.
+    CHK("pow_diag_log2", mf::log2(f1), log2q(q1),
+        q1, (q_t)0, mpfr::log2(m1));
+
+    // Correctly-rounded-to-DD version of y · log2(x): compute at
+    // 200-bit, then split into (hi, lo) via round-to-nearest.
+    mp_t P_exact = mpfr::log2(m1) * m2;
+    if (mp_isfinite(P_exact)) {
+      double P_hi = P_exact.toDouble();
+      double P_lo = 0.0;
+      if (std::isfinite(P_hi)) {
+        P_lo = (P_exact - mp_t(P_hi)).toDouble();
+      }
+      mf::float64x2 P_dd;
+      P_dd.limbs[0] = P_hi;
+      P_dd.limbs[1] = P_lo;
+      q_t P_q = to_q(P_dd);
+      CHK("pow_diag_exp2", mf::exp2(P_dd), exp2q(P_q),
+          P_q, (q_t)0, mpfr::exp2(to_mp(P_q)));
+      CHK("pow_diag_nomul", mf::exp2(P_dd), powq(q1, q2),
+          q1, q2, mpfr::pow(m1, m2));
+    }
+#endif
+  }
+  // Vary the integer exponent across iterations so we exercise the
+  // repeated-squaring path with a mix of positive/negative/odd/even
+  // exponents (was hard-coded at n=3, missing the integer-fast-path
+  // and negative-base regressions). Skip n=0 (trivially 1). Restrict
+  // |q1|^|n| to stay within normal double range — denormal results
+  // cliff DD precision below the 1e-26 full-DD tolerance bound.
+  {
+    static const int kPowInts[] = {1, 2, 3, 5, 7, 10, 17, 30,
+                                   -1, -2, -3, -5, -10, -17};
+    int n = kPowInts[(unsigned)i % (sizeof(kPowInts)/sizeof(int))];
+    if (q_isfinite(q1) && aq1 > (q_t)1e-9q && aq1 < (q_t)1e9q) {
+      q_t res_q = powq(q1, (q_t)n);
+      // Skip when the math result is denormal/Inf — DD can't carry full
+      // 1e-26 relative error there (subnormal cliff).
+      q_t a_res = res_q < 0 ? -res_q : res_q;
+      if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
+        CHK("pow_int",
+            mf::pow(f1, mf::float64x2((double)n)), res_q,
+            q1, (q_t)n, mpfr::pow(m1, to_mp((double)n)));
+        // C23 pown: same kernel as powi, separate row so coverage
+        // shows the C23 spelling lives in the header. Forwards to
+        // powi at compile time.
+        CHK("pown",
+            mf::pown(f1, n), res_q,
+            q1, (q_t)n, mpfr::pow(m1, to_mp((double)n)));
+      }
+    }
+  }
+}
+static void fuzz_scaling(mf::float64x2 const &f1, q_t q1
+                         MP_PARAM(mp_t const &m1)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  // scalbn(x, 5) = x · 2^5; the ·32 is exact at any precision.
+  CHK_IF(q_isfinite(q1), "scalbn", mf::scalbn(f1, 5), scalbnq(q1, 5),
+         q1, (q_t)0, m1 * mp_t(32));
+  // ldexp / scalbln: POSIX aliases of scalbn under FLT_RADIX == 2
+  // (IEEE 754 guarantees it). Same ·32 oracle. ldexp takes int,
+  // scalbln takes long — distinct header-only wrappers in multifloats.h.
+  CHK_IF(q_isfinite(q1), "ldexp",   mf::ldexp(f1, 5),    ldexpq(q1, 5),
+         q1, (q_t)0, m1 * mp_t(32));
+  CHK_IF(q_isfinite(q1), "scalbln", mf::scalbln(f1, 5L), scalblnq(q1, 5L),
+         q1, (q_t)0, m1 * mp_t(32));
+
+  // frexp(x, &e): DD returns fraction in [0.5, 1) for nonzero x and
+  // exponent e such that x == fraction · 2^e. Emit two stat rows —
+  // one for the fraction, one for the integer exponent — so per-
+  // component regressions show up separately.
+  if (q_isfinite(q1) && q1 != (q_t)0) {
+    int e_mf = 0, e_q = 0;
+    mf::float64x2 fr_mf = mf::frexp(f1, &e_mf);
+    q_t fr_q = frexpq(q1, &e_q);
+    CHK("frexp.frac", fr_mf, fr_q, q1, (q_t)0, to_mp(fr_q));
+    mf::float64x2 eint_mf;
+    eint_mf.limbs[0] = (double)e_mf;
+    eint_mf.limbs[1] = 0.0;
+    CHK("frexp.exp", eint_mf, (q_t)e_q, q1, (q_t)0,
+        mp_t((long long)e_q));
+  }
+
+  // modf(x, &iptr): splits x into fractional and integer parts, both
+  // preserving sign. Gate on |x| < 1e15 for the same reason as trunc:
+  // beyond 2^52 the fractional part is zero and the test is identity.
+  if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
+    mf::float64x2 ipart_mf;
+    q_t ipart_q = 0;
+    mf::float64x2 frac_mf = mf::modf(f1, &ipart_mf);
+    q_t frac_q = modfq(q1, &ipart_q);
+    CHK("modf.frac", frac_mf, frac_q, q1, (q_t)0, to_mp(frac_q));
+    CHK("modf.int",  ipart_mf, ipart_q, q1, (q_t)0, to_mp(ipart_q));
+  }
+}
+static void fuzz_minmax3(mf::float64x2 const &f1, mf::float64x2 const &f2,
+                         q_t q1, q_t q2
+                         MP_PARAM(mp_t const &m1, mp_t const &m2)) {
+  // 3-argument min/max via nested fmin/fmax.
+  bool const both_finite = q_isfinite(q1) && q_isfinite(q2);
+  if (both_finite) {
+    q_t q3 = (q1 + q2) * (q_t)0.5q;
+    // q1+q2 of two DD-precision values can spill into bit 107; clamp
+    // back to DD so q3, f3, m3 stay fully round-trip consistent.
+    q3 = to_q(from_q(q3));
+    mf::float64x2 f3 = from_q(q3);
+    q_t min12 = q1 < q2 ? q1 : q2;
+    q_t q_min3 = min12 < q3 ? min12 : q3;
+    q_t max12 = q1 < q2 ? q2 : q1;
+    q_t q_max3 = max12 < q3 ? q3 : max12;
+    MP_STMT(mp_t m3 = to_mp(f3));
+    MP_STMT(mp_t mp_min12 = q1 < q2 ? m1 : m2);
+    MP_STMT(mp_t mp_min3  = min12 < q3 ? mp_min12 : m3);
+    MP_STMT(mp_t mp_max12 = q1 < q2 ? m2 : m1);
+    MP_STMT(mp_t mp_max3  = max12 < q3 ? m3 : mp_max12);
+    CHK("min3", mf::fmin(mf::fmin(f1, f2), f3), q_min3, q1, q2, mp_min3);
+    CHK("max3", mf::fmax(mf::fmax(f1, f2), f3), q_max3, q1, q2, mp_max3);
+  }
+}
+static void fuzz_bessel(mf::float64x2 const &f1, q_t q1
+                        MP_PARAM(mp_t const &m1)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  // Bessel of the first (j) and second (y) kind. Labels match
+  // ops.py's bench_key convention ("bj0" / "byn" / ...). y* is only
+  // finite on positive arguments. Cap |x| at 200 so the DD recurrence
+  // doesn't hit the qp reference's large-argument oscillation regime
+  // where the two implementations can disagree by more than the kernel
+  // error alone.
+  if (q_isfinite(q1) && aq1 < (q_t)200) {
+    CHK("bj0", mf::float64x2(j0dd(static_cast<float64x2>(f1))),
+        j0q(q1), q1, (q_t)0, mpfr::besselj0(m1));
+    CHK("bj1", mf::float64x2(j1dd(static_cast<float64x2>(f1))),
+        j1q(q1), q1, (q_t)0, mpfr::besselj1(m1));
+
+    static constexpr int kBesselOrders[] = {2, 3, 5, 8};
+    for (int n : kBesselOrders) {
+      CHK("bjn",
+          mf::float64x2(jndd(n, static_cast<float64x2>(f1))),
+          jnq(n, q1), q1, (q_t)n, mpfr::besseljn((long)n, m1));
+      CHK_IF(q1 > (q_t)0, "byn",
+             mf::float64x2(yndd(n, static_cast<float64x2>(f1))),
+             ynq(n, q1), q1, (q_t)n, mpfr::besselyn((long)n, m1));
+    }
+
+    if (q1 > (q_t)0) {
+      CHK("by0", mf::float64x2(y0dd(static_cast<float64x2>(f1))),
+          y0q(q1), q1, (q_t)0, mpfr::bessely0(m1));
+      CHK("by1", mf::float64x2(y1dd(static_cast<float64x2>(f1))),
+          y1q(q1), q1, (q_t)0, mpfr::bessely1(m1));
+
+      // yndd_range: single forward-recurrence sweep filling out[0..5].
+      // Each output is compared individually against ynq(n, x). One
+      // label "yn_range" covers all six so the stat row aggregates
+      // error across the entire range sweep.
+      float64x2 yn_out[6];
+      yndd_range(0, 5, static_cast<float64x2>(f1), yn_out);
+      for (int n = 0; n <= 5; ++n)
+        CHK("yn_range",
+            mf::float64x2(yn_out[n]), ynq(n, q1),
+            q1, (q_t)n, mpfr::besselyn((long)n, m1));
+
+      // jndd_range: same idea but for J. The kernel internally loops
+      // over jndd, so this exercises the n=0..5 sweep path that was
+      // previously only hit one n at a time via CHK("bjn", ...).
+      float64x2 jn_out[6];
+      jndd_range(0, 5, static_cast<float64x2>(f1), jn_out);
+      for (int n = 0; n <= 5; ++n)
+        CHK("jn_range",
+            mf::float64x2(jn_out[n]), jnq(n, q1),
+            q1, (q_t)n, mpfr::besseljn((long)n, m1));
+    }
+  }
+}
+static void fuzz_pi_trig(mf::float64x2 const &f1, q_t q1
+                         MP_PARAM(mp_t const &m1)) {
+  q_t aq1 = q1 < 0 ? -q1 : q1;
+
+  // π-scaled trig. The qp oracle composes {sin,cos,tan}q(M_PIq·x) and
+  // {asin,acos,atan}q(x)/M_PIq. The forward variants amplify the
+  // DD-vs-qp π mismatch near zeros of the function — see is_pi_trig
+  // commentary above — so we relax tolerance for those and still gate
+  // aggressively on near-zero arguments.
+  if (q_isfinite(q1) && aq1 < (q_t)1e6q) {
+    q_t pix = (q_t)M_PIq * q1;
+    q_t sp = sinq(pix);
+    q_t cp = cosq(pix);
+    // sinpi fails near integer x (sin(π·n)=0); cospi fails near
+    // half-integer (cos(π·(n+1/2))=0). Gate each on its own magnitude.
+    CHK_IF(fabsq(sp) > (q_t)1e-10q, "sinpi",
+           mf::float64x2(sinpidd(static_cast<float64x2>(f1))),
+           sp, q1, (q_t)0,
+           mpfr::sin(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+    CHK_IF(fabsq(cp) > (q_t)1e-10q, "cospi",
+           mf::float64x2(cospidd(static_cast<float64x2>(f1))),
+           cp, q1, (q_t)0,
+           mpfr::cos(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+    CHK_IF(fabsq(cp) > (q_t)1e-10q && fabsq(sp) > (q_t)1e-10q, "tanpi",
+           mf::float64x2(tanpidd(static_cast<float64x2>(f1))),
+           sp / cp, q1, (q_t)0,
+           mpfr::tan(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
+  }
+  if (q_isfinite(q1) && aq1 <= (q_t)1) {
+    CHK("asinpi",
+        mf::float64x2(asinpidd(static_cast<float64x2>(f1))),
+        asinq(q1) / (q_t)M_PIq, q1, (q_t)0,
+        mpfr::asin(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+    CHK("acospi",
+        mf::float64x2(acospidd(static_cast<float64x2>(f1))),
+        acosq(q1) / (q_t)M_PIq, q1, (q_t)0,
+        mpfr::acos(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+  }
+  CHK_IF(q_isfinite(q1), "atanpi",
+         mf::float64x2(atanpidd(static_cast<float64x2>(f1))),
+         atanq(q1) / (q_t)M_PIq, q1, (q_t)0,
+         mpfr::atan(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
+}
+static void fuzz_complex(Rng &rng) {
+  // Complex DD ops. Use narrow-magnitude inputs so the oracle's
+  // re*re + im*im (in cdivq) and re*re - im*im (in cmulq) don't drift
+  // into overflow or catastrophic cancellation.
+  q_t zr1, zi1, zr2, zi2;
+  zr1 = rng.narrow(rng.u(), rng.u());
+  zi1 = rng.narrow(rng.u(), rng.u());
+  zr2 = rng.narrow(rng.u(), rng.u());
+  zi2 = rng.narrow(rng.u(), rng.u());
+  if (q_isfinite(zr1) && q_isfinite(zi1) &&
+      q_isfinite(zr2) && q_isfinite(zi2)) {
+    mf::float64x2 fr1 = from_q(zr1), fi1 = from_q(zi1);
+    mf::float64x2 fr2 = from_q(zr2), fi2 = from_q(zi2);
+    q_t qr1 = to_q(fr1), qi1 = to_q(fi1);
+    q_t qr2 = to_q(fr2), qi2 = to_q(fi2);
+    complex64x2 zd1 = to_cdd(fr1, fi1);
+    complex64x2 zd2 = to_cdd(fr2, fi2);
+    __complex128 zq1 = to_cq(qr1, qi1);
+    __complex128 zq2 = to_cq(qr2, qi2);
+    MP_STMT(CMp zm1 = {to_mp(fr1), to_mp(fi1)});
+    MP_STMT(CMp zm2 = {to_mp(fr2), to_mp(fi2)});
+
+    q_t mag1 = cabsq(zq1);
+    q_t mag2 = cabsq(zq2);
+    q_t mag  = mag1 > mag2 ? mag1 : mag2;
+    if (mag < (q_t)1e-300q) mag = (q_t)1e-300q;
+
+    CHK_C2(add);
+    CHK_C2(sub);
+    CHK_C2(mul);
+    CHK_C2_IF(div, mag2 > (q_t)0);
+    CHK("cabs",
+        mf::float64x2(cabsdd(zd1)), cabsq(zq1),
+        mag, (q_t)0, cabsmp(zm1));
+    CHK("cconjg", conjdd(zd1), conjq(zq1), mag, (q_t)0,
+        cconjgmp(zm1));
+
+    CHK_C1(sqrt);
+    CHK_C1(exp);
+
+    // cexpm1: the DD kernel preserves precision for small |z|. The
+    // qp oracle (cexpq(z) - 1) loses it there, so gate |z| > 1e-5
+    // to keep the oracle meaningful. The mp oracle comes as a
+    // trailing CMp{...} — the brace list's comma is safely inside
+    // CHK's variadic tail.
+    if (mag1 > (q_t)1e-5q) {
+      __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
+      CHK("cexpm1", cexpm1dd(zd1), cexpq(zq1) - one_c, mag, (q_t)0,
+          CMp{cexpmp(zm1).re - 1, cexpmp(zm1).im});
+    }
+
+    // clog: guard |z| away from 0 (and away from overflow) so the
+    // oracle's arg computation stays accurate.
+    if (mag1 > (q_t)1e-200q && mag1 < (q_t)1e100q) {
+      CHK_C1(log);
+
+      // clog2 / clog10 / clog1p: libquadmath has no direct variants,
+      // compose from clogq. Both components are divided by the real
+      // scalar log(2) / log(10) respectively.
+      __complex128 lg = clogq(zq1);
+      q_t log_2  = logq((q_t)2);
+      q_t log_10 = logq((q_t)10);
+      __complex128 lg2;  __real__ lg2  = crealq(lg) / log_2;
+                         __imag__ lg2  = cimagq(lg) / log_2;
+      __complex128 lg10; __real__ lg10 = crealq(lg) / log_10;
+                         __imag__ lg10 = cimagq(lg) / log_10;
+      MP_STMT(CMp clog2_oracle  = {clogmp(zm1).re / mpfr::log(mp_t(2)),
+                                   clogmp(zm1).im / mpfr::log(mp_t(2))});
+      MP_STMT(CMp clog10_oracle = {clogmp(zm1).re / mpfr::log(mp_t(10)),
+                                   clogmp(zm1).im / mpfr::log(mp_t(10))});
+      CHK("clog2",  clog2dd(zd1),  lg2,  mag, (q_t)0, clog2_oracle);
+      CHK("clog10", clog10dd(zd1), lg10, mag, (q_t)0, clog10_oracle);
+    }
+
+    // clog1p: oracle = clogq(1 + z). Gate |1+z| to avoid oracle
+    // blow-up on the branch cut at z=-1.
+    {
+      __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
+      __complex128 one_plus_z = one_c + zq1;
+      CHK_IF(cabsq(one_plus_z) > (q_t)1e-5q,
+             "clog1p", clog1pdd(zd1), clogq(one_plus_z), mag, (q_t)0,
+             clogmp({zm1.re + 1, zm1.im}));
+    }
+
+    // cpow: keep base and exponent modest — pow amplifies input
+    // precision, so a wide exponent would swamp the tolerance.
+    CHK_IF(mag1 > (q_t)1e-2q && mag1 < (q_t)1e2q && mag2 < (q_t)10,
+           "cpow", cpowdd(zd1, zd2), cpowq(zq1, zq2), mag, (q_t)0,
+           cexpmp(cmulmp(zm2, clogmp(zm1))));
+
+    // csinpi / ccospi: forward π-scaled complex trig. Same π
+    // representation mismatch as scalar {sin,cos}pi — reduced_dd
+    // tolerance applies (see is_reduced_dd).
+    {
+      __complex128 pi_c; __real__ pi_c = (q_t)M_PIq; __imag__ pi_c = (q_t)0;
+      __complex128 pi_z = pi_c * zq1;
+      MP_STMT(mp_t mpi = mpfr::const_pi(multifloats_test::kMpfrPrec));
+      CHK("csinpi", csinpidd(zd1), csinq(pi_z), mag, (q_t)0,
+          csinmp({mpi * zm1.re, mpi * zm1.im}));
+      CHK("ccospi", ccospidd(zd1), ccosq(pi_z), mag, (q_t)0,
+          ccosmp({mpi * zm1.re, mpi * zm1.im}));
+    }
+
+    // cproj: finite inputs → identity; only meaningful distinction
+    // from a plain copy happens on infinite inputs (which the
+    // narrow generator doesn't produce). Still worth testing to
+    // pin the finite path.
+    CHK("cproj", cprojdd(zd1), cprojq(zq1), mag, (q_t)0, zm1);
+
+    // carg: complex → real scalar phase. Near ±π on the branch cut
+    // (negative real axis) DD and qp agree as long as imag-limbs
+    // sign matches, which they do for DD-representable inputs.
+    CHK("carg",
+        mf::float64x2(cargdd(zd1)), cargq(zq1), mag, (q_t)0,
+        cargmp(zm1));
+
+    CHK_C1(sin);
+    CHK_C1(cos);
+    CHK_C1(sinh);
+    CHK_C1(cosh);
+
+    // c{tan,tanh}: zeros of the corresponding {cos,cosh} cause the
+    // division inside the oracle to blow up. Gate on oracle magnitude.
+    __complex128 ccz  = ccosq(zq1);
+    __complex128 ccsh = ccoshq(zq1);
+    CHK_C1_IF(tan,  cabsq(ccz)  > (q_t)1e-10q);
+    CHK_C1_IF(tanh, cabsq(ccsh) > (q_t)1e-10q);
+
+    CHK_C1(asin);
+    CHK_C1(acos);
+    CHK_C1(atan);
+    CHK_C1(asinh);
+    CHK_C1(acosh);
+    CHK_C1(atanh);
+  }
 }
 
 #ifdef USE_MPFR
@@ -1210,902 +2075,35 @@ int main(int argc, char **argv) {
     double d2 = (double)q2;
 
     // Hot loop: arithmetic + sqrt + comparisons + unary basics.
-    // add/sub/neg/abs are non-finite safe. mul/div/etc use two_prod, whose
-    // error limb becomes NaN when a hi-limb is ±inf even if the IEEE product
-    // is well-defined; gate the multiplicative path on finite inputs.
-    bool const both_finite = q_isfinite(q1) && q_isfinite(q2);
-    q_t aq1 = q1 < 0 ? -q1 : q1;
+    fuzz_arith(f1, f2, q1, q2 MP_PARAM(m1, m2));
 
-    CHK("add", f1 + f2, q1 + q2, q1, q2, m1 + m2);
-    CHK("sub", f1 - f2, q1 - q2, q1, q2, m1 - m2);
-    CHK_IF(both_finite, "mul", f1 * f2, q1 * q2, q1, q2, m1 * m2);
-    CHK_IF(both_finite && q2 != (q_t)0, "div", f1 / f2, q1 / q2, q1, q2, m1 / m2);
-    CHK1_IF(sqrt, q_isfinite(q1) && q1 >= (q_t)0);
-    // C23 rsqrt(x) = 1/sqrt(x). Reference: 1/sqrtq(x) at qp precision.
-    // Gate: x > 0 finite (rsqrt(0) = +inf, rsqrt(<0) = NaN — IEEE specials
-    // are returned by the kernel directly, no rel-err to record).
-    CHK_IF(q_isfinite(q1) && q1 > (q_t)0, "rsqrt",
-           mf::rsqrt(f1), (q_t)1.0q / sqrtq(q1), q1, (q_t)0,
-           mp_t(1) / mpfr::sqrt(m1));
-    // cbrt: defined on all finite reals (including negatives). The qp
-    // reference cbrtq is the analogue of multifloats' Karp/Markstein
-    // refinement, and mpreal exposes cbrt via ADL.
-    CHK1_IF(cbrt, q_isfinite(q1));
-    CHK("abs", mf::abs(f1), q1 < 0 ? -q1 : q1, q1, (q_t)0, mpfr::abs(m1));
-    CHK("neg", -f1, -q1, q1, (q_t)0, -m1);
+    fuzz_fp_properties(f1, f2, q1, q2);
 
-    // fpclassify: integer return — both DD and qp inspect the hi-limb
-    // of their representation, so the classification must agree. libquadmath
-    // has no fpclassifyq, so reconstruct the qp class from its primitive
-    // predicates. The subnormal class differs between DD (|hi| < 2^-1022)
-    // and qp (|q| < ~3.4e-4932) — gate it out so subnormals never reach
-    // here as a false fail.
-    {
-      int dd_cls = mf::fpclassify(f1);
-      int qp_cls;
-      if (q_isnan(q1)) qp_cls = FP_NAN;
-      else if (!q_isfinite(q1)) qp_cls = FP_INFINITE;
-      else if (q1 == (q_t)0) qp_cls = FP_ZERO;
-      else qp_cls = FP_NORMAL;  // qp subnormals don't appear in our distribution
-      // DD says SUBNORMAL when |hi| < 2^-1022 — those samples skip this check.
-      if (dd_cls != FP_SUBNORMAL && dd_cls != qp_cls) {
-        char buf[64];
-        std::snprintf(buf, sizeof(buf),
-                      "dd_cls=%d qp_cls=%d  (q1=%s)", dd_cls, qp_cls, qstr(q1));
-        report_fail("fpclassify", buf);
-      }
-    }
-
-    // nextafter / nexttoward: deterministic invariants rather than max_rel
-    // (DD's step ≈ ulp(hi)·2⁻⁵³ doesn't match qp's 113-bit step). We assert
-    // the four properties: identity at equal inputs, strict ordering toward
-    // the target, monotonicity in y, and one-step round-trip.
-    if (q_isfinite(q1) && q_isfinite(q2) && q1 != q2) {
-      mf::float64x2 nA = mf::nextafter(f1, f2);
-      mf::float64x2 nT = mf::nexttoward(f1, f2);
-      bool ok =
-          mf::nextafter(f1, f1) == f1 &&
-          nA == nT &&
-          ((q1 < q2) ? (nA > f1 && nA <= f2)
-                     : (nA < f1 && nA >= f2)) &&
-          mf::nextafter(nA, f1) == f1;
-      if (!ok) {
-        char buf[160];
-        std::snprintf(buf, sizeof(buf),
-                      "q1=%s q2=%s nA=(%a, %a)", qstr(q1), qstr(q2),
-                      nA.limbs[0], nA.limbs[1]);
-        report_fail("nextafter", buf);
-      }
-    }
-
-    // C23 nextup / nextdown: equivalence to nextafter(x, ±inf). Property
-    // test (no max_rel) — DD step doesn't match qp step.
-    if (q_isfinite(q1)) {
-      mf::float64x2 up   = mf::nextup(f1);
-      mf::float64x2 down = mf::nextdown(f1);
-      mf::float64x2 inf_p( std::numeric_limits<double>::infinity());
-      mf::float64x2 inf_m(-std::numeric_limits<double>::infinity());
-      bool ok = (up   == mf::nextafter(f1, inf_p)) &&
-                (down == mf::nextafter(f1, inf_m)) &&
-                (up >= f1) && (down <= f1);
-      if (!ok) report_fail("nextup", "property failed");
-    }
-
-    // C23 metadata cluster — property tests (no max_rel column).
-    //   canonicalize(x) is the identity for finite DD.
-    //   iseqsig(a, b) ⇔ (a == b).
-    //   totalorder is a total preorder: trichotomy + transitivity-on-pairs.
-    //   getpayload/setpayload round-trip.
-    if (q_isfinite(q1)) {
-      mf::float64x2 c = mf::canonicalize(f1);
-      if (!(c == f1)) report_fail("canonicalize", "non-identity on finite");
-      if (mf::iseqsig(f1, f1) != true) report_fail("iseqsig", "x != x");
-      // totalorder must classify f1 vs itself as true (reflexive) and
-      // give consistent ordering with `<` on distinct finite values.
-      if (!mf::totalorder(f1, f1)) report_fail("totalorder", "reflex fail");
-      if (q_isfinite(q2) && q1 < q2 && !mf::totalorder(f1, f2))
-        report_fail("totalorder", "ordered pair miss");
-    }
-    // setpayload(0) round-trip: load 42, get back 42.
-    {
-      mf::float64x2 dst;
-      if (mf::setpayload(dst, mf::float64x2(42.0)) == 0) {
-        mf::float64x2 got = mf::getpayload(dst);
-        if (!(got == mf::float64x2(42.0)))
-          report_fail("setpayload", "round-trip mismatch");
-      }
-    }
-
-    // C23 fromfp / ufromfp / fromfpx / ufromfpx — round-to-int with
-    // overflow detection. Property test: fromfp(x, FP_INT_TONEAREST, 64)
-    // must agree with llrint(x) inside the gate where llrint is
-    // exactly representable. (The rounding-mode arg is a C23 FP_INT_*
-    // constant, not an FE_* one.)
-    if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
-      intmax_t iv = mf::fromfp(f1, FP_INT_TONEAREST, 64);
-      long long lv = mf::llrint(f1);
-      if (iv != static_cast<intmax_t>(lv))
-        report_fail("fromfp", "FP_INT_TONEAREST mismatch with llrint");
-      if (q1 >= (q_t)0) {
-        uintmax_t uv = mf::ufromfp(f1, FP_INT_TONEAREST, 64);
-        if (uv != static_cast<uintmax_t>(lv))
-          report_fail("ufromfp", "FP_INT_TONEAREST mismatch with llrint");
-      }
-    }
-    CHK1_IF(trunc, q_isfinite(q1) && aq1 < (q_t)1e15q);
-    CHK1_IF(round, q_isfinite(q1) && aq1 < (q_t)1e15q);
-    // floor/ceil share trunc/round's magnitude gate: beyond 2^52 ≈ 4.5e15
-    // every DD input is already integer-valued and the op is identity, so
-    // the oracle comparison is uninformative. mpreal wraps both.
-    CHK1_IF(floor, q_isfinite(q1) && aq1 < (q_t)1e15q);
-    CHK1_IF(ceil,  q_isfinite(q1) && aq1 < (q_t)1e15q);
-    // nearbyint / rint use the default rounding mode (round-half-to-even).
-    // mpreal does not wrap nearbyint (no mpfr_nearbyint in MPFR), so pass
-    // the qp result through to_mp as the MP oracle; pass/fail still runs
-    // on DD-vs-qp which is what we care about. rint uses the same
-    // passthrough for uniformity.
-    CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "nearbyint",
-           mf::nearbyint(f1), nearbyintq(q1), q1, (q_t)0,
-           to_mp(nearbyintq(q1)));
-    CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "rint",
-           mf::rint(f1), rintq(q1), q1, (q_t)0, to_mp(rintq(q1)));
-    // C23 roundeven: ties-to-even regardless of FE rounding mode. qp
-    // oracle: nearbyint with current rounding mode (the harness runs
-    // under the default FE_TONEAREST so they match).
-    CHK_IF(q_isfinite(q1) && aq1 < (q_t)1e15q, "roundeven",
-           mf::roundeven(f1), nearbyintq(q1), q1, (q_t)0,
-           to_mp(nearbyintq(q1)));
-
-    // Integer-rounding ops (return long / long long). Gate at 2^50 ≈ 1e15
-    // so the cast (long) → double in the adapter is exact (long has up to
-    // 63 mantissa bits, double only 53). The same gate keeps the DD inputs
-    // small enough that lround's half-integer correction never overflows.
-    if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
-      auto dd_of_llong = [](long long v) {
-        mf::float64x2 r;
-        r.limbs[0] = (double)v;
-        r.limbs[1] = 0.0;
-        return r;
-      };
-      CHK("lround",  dd_of_llong(mf::lround(f1)),
-          (q_t)lroundq(q1),  q1, (q_t)0, mp_t((long long)lroundq(q1)));
-      CHK("llround", dd_of_llong(mf::llround(f1)),
-          (q_t)llroundq(q1), q1, (q_t)0, mp_t((long long)llroundq(q1)));
-      CHK("lrint",   dd_of_llong(mf::lrint(f1)),
-          (q_t)lrintq(q1),   q1, (q_t)0, mp_t((long long)lrintq(q1)));
-      CHK("llrint",  dd_of_llong(mf::llrint(f1)),
-          (q_t)llrintq(q1),  q1, (q_t)0, mp_t((long long)llrintq(q1)));
-    }
-
-    // logb / ilogb: exponent extraction. Gate on finite nonzero — logb(0)
-    // is -inf and ilogb(0) is FP_ILOGB0 (implementation-defined), both
-    // oracle-matching on the qp side but not a useful precision check.
-    // Use qp-passthrough for the MP oracle; mpreal's logb binding may or
-    // may not exist depending on the mpreal version, and pass/fail runs
-    // on rel_err(DD vs qp) regardless.
-    CHK_IF(q_isfinite(q1) && q1 != (q_t)0, "logb",
-           mf::logb(f1), logbq(q1), q1, (q_t)0, to_mp(logbq(q1)));
-    if (q_isfinite(q1) && q1 != (q_t)0) {
-      mf::float64x2 ilogb_dd;
-      ilogb_dd.limbs[0] = (double)mf::ilogb(f1);
-      ilogb_dd.limbs[1] = 0.0;
-      CHK("ilogb", ilogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
-          mp_t((long long)ilogbq(q1)));
-      // C23 llogb: long version of ilogb. Same value range, just wider
-      // return type — DD inputs span exponents in roughly [-1074, 1023]
-      // so all fit in int already; the column is a presence test.
-      mf::float64x2 llogb_dd;
-      llogb_dd.limbs[0] = (double)mf::llogb(f1);
-      llogb_dd.limbs[1] = 0.0;
-      CHK("llogb", llogb_dd, (q_t)ilogbq(q1), q1, (q_t)0,
-          mp_t((long long)ilogbq(q1)));
-    }
+    fuzz_rounding(f1, q1 MP_PARAM(m1));
 
     check_comp(f1, f2, q1, q2);
 
     // Periodic (every 10): mixed-mode + binary. Mixed-mode and binary ops all
     // route through the multiplicative or hypot kernels — share mul's
     // non-finite limitation.
+    bool const both_finite = q_isfinite(q1) && q_isfinite(q2);
     if (i % 10 == 0 && both_finite) {
-      CHK("add_fd", f1 + mf::float64x2(d2), q1 + (q_t)d2,
-          q1, (q_t)d2, m1 + to_mp(d2));
-      CHK("mul_df", mf::float64x2(d1) * f2, (q_t)d1 * q2,
-          (q_t)d1, q2, to_mp(d1) * m2);
-      CHK2(fmin);
-      CHK2(fmax);
-      // C23 fmaximum/fminimum (NaN-propagating) and *_num (NaN-quiet)
-      // qp references. libquadmath has no q-suffixed C23 variants, so the
-      // reference is open-coded against q_t. Signed-zero pinning matches
-      // the multifloats DD definitions.
-      {
-        auto qp_fmaximum = [](q_t a, q_t b) -> q_t {
-          if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
-          if (a == 0 && b == 0)
-            return (signbitq(a) && signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
-          return a < b ? b : a;
-        };
-        auto qp_fminimum = [](q_t a, q_t b) -> q_t {
-          if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
-          if (a == 0 && b == 0)
-            return (signbitq(a) || signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
-          return a < b ? a : b;
-        };
-        auto qp_fmaximum_num = [&](q_t a, q_t b) -> q_t {
-          bool an = q_isnan(a), bn = q_isnan(b);
-          if (an && bn) return (q_t)(0.0/0.0);
-          if (an) return b;
-          if (bn) return a;
-          if (a == 0 && b == 0)
-            return (signbitq(a) && signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
-          return a < b ? b : a;
-        };
-        auto qp_fminimum_num = [&](q_t a, q_t b) -> q_t {
-          bool an = q_isnan(a), bn = q_isnan(b);
-          if (an && bn) return (q_t)(0.0/0.0);
-          if (an) return b;
-          if (bn) return a;
-          if (a == 0 && b == 0)
-            return (signbitq(a) || signbitq(b)) ? (q_t)-0.0 : (q_t)+0.0;
-          return a < b ? a : b;
-        };
-        // mpreal has no fmaximum/_num either; reuse our qp reference under
-        // MP_PARAM by lifting qp result through to_mp (lossless, since our
-        // result is one of the inputs or qNaN).
-        CHK("fmaximum",     mf::fmaximum(f1, f2),     qp_fmaximum(q1, q2),     q1, q2,
-            to_mp(qp_fmaximum(q1, q2)));
-        CHK("fminimum",     mf::fminimum(f1, f2),     qp_fminimum(q1, q2),     q1, q2,
-            to_mp(qp_fminimum(q1, q2)));
-        CHK("fmaximum_num", mf::fmaximum_num(f1, f2), qp_fmaximum_num(q1, q2), q1, q2,
-            to_mp(qp_fmaximum_num(q1, q2)));
-        CHK("fminimum_num", mf::fminimum_num(f1, f2), qp_fminimum_num(q1, q2), q1, q2,
-            to_mp(qp_fminimum_num(q1, q2)));
-
-        // C23 by-magnitude variants. Same NaN / signed-zero rules; the
-        // tie-break on |a|==|b| is the canonical (non-mag) helper.
-        auto qp_mag_max = [&](q_t a, q_t b) -> q_t {
-          if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
-          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
-          if (aa > ab) return a;
-          if (aa < ab) return b;
-          return qp_fmaximum(a, b);
-        };
-        auto qp_mag_min = [&](q_t a, q_t b) -> q_t {
-          if (q_isnan(a) || q_isnan(b)) return (q_t)(0.0/0.0);
-          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
-          if (aa < ab) return a;
-          if (aa > ab) return b;
-          return qp_fminimum(a, b);
-        };
-        auto qp_mag_max_num = [&](q_t a, q_t b) -> q_t {
-          bool an = q_isnan(a), bn = q_isnan(b);
-          if (an && bn) return (q_t)(0.0/0.0);
-          if (an) return b; if (bn) return a;
-          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
-          if (aa > ab) return a;
-          if (aa < ab) return b;
-          return qp_fmaximum(a, b);
-        };
-        auto qp_mag_min_num = [&](q_t a, q_t b) -> q_t {
-          bool an = q_isnan(a), bn = q_isnan(b);
-          if (an && bn) return (q_t)(0.0/0.0);
-          if (an) return b; if (bn) return a;
-          q_t aa = a < 0 ? -a : a, ab = b < 0 ? -b : b;
-          if (aa < ab) return a;
-          if (aa > ab) return b;
-          return qp_fminimum(a, b);
-        };
-        CHK("fmaximum_mag",     mf::fmaximum_mag(f1, f2),     qp_mag_max(q1, q2),     q1, q2,
-            to_mp(qp_mag_max(q1, q2)));
-        CHK("fminimum_mag",     mf::fminimum_mag(f1, f2),     qp_mag_min(q1, q2),     q1, q2,
-            to_mp(qp_mag_min(q1, q2)));
-        CHK("fmaximum_mag_num", mf::fmaximum_mag_num(f1, f2), qp_mag_max_num(q1, q2), q1, q2,
-            to_mp(qp_mag_max_num(q1, q2)));
-        CHK("fminimum_mag_num", mf::fminimum_mag_num(f1, f2), qp_mag_min_num(q1, q2), q1, q2,
-            to_mp(qp_mag_min_num(q1, q2)));
-      }
-      CHK2(copysign);
-      CHK2(fdim);
-      CHK2(hypot);
-
-      q_t aq2 = q2 < 0 ? -q2 : q2;
-      CHK2_IF(fmod, q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q);
-
-      // fmadd(a, b, c) = a·b + c. Use d1 as the third input (DD-
-      // representable) so the qp reference is exactly fmaq(q1, q2, d1).
-      CHK("fmadd",
-          mf::float64x2(fmadd(
-              static_cast<float64x2>(f1),
-              static_cast<float64x2>(f2),
-              static_cast<float64x2>(mf::float64x2(d1)))),
-          fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
-      // The C++-named `multifloats::fma` overload routes through the same
-      // DD x*y+z path and must match fmadd to within the same tolerance.
-      // Pinning the public name catches a future refactor that diverges
-      // the C ABI symbol from the C++ overload.
-      CHK("fma_cxx",
-          mf::fma(f1, f2, mf::float64x2(d1)),
-          fmaq(q1, q2, (q_t)d1), q1, q2, mpfr::fma(m1, m2, to_mp(d1)));
-
-      // lerp: C++20 endpoint-exact a + t*(b - a). Use d1 ∈ [-1, 1]-ish
-      // as the interpolant (DD-representable scalar t) so the qp
-      // reference parses cleanly as `q1 + (q_t)d1 * (q2 - q1)`.
-      // Endpoint exactness is implicit — sweeping t == 0 / t == 1
-      // explicitly would need its own branch and is covered by the
-      // C++20 contract reading test/test.cc.
-      CHK("lerp",
-          mf::lerp(f1, f2, mf::float64x2(d1)),
-          q1 + (q_t)d1 * (q2 - q1),
-          q1, q2, mpfr::lerp(m1, m2, to_mp(d1)));
-
-      // modulo: same gate as fmod (`q2 != 0 && |q1| < 1e20 && |q2| > 1e-20`).
-      // Definition: fmod-style remainder but sign-corrected so the result
-      // takes y's sign — Python's `%` semantics, not C's. The mpfr wrapper
-      // above mirrors exactly the multifloats branch.
-      // Hoist the qp reference so the comma-rich Python-mod expression
-      // doesn't tangle with the CHK macro's argument splitting.
-      q_t modulo_ref = fmodq(q1, q2);
-      if (modulo_ref != (q_t)0 &&
-          (signbitq(modulo_ref) != 0) != (signbitq(q2) != 0)) {
-        modulo_ref = modulo_ref + q2;
-      }
-      CHK_IF(q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q,
-             "modulo",
-             mf::modulo(f1, f2),
-             modulo_ref,
-             q1, q2, mpfr::modulo(m1, m2));
-
-      // remainder / remquo: IEEE-754 round-half-to-even remainder.
-      // Stricter input gate than fmod because the round(x/y) step's
-      // amplification fails for very small |y|.
-      CHK2_IF(remainder, q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q);
-      if (q2 != (q_t)0 && aq1 < (q_t)1e20q && aq2 > (q_t)1e-20q) {
-        int dd_quo = 0;
-        mf::float64x2 dd_rem = mf::remquo(f1, f2, &dd_quo);
-        // mpreal lacks remquo; compose by hand at MP precision.
-        CHK("remquo",
-            dd_rem, remainderq(q1, q2),
-            q1, q2, m1 - mpfr::round(m1 / m2) * m2);
-        // Quotient sanity: the round-to-nearest of x/y must agree
-        // (gated to small magnitudes so the int cast doesn't overflow).
-        if (aq1 / aq2 < (q_t)1e9q) {
-          int qp_quo = (int)std::round((double)(q1 / q2));
-          if (dd_quo != qp_quo) {
-            char buf[96];
-            std::snprintf(buf, sizeof(buf),
-                          "dd_quo=%d qp_quo=%d", dd_quo, qp_quo);
-            report_fail("remquo.q", buf);
-          }
-        }
-      }
+      fuzz_mixed_binary(f1, f2, q1, q2, d1, d2 MP_PARAM(m1, m2));
     }
 
     // Periodic (every 100): transcendentals.
     if (i % 100 == 0) {
-      CHK1_IF(exp,   q_isfinite(q1) && q_isfinite(expq(q1)));
-      CHK1_IF(log,   q_isfinite(q1) && q1 > (q_t)0);
-      CHK1_IF(log10, q_isfinite(q1) && q1 > (q_t)0);
-      CHK1_IF(expm1, q_isfinite(q1) && q_isfinite(expm1q(q1)));
-      CHK1_IF(log1p, q_isfinite(q1) && q1 > (q_t)-1);
-      CHK1_IF(exp2,  q_isfinite(q1) && q_isfinite(exp2q(q1)));
-      CHK1_IF(log2,  q_isfinite(q1) && q1 > (q_t)0);
-      // exp10 oracle: 10^q via libquadmath's powq.
-      {
-        q_t exp10_ref = powq((q_t)10, q1);
-        CHK_IF(q_isfinite(q1) && q_isfinite(exp10_ref),
-               "exp10", mf::exp10(f1), exp10_ref, q1, (q_t)0,
-               mpfr::pow(mpfr::mpreal(10), m1));
-        // C23 exp2m1 / exp10m1 — 2^x − 1, 10^x − 1. We can't use
-        // `exp2q(x) - 1` / `powq(10, x) - 1` as oracles because
-        // libquadmath's exp2q / powq lose ~1% relative precision when
-        // |x| ≲ 1e-30 (the result is correct to qp ulp absolutely, but
-        // reaches its small-x floor of ~1e-34 — the dominant Taylor term
-        // x·ln(base) below that floor is plain wrong). Use the
-        // cancellation-free identities `expm1q(x · ln(base))` instead;
-        // libquadmath's expm1q is precise across the small-x range.
-        q_t ln2_q  = (q_t)0.6931471805599453094172321214581765680755q;
-        q_t ln10_q = (q_t)2.3025850929940456840179914546843642076011q;
-        q_t exp2m1_ref  = expm1q(q1 * ln2_q);
-        q_t exp10m1_ref = expm1q(q1 * ln10_q);
-        // mpreal references: use the same cancellation-free identities as the
-        // qp refs above (the naive `exp2(m1)-1` / `log2(1+m1)` forms lose
-        // precision for small x even at 200 bits — the bug this block warns
-        // about, which must not be reintroduced in the oracle).
-        CHK_IF(q_isfinite(q1) && q_isfinite(exp2q(q1)),
-               "exp2m1", mf::exp2m1(f1), exp2m1_ref, q1, (q_t)0,
-               mpfr::expm1(m1 * mpfr::log(mp_t(2))));
-        CHK_IF(q_isfinite(q1) && q_isfinite(exp10_ref),
-               "exp10m1", mf::exp10m1(f1), exp10m1_ref, q1, (q_t)0,
-               mpfr::expm1(m1 * mpfr::log(mp_t(10))));
-        // log2p1 / log10p1: log2(1+x), log10(1+x). For |x| small, the
-        // identity `log1pq(x) · log2(e)` (resp. `… · log10(e)`) is the
-        // precision-safe form; libquadmath's log2q(1+x) and log10q(1+x)
-        // hit the same near-1 ulp floor that motivates log1p existing.
-        q_t log2_e_q  = (q_t)1.4426950408889634073599246810018921374267q;
-        q_t log10_e_q = (q_t)0.4342944819032518276511289189166050822944q;
-        q_t log2p1_ref  = log1pq(q1) * log2_e_q;
-        q_t log10p1_ref = log1pq(q1) * log10_e_q;
-        CHK_IF(q_isfinite(q1) && q1 > (q_t)-1,
-               "log2p1", mf::log2p1(f1), log2p1_ref, q1, (q_t)0,
-               mpfr::log1p(m1) / mpfr::log(mp_t(2)));
-        CHK_IF(q_isfinite(q1) && q1 > (q_t)-1,
-               "log10p1", mf::log10p1(f1), log10p1_ref, q1, (q_t)0,
-               mpfr::log1p(m1) / mpfr::log(mp_t(10)));
-      }
-
-      // Trig: keep magnitudes moderate.
-      if (q_isfinite(q1) && aq1 < (q_t)1e6q) {
-        CHK1(sin);
-        CHK1(cos);
-        CHK1_IF(tan, fabsq(cosq(q1)) > (q_t)1e-12q);
-
-        // Fused sincos: one range-reduction feeds both outputs.
-        float64x2 sc_s, sc_c;
-        sincosdd(static_cast<float64x2>(f1), &sc_s, &sc_c);
-        CHK("sincos_s", mf::float64x2(sc_s), sinq(q1),
-            q1, (q_t)0, mpfr::sin(m1));
-        CHK("sincos_c", mf::float64x2(sc_c), cosq(q1),
-            q1, (q_t)0, mpfr::cos(m1));
-      }
-
-      // Trig at huge arguments: |x| in [1e6, 1e15]. The Cody-Waite + π/8
-      // split range reduction is supposed to hold full DD precision up
-      // to ~2^55 ≈ 3.6e16. Without this bucket, the random distribution
-      // (10^±30 magnitude) almost never lands in this regime, and the
-      // |x|<1e6 gate above explicitly excludes it from the headline trig
-      // stat. Sample every 4 iterations to amortize cost without
-      // dominating the run.
-#ifdef USE_MPFR
-      if ((i & 3) == 0 && q_isfinite(q1) && aq1 > (q_t)1e-3q && aq1 < (q_t)1) {
-        // Synthesize q_huge = q1 * 2^scale, scale ∈ {20, 30, 40, 50},
-        // covering 10^6 .. 10^15. Multiply is exact (power of two).
-        int scales[4] = {20, 30, 40, 50};
-        int scale = scales[(unsigned)(i >> 2) & 3];
-        q_t q_huge = scalbnq(q1, scale);
-        if (fabsq(q_huge) < (q_t)1e15q) {
-          mf::float64x2 f_huge =
-              mf::scalbn(f1, scale);  // exact in DD too
-          mp_t m_huge = scalbn(m1, scale);
-          CHK("sin_huge", mf::sin(f_huge), sinq(q_huge),
-              q_huge, (q_t)0, mpfr::sin(m_huge));
-          CHK("cos_huge", mf::cos(f_huge), cosq(q_huge),
-              q_huge, (q_t)0, mpfr::cos(m_huge));
-        }
-      }
-#endif
-      CHK1_IF(asin, q_isfinite(q1) && aq1 <= (q_t)1);
-      CHK1_IF(acos, q_isfinite(q1) && aq1 <= (q_t)1);
-      CHK1_IF(atan, q_isfinite(q1));
-
-      if (q_isfinite(q1) && aq1 < (q_t)700) {
-        CHK1(sinh);
-        CHK1(cosh);
-        CHK1(tanh);
-
-        // Fused sinhcosh.
-        float64x2 hc_s, hc_c;
-        sinhcoshdd(static_cast<float64x2>(f1), &hc_s, &hc_c);
-        CHK("sinhcosh_s", mf::float64x2(hc_s), sinhq(q1),
-            q1, (q_t)0, mpfr::sinh(m1));
-        CHK("sinhcosh_c", mf::float64x2(hc_c), coshq(q1),
-            q1, (q_t)0, mpfr::cosh(m1));
-      }
-      CHK1_IF(asinh, q_isfinite(q1));
-      CHK1_IF(acosh, q_isfinite(q1) && q1 >= (q_t)1);
-      CHK1_IF(atanh, q_isfinite(q1) && aq1 <  (q_t)1);
-
-      CHK1_IF(erf,  q_isfinite(q1) && aq1 < (q_t)100);
-      CHK1_IF(erfc, q_isfinite(q1) && aq1 < (q_t)100);
-      // erfcx(x) = exp(x²) * erfc(x). The DD kernel is precision-preserving
-      // for the tail-tail cancellation; the qp oracle is the naive product.
-      // Gate |x| < 26 so exp(x²) stays well inside qp's exponent range
-      // and the product stays representable.
-      CHK_IF(q_isfinite(q1) && aq1 < (q_t)26, "erfcx",
-             mf::erfcx(f1), expq(q1 * q1) * erfcq(q1),
-             q1, (q_t)0,
-             mpfr::exp(m1 * m1) * mpfr::erfc(m1));
-      if (q_isfinite(q1) && q1 > (q_t)0 && q1 < (q_t)100) {
-        CHK1(gamma);
-        CHK1(lngamma);
-      }
-
-      CHK2(atan2);
-
-      // atan2pi(y, x) = atan2(y, x) / π. Division by π has low
-      // amplification, so full-DD tolerance holds here (unlike forward
-      // sin/cos/tanpi — see is_pi_trig).
-      CHK("atan2pi",
-          mf::float64x2(atan2pidd(
-              static_cast<float64x2>(f1), static_cast<float64x2>(f2))),
-          atan2q(q1, q2) / (q_t)M_PIq,
-          q1, q2,
-          mpfr::atan2(m1, m2) / mpfr::const_pi(multifloats_test::kMpfrPrec));
-
-      // Power: positive base, modest exponent.
-      q_t aq2 = q2 < 0 ? -q2 : q2;
-      if (q_isfinite(q1) && q1 > (q_t)1e-3q && q1 < (q_t)1e3q &&
-          q_isfinite(q2) && aq2 < (q_t)30) {
-        CHK2(pow);
-        CHK("pow_md", mf::pow(f1, mf::float64x2(d2)), powq(q1, (q_t)d2),
-            q1, (q_t)d2, mpfr::pow(m1, to_mp(d2)));
-        CHK("pow_dm", mf::pow(mf::float64x2(d1), f2), powq((q_t)d1, q2),
-            (q_t)d1, q2, mpfr::pow(to_mp(d1), m2));
-        // C23 powr: pow restricted to x >= 0. Same oracle as pow inside
-        // the strict domain (the gate above already guarantees q1 > 0).
-        CHK("powr", mf::powr(f1, f2), powq(q1, q2), q1, q2, mpfr::pow(m1, m2));
-        // C23 rootn: x^(1/n). Use small odd n so DD precision is meaningful
-        // and the negative-x path is reachable. Reference: x^(1/n) at qp.
-        for (int n : {3, 5, -3, -5}) {
-          q_t inv_n = (q_t)1 / (q_t)n;
-          q_t res_q = powq(q1, inv_n);
-          q_t a_res = res_q < 0 ? -res_q : res_q;
-          if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
-            CHK("rootn", mf::rootn(f1, n), res_q, q1, (q_t)n,
-                mpfr::pow(m1, mp_t(1) / to_mp((double)n)));
-          }
-        }
-        // C23 compoundn: (1+x)^n. Gate q1 ∈ (-1, 100) so result stays
-        // representable. Reference: powq(1+q1, n).
-        if (q1 > (q_t)-1 && q1 < (q_t)100) {
-          for (int n : {1, 2, 5, 10, -3}) {
-            q_t res_q = powq((q_t)1 + q1, (q_t)n);
-            q_t a_res = res_q < 0 ? -res_q : res_q;
-            if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
-              CHK("compoundn", mf::compoundn(f1, n), res_q, q1, (q_t)n,
-                  mpfr::pow(mp_t(1) + m1, to_mp((double)n)));
-            }
-          }
-        }
-
-#ifdef USE_MPFR
-        // pow = exp2(y·log2(x)) decomposition diagnostic. Three stat
-        // rows isolate each stage so we can see which one dominates the
-        // observed `pow` ulp floor:
-        //   pow_diag_log2  — mf::log2 vs mpfr::log2 (the A leg alone)
-        //   pow_diag_exp2  — mf::exp2 on a DD-rounded exact y·log2(x)
-        //                    (the C leg alone)
-        //   pow_diag_nomul — same DD-rounded input through exp2, vs
-        //                    mpfr::pow(x,y) directly (A+C with a
-        //                    correctly-rounded mul intermediate)
-        // If pow's max_rel ≫ pow_diag_nomul, the multiply is the
-        // bottleneck. If pow ≈ nomul, the mul is fine and the A+C
-        // kernels set the ceiling.
-        CHK("pow_diag_log2", mf::log2(f1), log2q(q1),
-            q1, (q_t)0, mpfr::log2(m1));
-
-        // Correctly-rounded-to-DD version of y · log2(x): compute at
-        // 200-bit, then split into (hi, lo) via round-to-nearest.
-        mp_t P_exact = mpfr::log2(m1) * m2;
-        if (mp_isfinite(P_exact)) {
-          double P_hi = P_exact.toDouble();
-          double P_lo = 0.0;
-          if (std::isfinite(P_hi)) {
-            P_lo = (P_exact - mp_t(P_hi)).toDouble();
-          }
-          mf::float64x2 P_dd;
-          P_dd.limbs[0] = P_hi;
-          P_dd.limbs[1] = P_lo;
-          q_t P_q = to_q(P_dd);
-          CHK("pow_diag_exp2", mf::exp2(P_dd), exp2q(P_q),
-              P_q, (q_t)0, mpfr::exp2(to_mp(P_q)));
-          CHK("pow_diag_nomul", mf::exp2(P_dd), powq(q1, q2),
-              q1, q2, mpfr::pow(m1, m2));
-        }
-#endif
-      }
-      // Vary the integer exponent across iterations so we exercise the
-      // repeated-squaring path with a mix of positive/negative/odd/even
-      // exponents (was hard-coded at n=3, missing the integer-fast-path
-      // and negative-base regressions). Skip n=0 (trivially 1). Restrict
-      // |q1|^|n| to stay within normal double range — denormal results
-      // cliff DD precision below the 1e-26 full-DD tolerance bound.
-      {
-        static const int kPowInts[] = {1, 2, 3, 5, 7, 10, 17, 30,
-                                       -1, -2, -3, -5, -10, -17};
-        int n = kPowInts[(unsigned)i % (sizeof(kPowInts)/sizeof(int))];
-        if (q_isfinite(q1) && aq1 > (q_t)1e-9q && aq1 < (q_t)1e9q) {
-          q_t res_q = powq(q1, (q_t)n);
-          // Skip when the math result is denormal/Inf — DD can't carry full
-          // 1e-26 relative error there (subnormal cliff).
-          q_t a_res = res_q < 0 ? -res_q : res_q;
-          if (q_isfinite(res_q) && a_res > (q_t)1e-300q && a_res < (q_t)1e300q) {
-            CHK("pow_int",
-                mf::pow(f1, mf::float64x2((double)n)), res_q,
-                q1, (q_t)n, mpfr::pow(m1, to_mp((double)n)));
-            // C23 pown: same kernel as powi, separate row so coverage
-            // shows the C23 spelling lives in the header. Forwards to
-            // powi at compile time.
-            CHK("pown",
-                mf::pown(f1, n), res_q,
-                q1, (q_t)n, mpfr::pow(m1, to_mp((double)n)));
-          }
-        }
-      }
-
-      // scalbn(x, 5) = x · 2^5; the ·32 is exact at any precision.
-      CHK_IF(q_isfinite(q1), "scalbn", mf::scalbn(f1, 5), scalbnq(q1, 5),
-             q1, (q_t)0, m1 * mp_t(32));
-      // ldexp / scalbln: POSIX aliases of scalbn under FLT_RADIX == 2
-      // (IEEE 754 guarantees it). Same ·32 oracle. ldexp takes int,
-      // scalbln takes long — distinct header-only wrappers in multifloats.h.
-      CHK_IF(q_isfinite(q1), "ldexp",   mf::ldexp(f1, 5),    ldexpq(q1, 5),
-             q1, (q_t)0, m1 * mp_t(32));
-      CHK_IF(q_isfinite(q1), "scalbln", mf::scalbln(f1, 5L), scalblnq(q1, 5L),
-             q1, (q_t)0, m1 * mp_t(32));
-
-      // frexp(x, &e): DD returns fraction in [0.5, 1) for nonzero x and
-      // exponent e such that x == fraction · 2^e. Emit two stat rows —
-      // one for the fraction, one for the integer exponent — so per-
-      // component regressions show up separately.
-      if (q_isfinite(q1) && q1 != (q_t)0) {
-        int e_mf = 0, e_q = 0;
-        mf::float64x2 fr_mf = mf::frexp(f1, &e_mf);
-        q_t fr_q = frexpq(q1, &e_q);
-        CHK("frexp.frac", fr_mf, fr_q, q1, (q_t)0, to_mp(fr_q));
-        mf::float64x2 eint_mf;
-        eint_mf.limbs[0] = (double)e_mf;
-        eint_mf.limbs[1] = 0.0;
-        CHK("frexp.exp", eint_mf, (q_t)e_q, q1, (q_t)0,
-            mp_t((long long)e_q));
-      }
-
-      // modf(x, &iptr): splits x into fractional and integer parts, both
-      // preserving sign. Gate on |x| < 1e15 for the same reason as trunc:
-      // beyond 2^52 the fractional part is zero and the test is identity.
-      if (q_isfinite(q1) && aq1 < (q_t)1e15q) {
-        mf::float64x2 ipart_mf;
-        q_t ipart_q = 0;
-        mf::float64x2 frac_mf = mf::modf(f1, &ipart_mf);
-        q_t frac_q = modfq(q1, &ipart_q);
-        CHK("modf.frac", frac_mf, frac_q, q1, (q_t)0, to_mp(frac_q));
-        CHK("modf.int",  ipart_mf, ipart_q, q1, (q_t)0, to_mp(ipart_q));
-      }
-
-      // 3-argument min/max via nested fmin/fmax.
-      if (both_finite) {
-        q_t q3 = (q1 + q2) * (q_t)0.5q;
-        // q1+q2 of two DD-precision values can spill into bit 107; clamp
-        // back to DD so q3, f3, m3 stay fully round-trip consistent.
-        q3 = to_q(from_q(q3));
-        mf::float64x2 f3 = from_q(q3);
-        q_t min12 = q1 < q2 ? q1 : q2;
-        q_t q_min3 = min12 < q3 ? min12 : q3;
-        q_t max12 = q1 < q2 ? q2 : q1;
-        q_t q_max3 = max12 < q3 ? q3 : max12;
-        MP_STMT(mp_t m3 = to_mp(f3));
-        MP_STMT(mp_t mp_min12 = q1 < q2 ? m1 : m2);
-        MP_STMT(mp_t mp_min3  = min12 < q3 ? mp_min12 : m3);
-        MP_STMT(mp_t mp_max12 = q1 < q2 ? m2 : m1);
-        MP_STMT(mp_t mp_max3  = max12 < q3 ? m3 : mp_max12);
-        CHK("min3", mf::fmin(mf::fmin(f1, f2), f3), q_min3, q1, q2, mp_min3);
-        CHK("max3", mf::fmax(mf::fmax(f1, f2), f3), q_max3, q1, q2, mp_max3);
-      }
-
-      // Bessel of the first (j) and second (y) kind. Labels match
-      // ops.py's bench_key convention ("bj0" / "byn" / ...). y* is only
-      // finite on positive arguments. Cap |x| at 200 so the DD recurrence
-      // doesn't hit the qp reference's large-argument oscillation regime
-      // where the two implementations can disagree by more than the kernel
-      // error alone.
-      if (q_isfinite(q1) && aq1 < (q_t)200) {
-        CHK("bj0", mf::float64x2(j0dd(static_cast<float64x2>(f1))),
-            j0q(q1), q1, (q_t)0, mpfr::besselj0(m1));
-        CHK("bj1", mf::float64x2(j1dd(static_cast<float64x2>(f1))),
-            j1q(q1), q1, (q_t)0, mpfr::besselj1(m1));
-
-        static constexpr int kBesselOrders[] = {2, 3, 5, 8};
-        for (int n : kBesselOrders) {
-          CHK("bjn",
-              mf::float64x2(jndd(n, static_cast<float64x2>(f1))),
-              jnq(n, q1), q1, (q_t)n, mpfr::besseljn((long)n, m1));
-          CHK_IF(q1 > (q_t)0, "byn",
-                 mf::float64x2(yndd(n, static_cast<float64x2>(f1))),
-                 ynq(n, q1), q1, (q_t)n, mpfr::besselyn((long)n, m1));
-        }
-
-        if (q1 > (q_t)0) {
-          CHK("by0", mf::float64x2(y0dd(static_cast<float64x2>(f1))),
-              y0q(q1), q1, (q_t)0, mpfr::bessely0(m1));
-          CHK("by1", mf::float64x2(y1dd(static_cast<float64x2>(f1))),
-              y1q(q1), q1, (q_t)0, mpfr::bessely1(m1));
-
-          // yndd_range: single forward-recurrence sweep filling out[0..5].
-          // Each output is compared individually against ynq(n, x). One
-          // label "yn_range" covers all six so the stat row aggregates
-          // error across the entire range sweep.
-          float64x2 yn_out[6];
-          yndd_range(0, 5, static_cast<float64x2>(f1), yn_out);
-          for (int n = 0; n <= 5; ++n)
-            CHK("yn_range",
-                mf::float64x2(yn_out[n]), ynq(n, q1),
-                q1, (q_t)n, mpfr::besselyn((long)n, m1));
-
-          // jndd_range: same idea but for J. The kernel internally loops
-          // over jndd, so this exercises the n=0..5 sweep path that was
-          // previously only hit one n at a time via CHK("bjn", ...).
-          float64x2 jn_out[6];
-          jndd_range(0, 5, static_cast<float64x2>(f1), jn_out);
-          for (int n = 0; n <= 5; ++n)
-            CHK("jn_range",
-                mf::float64x2(jn_out[n]), jnq(n, q1),
-                q1, (q_t)n, mpfr::besseljn((long)n, m1));
-        }
-      }
-
-      // π-scaled trig. The qp oracle composes {sin,cos,tan}q(M_PIq·x) and
-      // {asin,acos,atan}q(x)/M_PIq. The forward variants amplify the
-      // DD-vs-qp π mismatch near zeros of the function — see is_pi_trig
-      // commentary above — so we relax tolerance for those and still gate
-      // aggressively on near-zero arguments.
-      if (q_isfinite(q1) && aq1 < (q_t)1e6q) {
-        q_t pix = (q_t)M_PIq * q1;
-        q_t sp = sinq(pix);
-        q_t cp = cosq(pix);
-        // sinpi fails near integer x (sin(π·n)=0); cospi fails near
-        // half-integer (cos(π·(n+1/2))=0). Gate each on its own magnitude.
-        CHK_IF(fabsq(sp) > (q_t)1e-10q, "sinpi",
-               mf::float64x2(sinpidd(static_cast<float64x2>(f1))),
-               sp, q1, (q_t)0,
-               mpfr::sin(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
-        CHK_IF(fabsq(cp) > (q_t)1e-10q, "cospi",
-               mf::float64x2(cospidd(static_cast<float64x2>(f1))),
-               cp, q1, (q_t)0,
-               mpfr::cos(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
-        CHK_IF(fabsq(cp) > (q_t)1e-10q && fabsq(sp) > (q_t)1e-10q, "tanpi",
-               mf::float64x2(tanpidd(static_cast<float64x2>(f1))),
-               sp / cp, q1, (q_t)0,
-               mpfr::tan(mpfr::const_pi(multifloats_test::kMpfrPrec) * m1));
-      }
-      if (q_isfinite(q1) && aq1 <= (q_t)1) {
-        CHK("asinpi",
-            mf::float64x2(asinpidd(static_cast<float64x2>(f1))),
-            asinq(q1) / (q_t)M_PIq, q1, (q_t)0,
-            mpfr::asin(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
-        CHK("acospi",
-            mf::float64x2(acospidd(static_cast<float64x2>(f1))),
-            acosq(q1) / (q_t)M_PIq, q1, (q_t)0,
-            mpfr::acos(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
-      }
-      CHK_IF(q_isfinite(q1), "atanpi",
-             mf::float64x2(atanpidd(static_cast<float64x2>(f1))),
-             atanq(q1) / (q_t)M_PIq, q1, (q_t)0,
-             mpfr::atan(m1) / mpfr::const_pi(multifloats_test::kMpfrPrec));
-
-      // Complex DD ops. Use narrow-magnitude inputs so the oracle's
-      // re*re + im*im (in cdivq) and re*re - im*im (in cmulq) don't drift
-      // into overflow or catastrophic cancellation.
-      {
-        q_t zr1, zi1, zr2, zi2;
-        zr1 = rng.narrow(rng.u(), rng.u());
-        zi1 = rng.narrow(rng.u(), rng.u());
-        zr2 = rng.narrow(rng.u(), rng.u());
-        zi2 = rng.narrow(rng.u(), rng.u());
-        if (q_isfinite(zr1) && q_isfinite(zi1) &&
-            q_isfinite(zr2) && q_isfinite(zi2)) {
-          mf::float64x2 fr1 = from_q(zr1), fi1 = from_q(zi1);
-          mf::float64x2 fr2 = from_q(zr2), fi2 = from_q(zi2);
-          q_t qr1 = to_q(fr1), qi1 = to_q(fi1);
-          q_t qr2 = to_q(fr2), qi2 = to_q(fi2);
-          complex64x2 zd1 = to_cdd(fr1, fi1);
-          complex64x2 zd2 = to_cdd(fr2, fi2);
-          __complex128 zq1 = to_cq(qr1, qi1);
-          __complex128 zq2 = to_cq(qr2, qi2);
-          MP_STMT(CMp zm1 = {to_mp(fr1), to_mp(fi1)});
-          MP_STMT(CMp zm2 = {to_mp(fr2), to_mp(fi2)});
-
-          q_t mag1 = cabsq(zq1);
-          q_t mag2 = cabsq(zq2);
-          q_t mag  = mag1 > mag2 ? mag1 : mag2;
-          if (mag < (q_t)1e-300q) mag = (q_t)1e-300q;
-
-          CHK_C2(add);
-          CHK_C2(sub);
-          CHK_C2(mul);
-          CHK_C2_IF(div, mag2 > (q_t)0);
-          CHK("cabs",
-              mf::float64x2(cabsdd(zd1)), cabsq(zq1),
-              mag, (q_t)0, cabsmp(zm1));
-          CHK("cconjg", conjdd(zd1), conjq(zq1), mag, (q_t)0,
-              cconjgmp(zm1));
-
-          CHK_C1(sqrt);
-          CHK_C1(exp);
-
-          // cexpm1: the DD kernel preserves precision for small |z|. The
-          // qp oracle (cexpq(z) - 1) loses it there, so gate |z| > 1e-5
-          // to keep the oracle meaningful. The mp oracle comes as a
-          // trailing CMp{...} — the brace list's comma is safely inside
-          // CHK's variadic tail.
-          if (mag1 > (q_t)1e-5q) {
-            __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
-            CHK("cexpm1", cexpm1dd(zd1), cexpq(zq1) - one_c, mag, (q_t)0,
-                CMp{cexpmp(zm1).re - 1, cexpmp(zm1).im});
-          }
-
-          // clog: guard |z| away from 0 (and away from overflow) so the
-          // oracle's arg computation stays accurate.
-          if (mag1 > (q_t)1e-200q && mag1 < (q_t)1e100q) {
-            CHK_C1(log);
-
-            // clog2 / clog10 / clog1p: libquadmath has no direct variants,
-            // compose from clogq. Both components are divided by the real
-            // scalar log(2) / log(10) respectively.
-            __complex128 lg = clogq(zq1);
-            q_t log_2  = logq((q_t)2);
-            q_t log_10 = logq((q_t)10);
-            __complex128 lg2;  __real__ lg2  = crealq(lg) / log_2;
-                               __imag__ lg2  = cimagq(lg) / log_2;
-            __complex128 lg10; __real__ lg10 = crealq(lg) / log_10;
-                               __imag__ lg10 = cimagq(lg) / log_10;
-            MP_STMT(CMp clog2_oracle  = {clogmp(zm1).re / mpfr::log(mp_t(2)),
-                                         clogmp(zm1).im / mpfr::log(mp_t(2))});
-            MP_STMT(CMp clog10_oracle = {clogmp(zm1).re / mpfr::log(mp_t(10)),
-                                         clogmp(zm1).im / mpfr::log(mp_t(10))});
-            CHK("clog2",  clog2dd(zd1),  lg2,  mag, (q_t)0, clog2_oracle);
-            CHK("clog10", clog10dd(zd1), lg10, mag, (q_t)0, clog10_oracle);
-          }
-
-          // clog1p: oracle = clogq(1 + z). Gate |1+z| to avoid oracle
-          // blow-up on the branch cut at z=-1.
-          {
-            __complex128 one_c; __real__ one_c = (q_t)1; __imag__ one_c = (q_t)0;
-            __complex128 one_plus_z = one_c + zq1;
-            CHK_IF(cabsq(one_plus_z) > (q_t)1e-5q,
-                   "clog1p", clog1pdd(zd1), clogq(one_plus_z), mag, (q_t)0,
-                   clogmp({zm1.re + 1, zm1.im}));
-          }
-
-          // cpow: keep base and exponent modest — pow amplifies input
-          // precision, so a wide exponent would swamp the tolerance.
-          CHK_IF(mag1 > (q_t)1e-2q && mag1 < (q_t)1e2q && mag2 < (q_t)10,
-                 "cpow", cpowdd(zd1, zd2), cpowq(zq1, zq2), mag, (q_t)0,
-                 cexpmp(cmulmp(zm2, clogmp(zm1))));
-
-          // csinpi / ccospi: forward π-scaled complex trig. Same π
-          // representation mismatch as scalar {sin,cos}pi — reduced_dd
-          // tolerance applies (see is_reduced_dd).
-          {
-            __complex128 pi_c; __real__ pi_c = (q_t)M_PIq; __imag__ pi_c = (q_t)0;
-            __complex128 pi_z = pi_c * zq1;
-            MP_STMT(mp_t mpi = mpfr::const_pi(multifloats_test::kMpfrPrec));
-            CHK("csinpi", csinpidd(zd1), csinq(pi_z), mag, (q_t)0,
-                csinmp({mpi * zm1.re, mpi * zm1.im}));
-            CHK("ccospi", ccospidd(zd1), ccosq(pi_z), mag, (q_t)0,
-                ccosmp({mpi * zm1.re, mpi * zm1.im}));
-          }
-
-          // cproj: finite inputs → identity; only meaningful distinction
-          // from a plain copy happens on infinite inputs (which the
-          // narrow generator doesn't produce). Still worth testing to
-          // pin the finite path.
-          CHK("cproj", cprojdd(zd1), cprojq(zq1), mag, (q_t)0, zm1);
-
-          // carg: complex → real scalar phase. Near ±π on the branch cut
-          // (negative real axis) DD and qp agree as long as imag-limbs
-          // sign matches, which they do for DD-representable inputs.
-          CHK("carg",
-              mf::float64x2(cargdd(zd1)), cargq(zq1), mag, (q_t)0,
-              cargmp(zm1));
-
-          CHK_C1(sin);
-          CHK_C1(cos);
-          CHK_C1(sinh);
-          CHK_C1(cosh);
-
-          // c{tan,tanh}: zeros of the corresponding {cos,cosh} cause the
-          // division inside the oracle to blow up. Gate on oracle magnitude.
-          __complex128 ccz  = ccosq(zq1);
-          __complex128 ccsh = ccoshq(zq1);
-          CHK_C1_IF(tan,  cabsq(ccz)  > (q_t)1e-10q);
-          CHK_C1_IF(tanh, cabsq(ccsh) > (q_t)1e-10q);
-
-          CHK_C1(asin);
-          CHK_C1(acos);
-          CHK_C1(atan);
-          CHK_C1(asinh);
-          CHK_C1(acosh);
-          CHK_C1(atanh);
-        }
-      }
+      fuzz_explog(f1, q1 MP_PARAM(m1));
+      fuzz_trig(i, f1, q1 MP_PARAM(m1));
+      fuzz_hyperbolic(f1, q1 MP_PARAM(m1));
+      fuzz_special(f1, q1 MP_PARAM(m1));
+      fuzz_atan2(f1, f2, q1, q2 MP_PARAM(m1, m2));
+      fuzz_pow(i, f1, f2, q1, q2, d1, d2 MP_PARAM(m1, m2));
+      fuzz_scaling(f1, q1 MP_PARAM(m1));
+      fuzz_minmax3(f1, f2, q1, q2 MP_PARAM(m1, m2));
+      fuzz_bessel(f1, q1 MP_PARAM(m1));
+      fuzz_pi_trig(f1, q1 MP_PARAM(m1));
+      fuzz_complex(rng);
     }
 
 #ifdef USE_MPFR
