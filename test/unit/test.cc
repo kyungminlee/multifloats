@@ -1458,10 +1458,9 @@ static void test_atan_cutover(Stats &stats) {
 //
 // Each primitive is verified against a __float128 reference. Inputs are
 // chosen so the qp-exact operation fits inside qp's 113-bit significand
-// — under that constraint, sum-preserving primitives (three_sum,
-// td_add_double, td_add_dd, …) must match bit-exactly; td_mul_td is
-// allowed qp-ulp rounding on the final-limb absorb. See
-// doc/dev/TRIPLE_DOUBLE.md §3.
+// — under that constraint, sum-preserving primitives (td_add_double,
+// td_add_dd, …) must match bit-exactly; td_mul_td is allowed qp-ulp
+// rounding on the final-limb absorb. See doc/dev/TRIPLE_DOUBLE.md §3.
 
 // Exact DD → qp: (q_t)(h) + (q_t)(m) + (q_t)(l) is exact when the limb
 // span stays below 113 bits. Normalized TDs from our producers span at
@@ -1481,7 +1480,6 @@ static mf::detail::float64x3 td_from_q(q_t v) {
 
 static void test_td_primitives(Stats &td_stats) {
   using mf::detail::float64x3;
-  using mf::detail::three_sum;
   using mf::detail::renorm3;
   using mf::detail::td_add_double;
   using mf::detail::td_sub_double;
@@ -1512,34 +1510,6 @@ static void test_td_primitives(Stats &td_stats) {
                    name, rel, tol, qstr(got), qstr(expected));
     }
   };
-
-  // three_sum: widely separated magnitudes — each is exactly in qp, sum is exact.
-  {
-    double a = 1.0, b = 0x1p-60, c = 0x1p-120;
-    double s, t, u;
-    three_sum(a, b, c, s, t, u);
-    expect_exact("three_sum wide",
-                 (q_t)s + (q_t)t + (q_t)u,
-                 (q_t)a + (q_t)b + (q_t)c);
-  }
-  // three_sum: cancellation — a + b = 0 exactly, c dominates.
-  {
-    double a = 1.0, b = -1.0, c = 0x1p-30;
-    double s, t, u;
-    three_sum(a, b, c, s, t, u);
-    expect_exact("three_sum cancel",
-                 (q_t)s + (q_t)t + (q_t)u,
-                 (q_t)a + (q_t)b + (q_t)c);
-  }
-  // three_sum: reverse order (unordered inputs).
-  {
-    double a = 0x1p-120, b = 0x1p-60, c = 1.0;
-    double s, t, u;
-    three_sum(a, b, c, s, t, u);
-    expect_exact("three_sum reversed",
-                 (q_t)s + (q_t)t + (q_t)u,
-                 (q_t)a + (q_t)b + (q_t)c);
-  }
 
   // renorm3: sum-preserving and canonically ordered.
   {

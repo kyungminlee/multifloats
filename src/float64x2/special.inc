@@ -50,6 +50,27 @@ float64x2 erf(float64x2 const &x) {
   return neg ? -y : y;
 }
 
+// Shared asymptotic-regime rational fit for erfc / erfc_scaled (|x| ≥ 1.25):
+// R = erfc_AN_i / erfc_AD_i evaluated at z = 1/x² on one of 8 sub-intervals
+// of 1/x ∈ (0, 1] keyed by i = floor(8/x).
+static float64x2 erfc_asymptotic_p(float64x2 const &ax) {
+  float64x2 x2 = ax * ax;
+  float64x2 z = float64x2(1.0) / x2;
+  int i = static_cast<int>(8.0 / ax.limbs[0]);
+  float64x2 p;
+  switch (i) {
+  case 0: p = neval(z, erfc_AN1_hi, erfc_AN1_lo, 9) / deval(z, erfc_AD1_hi, erfc_AD1_lo, 8); break;
+  case 1: p = neval(z, erfc_AN2_hi, erfc_AN2_lo, 11) / deval(z, erfc_AD2_hi, erfc_AD2_lo, 10); break;
+  case 2: p = neval(z, erfc_AN3_hi, erfc_AN3_lo, 11) / deval(z, erfc_AD3_hi, erfc_AD3_lo, 10); break;
+  case 3: p = neval(z, erfc_AN4_hi, erfc_AN4_lo, 10) / deval(z, erfc_AD4_hi, erfc_AD4_lo, 10); break;
+  case 4: p = neval(z, erfc_AN5_hi, erfc_AN5_lo, 10) / deval(z, erfc_AD5_hi, erfc_AD5_lo, 9); break;
+  case 5: p = neval(z, erfc_AN6_hi, erfc_AN6_lo, 9) / deval(z, erfc_AD6_hi, erfc_AD6_lo, 9); break;
+  case 6: p = neval(z, erfc_AN7_hi, erfc_AN7_lo, 9) / deval(z, erfc_AD7_hi, erfc_AD7_lo, 9); break;
+  default: p = neval(z, erfc_AN8_hi, erfc_AN8_lo, 9) / deval(z, erfc_AD8_hi, erfc_AD8_lo, 8); break;
+  }
+  return p;
+}
+
 float64x2 erfc(float64x2 const &x) {
   if (!std::isfinite(x.limbs[0])) {
     float64x2 r;
@@ -90,25 +111,12 @@ float64x2 erfc(float64x2 const &x) {
     res = y * z + float64x2(erfc_Cb_hi[ci], erfc_Cb_lo[ci]) +
           float64x2(erfc_Ca_hi[ci], erfc_Ca_lo[ci]);
   } else {
-    // Asymptotic: erfc(x) = (1/x)·exp(-x² - 0.5625 + R(1/x²)), where
-    // R = erfc_AN_i / erfc_AD_i on one of 8 sub-intervals of 1/x ∈ (0,1]
-    // keyed by i = floor(8/x). The 0.5625 bias lets the fits share scale.
+    // Asymptotic: erfc(x) = (1/x)·exp(-x² - 0.5625 + R(1/x²)), with R from
+    // the shared erfc_asymptotic_p fit selection. The 0.5625 bias lets the
+    // fits share scale.
     if (neg && ax.limbs[0] >= 9.0) return float64x2(2.0);
 
-    float64x2 x2 = ax * ax;
-    float64x2 z = float64x2(1.0) / x2;
-    int i = static_cast<int>(8.0 / ax.limbs[0]);
-    float64x2 p;
-    switch (i) {
-    case 0: p = neval(z, erfc_AN1_hi, erfc_AN1_lo, 9) / deval(z, erfc_AD1_hi, erfc_AD1_lo, 8); break;
-    case 1: p = neval(z, erfc_AN2_hi, erfc_AN2_lo, 11) / deval(z, erfc_AD2_hi, erfc_AD2_lo, 10); break;
-    case 2: p = neval(z, erfc_AN3_hi, erfc_AN3_lo, 11) / deval(z, erfc_AD3_hi, erfc_AD3_lo, 10); break;
-    case 3: p = neval(z, erfc_AN4_hi, erfc_AN4_lo, 10) / deval(z, erfc_AD4_hi, erfc_AD4_lo, 10); break;
-    case 4: p = neval(z, erfc_AN5_hi, erfc_AN5_lo, 10) / deval(z, erfc_AD5_hi, erfc_AD5_lo, 9); break;
-    case 5: p = neval(z, erfc_AN6_hi, erfc_AN6_lo, 9) / deval(z, erfc_AD6_hi, erfc_AD6_lo, 9); break;
-    case 6: p = neval(z, erfc_AN7_hi, erfc_AN7_lo, 9) / deval(z, erfc_AD7_hi, erfc_AD7_lo, 9); break;
-    default: p = neval(z, erfc_AN8_hi, erfc_AN8_lo, 9) / deval(z, erfc_AD8_hi, erfc_AD8_lo, 8); break;
-    }
+    float64x2 p = erfc_asymptotic_p(ax);
 
     // Split x for accurate exp(-x^2): truncate hi limb by zeroing the
     // low 35 mantissa bits (keeps ~17 high bits), so s^2 fits exactly
@@ -153,21 +161,8 @@ float64x2 erfcx(float64x2 const &x) {
   if (ax.limbs[0] < 1.25) {
     return exp(x * x) * erfc(x);
   }
-  // Asymptotic branch.
-  float64x2 x2 = ax * ax;
-  float64x2 z = float64x2(1.0) / x2;
-  int i = static_cast<int>(8.0 / ax.limbs[0]);  // ax ≥ 1.25 ⇒ i ∈ [0, 6]
-  float64x2 p;
-  switch (i) {
-  case 0: p = neval(z, erfc_AN1_hi, erfc_AN1_lo, 9)  / deval(z, erfc_AD1_hi, erfc_AD1_lo, 8);  break;
-  case 1: p = neval(z, erfc_AN2_hi, erfc_AN2_lo, 11) / deval(z, erfc_AD2_hi, erfc_AD2_lo, 10); break;
-  case 2: p = neval(z, erfc_AN3_hi, erfc_AN3_lo, 11) / deval(z, erfc_AD3_hi, erfc_AD3_lo, 10); break;
-  case 3: p = neval(z, erfc_AN4_hi, erfc_AN4_lo, 10) / deval(z, erfc_AD4_hi, erfc_AD4_lo, 10); break;
-  case 4: p = neval(z, erfc_AN5_hi, erfc_AN5_lo, 10) / deval(z, erfc_AD5_hi, erfc_AD5_lo, 9);  break;
-  case 5: p = neval(z, erfc_AN6_hi, erfc_AN6_lo, 9)  / deval(z, erfc_AD6_hi, erfc_AD6_lo, 9);  break;
-  case 6: p = neval(z, erfc_AN7_hi, erfc_AN7_lo, 9)  / deval(z, erfc_AD7_hi, erfc_AD7_lo, 9);  break;
-  default:p = neval(z, erfc_AN8_hi, erfc_AN8_lo, 9)  / deval(z, erfc_AD8_hi, erfc_AD8_lo, 8);  break;
-  }
+  // Asymptotic branch (shared fit selection; ax ≥ 1.25 ⇒ i ∈ [0, 6]).
+  float64x2 p = erfc_asymptotic_p(ax);
   float64x2 res = exp(p - float64x2(0.5625)) / ax;
   if (neg) {
     // erfc_scaled(-|x|) = 2·exp(x²) - erfc_scaled(|x|). The result is
@@ -486,9 +481,7 @@ float64x2 tgamma(float64x2 const &x) {
       r.limbs[1] = 0.0;
       return r;
     }
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   if (hi == 0.0 && x.limbs[1] == 0.0) {
     // Γ has a simple pole at a *true* zero: Γ(+0) = +∞, Γ(−0) = −∞ (signed per
@@ -499,9 +492,7 @@ float64x2 tgamma(float64x2 const &x) {
     return r;
   }
   if (hi < 0.0 && hi == std::nearbyint(hi) && x.limbs[1] == 0.0) {
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   // Overflow: Γ(171.625) ≈ 2^1024. Beyond that the result overflows.
   if (hi > 171.624) {

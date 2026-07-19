@@ -27,23 +27,6 @@
 
 namespace {
 
-// Renormalize (hi, lo) into canonical DD form.
-inline void io_renorm(double &hi, double &lo) {
-  double s = hi + lo;
-  double err = lo - (s - hi);
-  hi = s;
-  lo = err;
-}
-
-// (hi, lo) *= d, with d a double; result renormalized.
-inline void io_dd_mul_d(double &hi, double &lo, double d) {
-  double p = hi * d;
-  double e = std::fma(hi, d, -p);
-  lo = lo * d + e;
-  hi = p;
-  io_renorm(hi, lo);
-}
-
 // Scientific-notation decimal formatter for float64x2. Writes into
 // [first, last) without a NUL terminator, returns one-past-last-written
 // on success or nullptr when the output wouldn't fit (in which case the
@@ -101,33 +84,28 @@ char *format_scientific_chars(multifloats::float64x2 const &value,
     static const double kP10Lo[9] = {
         0.0, 0.0, 0.0, 0.0, 0.0, -0x1.3107fp+52, -0x1.2ac340948e389p+157,
         -0x1.901cc86649e4ap+371, -0x1.7222446fe467p+795};
-    {
-      multifloats::float64x2 v(hi, lo);
-      for (int k = 0, n = (e10 >= 0 ? e10 : -e10); n && k < 9; ++k, n >>= 1) {
-        if (n & 1) {
-          multifloats::float64x2 p(kP10Hi[k], kP10Lo[k]);
-          v = (e10 >= 0) ? v / p : v * p;
-        }
+    multifloats::float64x2 v(hi, lo);
+    for (int k = 0, n = (e10 >= 0 ? e10 : -e10); n && k < 9; ++k, n >>= 1) {
+      if (n & 1) {
+        multifloats::float64x2 p(kP10Hi[k], kP10Lo[k]);
+        v = (e10 >= 0) ? v / p : v * p;
       }
-      // Drift correction: the log10 estimate can be ±1.
-      multifloats::float64x2 ten(kP10Hi[0], 0.0);
-      if (v.limbs[0] >= 10.0)     { v = v / ten; ++e10; }
-      else if (v.limbs[0] < 1.0)  { v = v * ten; --e10; }
-      hi = v.limbs[0];
-      lo = v.limbs[1];
     }
+    // Drift correction: the log10 estimate can be ±1.
+    multifloats::float64x2 ten(kP10Hi[0], 0.0);
+    if (v.limbs[0] >= 10.0)     { v = v / ten; ++e10; }
+    else if (v.limbs[0] < 1.0)  { v = v * ten; --e10; }
 
     // Extract precision+2 digits; the last two guard round-half-to-even.
     const int ndigits = precision + 2;
     char digits[36] = {};
     for (int i = 0; i < ndigits; ++i) {
-      int d = static_cast<int>(hi);
+      int d = static_cast<int>(v.limbs[0]);
       if (d < 0) d = 0;
       else if (d > 9) d = 9;
       digits[i] = static_cast<char>('0' + d);
-      hi -= d;
-      io_renorm(hi, lo);
-      io_dd_mul_d(hi, lo, 10.0);
+      v = (v - multifloats::float64x2(static_cast<double>(d))) *
+          multifloats::float64x2(10.0);
     }
 
     int guard = (digits[precision] - '0') * 10 + (digits[precision + 1] - '0');

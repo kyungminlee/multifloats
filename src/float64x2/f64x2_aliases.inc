@@ -1,6 +1,9 @@
-// AUTO-GENERATED — see comment in float64x2.h about the dual `dd` / `f64x2`
+// Hand-maintained — see comment in float64x2.h about the dual `dd` / `f64x2`
 // naming surface. Each definition below is a thin wrapper that forwards
 // to the existing `*dd` entry point under its `*f64x2` C23-style spelling.
+// When adding a function, add its forwarder here in lockstep with the
+// `*f64x2` declaration in include/multifloats/float64x2.h and the `*dd`
+// entry point in float64x2/abi.inc.
 //
 // We previously used `__attribute__((alias))` for zero-overhead linker-level
 // aliasing, but Mach-O (macOS) does not support strong aliases, and macOS
