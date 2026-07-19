@@ -1,6 +1,6 @@
 name: CI
 
-# Runs on every PR and every push to main. One Linux (GCC 14) and one
+# Runs on every PR and every push to main or develop. One Linux (GCC 14) and one
 # macOS (Homebrew GCC 14) job so the signal stays fast while still
 # catching Mach-O-specific regressions (e.g. __attribute__((alias))
 # behavior that differs from ELF). The release workflow (release.yml,
@@ -9,7 +9,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
