@@ -27,7 +27,6 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
-#include <random>
 
 namespace mf = multifloats;
 using multifloats::float64x2;
@@ -166,72 +165,13 @@ static inline float64x2 to_c(mf::float64x2 const &x) {
 }
 
 // -----------------------------------------------------------------------------
-// Random input generation — mirrors Rng::generate_pair in test/fuzz.cc
-// exactly (same distribution mix, same RNG, same seed semantics). The
-// point of the mirror is that a (iterations, seed) pair replays the
+// Random input generation — the shared multifloats_test::Rng from
+// test/unit/test_common.hh, the same generator test/unit/fuzz.cc uses.
+// The point of sharing is that a (iterations, seed) pair replays the
 // same inputs as fuzz.cc, so a failure surfaced here can be bisected
 // against fuzz.cc's per-op oracles.
 
-struct Rng {
-  std::mt19937_64 engine;
-  std::uniform_real_distribution<double> u01{0.0, 1.0};
-
-  explicit Rng(std::uint64_t seed) : engine(seed) {}
-  double u() { return u01(engine); }
-
-  q_t pick_nonfinite(double r) {
-    if (r < 0.33) return (q_t)(+1.0 / 0.0);
-    if (r < 0.66) return (q_t)(-1.0 / 0.0);
-    return (q_t)(0.0 / 0.0);
-  }
-
-  q_t wide(double r, double rexp) {
-    int k = (int)(rexp * 60.0) - 30;
-    q_t mag = powq((q_t)10.0q, (q_t)k);
-    return (q_t)(r - 0.5) * mag;
-  }
-
-  void generate_pair(q_t &q1, q_t &q2) {
-    double r1 = u(), r2 = u(), r3 = u(), r4 = u();
-    int mode = (int)(r1 * 10.0);
-    switch (mode) {
-    case 0: {
-      q1 = pick_nonfinite(r2);
-      q2 = pick_nonfinite(r3);
-      break;
-    }
-    case 1: {
-      int k = (int)(r3 * 20.0) - 10;
-      q1 = (q_t)(r2 - 0.5) * powq((q_t)10.0q, (q_t)k);
-      q2 = q1 * ((q_t)1.0q + (q_t)(r4 * 1e-15));
-      break;
-    }
-    case 2: {
-      int k = (int)(r3 * 20.0) - 10;
-      q1 = (q_t)(r2 - 0.5) * powq((q_t)10.0q, (q_t)k);
-      q2 = -q1 + (q_t)((r4 - 0.5) * 1e-25) * q1;
-      break;
-    }
-    case 3: {
-      double huge = 0x1.fffffffffffffp+1023;
-      q1 = (q_t)huge * (q_t)(0.9 + 0.1 * r2);
-      q2 = (q_t)huge * (q_t)(0.9 + 0.1 * r3);
-      break;
-    }
-    case 4: {
-      double tiny = 0x1.0p-1022;
-      q1 = (q_t)tiny * (q_t)(1.0 + 10.0 * r2);
-      q2 = (q_t)tiny * (q_t)(1.0 + 10.0 * r3);
-      break;
-    }
-    default: {
-      q1 = wide(r2, r3);
-      q2 = wide(r4, r1);
-      break;
-    }
-    }
-  }
-};
+using multifloats_test::Rng;
 
 // -----------------------------------------------------------------------------
 // Per-op bookkeeping. We keep only the FIRST failing input — once the

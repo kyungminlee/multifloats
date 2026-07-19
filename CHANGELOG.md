@@ -6,6 +6,65 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.10.2] — 2026-07-19
+
+Internal refactoring and tooling hardening from a whole-repository code-smell
+audit — no changes to numeric behavior, the ABI, the public headers, or the
+contents of the shipped artifacts. Every kernel refactor was verified
+bit-identical (the fuzzer's byte-for-byte output is unchanged across seeds).
+
+### Added
+
+- **`*f64x2` alias parity check.** New `scripts/check_f64x2_aliases.sh` and
+  ctest `f64x2_alias_parity` verify, in both directions, that every `*f64x2`
+  declaration in the public header has a forwarder in
+  `src/float64x2/f64x2_aliases.inc` (plus `to_charsf64x2`) and vice versa.
+- **Benchmark key-coverage audit.** `benchmark/build_benchmark_md.py` now
+  warns on stderr when `ops.py` and the bench/fuzz JSON inputs disagree on
+  covered keys.
+- **CI on `develop`.** The CI workflow now also runs on pushes to `develop`,
+  not just `main` and pull requests.
+
+### Changed
+
+- **Duplicated kernel tails consolidated** (all bit-identical): the two
+  hand-rolled TSUM accumulator macros now use the shared
+  `tsum3`/`tsum3_finalize` primitives; `exp10` and `pow` share the extracted
+  `exp2_from_triple` tail; `erfc` and `erfc_scaled` share the 8-way
+  asymptotic fit selector; 19 hand-written quiet-NaN stanzas collapse to
+  `_nan_dd()`; the io formatter's digit loop runs on a single `float64x2`
+  accumulator instead of raw hi/lo helper calls.
+- **fypp unary delegates table-driven.** The 36 near-identical `#:elif`
+  branches in `UNARY_DD_DD` are generated from one `UNARY_DELEGATE` mapping;
+  an unhandled name now aborts generation (`#:stop`) instead of silently
+  emitting a zero result.
+- **Test infrastructure deduplicated.** The scalar-DD C-ABI `bind(c)`
+  interfaces used by three Fortran test programs live in one shared module
+  (`test/support/c_abi_bindings.f90`); the canonical fuzz input generator
+  moved to `test/unit/test_common.hh` — the cross-language checker's copy had
+  drifted, and now shares it again (its fuzz input distribution reverts to
+  the canonical one); Boost double-double adapters live in
+  `test_common_boost.hh`; `fuzz.cc`'s ~1000-line main loop is split into
+  per-family functions with byte-identical output.
+- **Benchmark table single-sourced.** The 62 ops shared between the C and
+  Fortran tables in `benchmark/ops.py` derive from one table; three
+  descriptions that had drifted between the copies were corrected.
+- **Shell symbol scans share one helper** (`scripts/lib/c_abi_symbols.sh`)
+  instead of three diverging grep pipelines.
+
+### Fixed
+
+- `check_fortran_abi_sync.sh` did not strip leading `*`/`&` from header
+  declarations, unlike the other symbol-audit scripts.
+- `bench_abi` now `error stop`s on an unknown op name instead of silently
+  timing nothing.
+
+### Removed
+
+- Dead code: the unused `three_sum` helper, an unreachable emitter arm in
+  `codegen/gen_constants.py`, and six unreferenced private interface
+  declarations in the generated Fortran module.
+
 ## [0.10.1] — 2026-07-17
 
 Repository-internal cleanup only — no changes to numeric behavior, the ABI, the

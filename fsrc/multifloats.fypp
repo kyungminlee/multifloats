@@ -698,19 +698,29 @@ module multifloats
 #! transcendentals: fypp `add` → C `cadddd`, etc.
 #:set C_DELEGATE_CX_BINARY_FUNCS = ['add', 'sub', 'mul', 'div']
 
-#! C symbols (defined in src/multifloats_math.cc) for the DD math kernels
-#! that the public elemental functions delegate to. We declare iso_c_binding
-#! interfaces for each, named `c_${csym}$`, and call them inline from each
-#! public dispatcher; there is no intermediate Fortran wrapper layer.
-#:set C_UNARY_CSYMS = [ &
-    'sqrtdd', 'truncdd', 'rounddd', &
-    'exp2dd', 'exp10dd', 'expdd', 'expm1dd', 'exp2m1dd', 'exp10m1dd', &
-    'log2dd', 'logdd', 'log10dd', 'log1pdd', 'log2p1dd', 'log10p1dd', &
-    'sindd', 'cosdd', 'tandd', 'asindd', 'acosdd', 'atandd', &
-    'sinpidd', 'cospidd', 'tanpidd', 'asinpidd', 'acospidd', 'atanpidd', &
-    'sinhdd', 'coshdd', 'tanhdd', 'asinhdd', 'acoshdd', 'atanhdd', &
-    'erfdd', 'erfcdd', 'erfcxdd', 'tgammadd', 'lgammadd', &
-    'j0dd', 'j1dd', 'y0dd', 'y1dd' ]
+#! Real DD unary functions whose public dispatcher body is nothing but a
+#! call to a C kernel (defined in src/multifloats_math.cc): Fortran name →
+#! C symbol. Both the bind(c) interface list (C_UNARY_CSYMS below) and the
+#! dispatcher bodies are generated from this map, so a unary interface
+#! cannot exist without a caller. UNARY_DD_DD entries with genuinely
+#! special bodies (abs, fraction, spacing, rrspacing, tiny, huge, epsilon)
+#! are pure Fortran — no C kernel — and are handled by explicit branches
+#! in the dispatcher instead.
+#:set UNARY_DELEGATE = { &
+    'sqrt': 'sqrtdd', 'aint': 'truncdd', 'anint': 'rounddd', &
+    'exp': 'expdd', 'expm1': 'expm1dd', &
+    'log2': 'log2dd', 'log': 'logdd', 'log10': 'log10dd', 'log1p': 'log1pdd', &
+    'sin': 'sindd', 'cos': 'cosdd', 'tan': 'tandd', &
+    'asin': 'asindd', 'acos': 'acosdd', 'atan': 'atandd', &
+    'sinpi': 'sinpidd', 'cospi': 'cospidd', 'tanpi': 'tanpidd', &
+    'asinpi': 'asinpidd', 'acospi': 'acospidd', 'atanpi': 'atanpidd', &
+    'sinh': 'sinhdd', 'cosh': 'coshdd', 'tanh': 'tanhdd', &
+    'asinh': 'asinhdd', 'acosh': 'acoshdd', 'atanh': 'atanhdd', &
+    'erf': 'erfdd', 'erfc': 'erfcdd', 'erfc_scaled': 'erfcxdd', &
+    'gamma': 'tgammadd', 'log_gamma': 'lgammadd', &
+    'bessel_j0': 'j0dd', 'bessel_j1': 'j1dd', &
+    'bessel_y0': 'y0dd', 'bessel_y1': 'y1dd' }
+#:set C_UNARY_CSYMS = list(UNARY_DELEGATE.values())
 #:set C_BINARY_CSYMS = [ 'atan2dd', 'atan2pidd', 'hypotdd', 'fmoddd', 'powdd' ]
 
     interface
@@ -1398,7 +1408,9 @@ contains
     elemental function dd_${func}$(x) result(res)
         type(real64x2), intent(in) :: x
         type(real64x2) :: res
-#:if func == 'abs'
+#:if func in UNARY_DELEGATE
+$:CALL_C_UNARY(UNARY_DELEGATE[func])
+#:elif func == 'abs'
         ! Match C++ multifloats::fabs: resolve the sign via the first
         ! nonzero limb; if every limb is a (possibly signed) zero,
         ! return canonical +0 so abs(-0.0) = +0.0 as IEEE expects.
@@ -1409,12 +1421,6 @@ contains
         else
             res = x
         end if
-#:elif func == 'sqrt'
-$:CALL_C_UNARY('sqrtdd')
-#:elif func == 'aint'
-$:CALL_C_UNARY('truncdd')
-#:elif func == 'anint'
-$:CALL_C_UNARY('rounddd')
 #:elif func == 'fraction'
         block
             integer :: e
@@ -1447,75 +1453,8 @@ $:CALL_C_UNARY('rounddd')
         ! rrspacing(x) = |x| / spacing(x). Compute against the DD spacing
         ! so the result is consistent with dd_spacing above.
         res%limbs = [abs(x%limbs(1)) / scale(spacing(x%limbs(1)), -53), 0.0_dp]
-#:elif func == 'exp'
-$:CALL_C_UNARY('expdd')
-#:elif func == 'expm1'
-$:CALL_C_UNARY('expm1dd')
-#:elif func == 'log'
-$:CALL_C_UNARY('logdd')
-#:elif func == 'log2'
-$:CALL_C_UNARY('log2dd')
-#:elif func == 'log10'
-$:CALL_C_UNARY('log10dd')
-#:elif func == 'log1p'
-$:CALL_C_UNARY('log1pdd')
-#:elif func == 'sin'
-$:CALL_C_UNARY('sindd')
-#:elif func == 'cos'
-$:CALL_C_UNARY('cosdd')
-#:elif func == 'sinpi'
-$:CALL_C_UNARY('sinpidd')
-#:elif func == 'cospi'
-$:CALL_C_UNARY('cospidd')
-#:elif func == 'tanpi'
-$:CALL_C_UNARY('tanpidd')
-#:elif func == 'tan'
-$:CALL_C_UNARY('tandd')
-#:elif func == 'sinh'
-$:CALL_C_UNARY('sinhdd')
-#:elif func == 'cosh'
-$:CALL_C_UNARY('coshdd')
-#:elif func == 'tanh'
-$:CALL_C_UNARY('tanhdd')
-#:elif func == 'asin'
-$:CALL_C_UNARY('asindd')
-#:elif func == 'acos'
-$:CALL_C_UNARY('acosdd')
-#:elif func == 'atan'
-$:CALL_C_UNARY('atandd')
-#:elif func == 'asinpi'
-$:CALL_C_UNARY('asinpidd')
-#:elif func == 'acospi'
-$:CALL_C_UNARY('acospidd')
-#:elif func == 'atanpi'
-$:CALL_C_UNARY('atanpidd')
-#:elif func == 'asinh'
-$:CALL_C_UNARY('asinhdd')
-#:elif func == 'acosh'
-$:CALL_C_UNARY('acoshdd')
-#:elif func == 'atanh'
-$:CALL_C_UNARY('atanhdd')
-#:elif func == 'erf'
-$:CALL_C_UNARY('erfdd')
-#:elif func == 'erfc'
-$:CALL_C_UNARY('erfcdd')
-#:elif func == 'erfc_scaled'
-$:CALL_C_UNARY('erfcxdd')
-#:elif func == 'gamma'
-$:CALL_C_UNARY('tgammadd')
-#:elif func == 'log_gamma'
-$:CALL_C_UNARY('lgammadd')
-#:elif func == 'bessel_j0'
-$:CALL_C_UNARY('j0dd')
-#:elif func == 'bessel_j1'
-$:CALL_C_UNARY('j1dd')
-#:elif func == 'bessel_y0'
-$:CALL_C_UNARY('y0dd')
-#:elif func == 'bessel_y1'
-$:CALL_C_UNARY('y1dd')
 #:else
-        ! Should be unreachable: every entry of UNARY_DD_DD is handled above.
-        res%limbs = [0.0_dp, 0.0_dp]
+#:stop "unhandled UNARY_DD_DD entry '" + func + "': add it to UNARY_DELEGATE or give it an explicit branch"
 #:endif
     end function
 

@@ -92,6 +92,9 @@ using multifloats::complex64x2;
 //     mirrors libquadmath __quadmath_x2y2m1q on DD inputs.
 namespace {
 
+using multifloats::detail::tsum3;
+using multifloats::detail::tsum3_finalize;
+
 __attribute__((noinline, cold))
 float64x2 dd_cross_diff(float64x2 a, float64x2 b, float64x2 c, float64x2 d) {
   double a0 = a.limbs[0], a1 = a.limbs[1];
@@ -107,21 +110,14 @@ float64x2 dd_cross_diff(float64x2 a, float64x2 b, float64x2 c, float64x2 d) {
   double ab11 = a1 * b1;
   double cd11 = c1 * d1;
   double T0 = 0, T1 = 0, T2 = 0;
-  #define TSUM(x) do { \
-    double _x = (x), _s, _bb, _e; \
-    _s = T0 + _x; _bb = _s - T0; _e = (T0 - (_s - _bb)) + (_x - _bb); \
-    T0 = _s; _x = _e; \
-    _s = T1 + _x; _bb = _s - T1; _e = (T1 - (_s - _bb)) + (_x - _bb); \
-    T1 = _s; T2 += _e; \
-  } while (0)
-  TSUM(ab00_h);  TSUM(-cd00_h);
-  TSUM(ab00_l);  TSUM(-cd00_l);
-  TSUM(ab01_h);  TSUM(ab10_h);  TSUM(-cd01_h); TSUM(-cd10_h);
-  TSUM(ab01_l);  TSUM(ab10_l);  TSUM(-cd01_l); TSUM(-cd10_l);
-  TSUM(ab11);    TSUM(-cd11);
-  #undef TSUM
-  { double s = T1 + T2, bb = s - T1; T2 = (T1 - (s - bb)) + (T2 - bb); T1 = s; }
-  { double s = T0 + T1, bb = s - T0; T1 = (T0 - (s - bb)) + (T1 - bb); T0 = s; }
+  tsum3(T0, T1, T2, ab00_h);  tsum3(T0, T1, T2, -cd00_h);
+  tsum3(T0, T1, T2, ab00_l);  tsum3(T0, T1, T2, -cd00_l);
+  tsum3(T0, T1, T2, ab01_h);  tsum3(T0, T1, T2, ab10_h);
+  tsum3(T0, T1, T2, -cd01_h); tsum3(T0, T1, T2, -cd10_h);
+  tsum3(T0, T1, T2, ab01_l);  tsum3(T0, T1, T2, ab10_l);
+  tsum3(T0, T1, T2, -cd01_l); tsum3(T0, T1, T2, -cd10_l);
+  tsum3(T0, T1, T2, ab11);    tsum3(T0, T1, T2, -cd11);
+  tsum3_finalize(T0, T1, T2);
   T1 += T2;
   double hi = T0 + T1;
   double lo = T1 - (hi - T0);
@@ -139,21 +135,12 @@ inline float64x2 dd_x2y2m1(float64x2 x, float64x2 y) {
   double xx11 = x1 * x1;
   double yy11 = y1 * y1;
   double T0 = 0, T1 = 0, T2 = 0;
-  #define TSUM(v) do { \
-    double _x = (v), _s, _bb, _e; \
-    _s = T0 + _x; _bb = _s - T0; _e = (T0 - (_s - _bb)) + (_x - _bb); \
-    T0 = _s; _x = _e; \
-    _s = T1 + _x; _bb = _s - T1; _e = (T1 - (_s - _bb)) + (_x - _bb); \
-    T1 = _s; T2 += _e; \
-  } while (0)
-  TSUM(xx00_h);  TSUM(yy00_h);  TSUM(-1.0);
-  TSUM(xx01_h);  TSUM(yy01_h);
-  TSUM(xx00_l);  TSUM(yy00_l);
-  TSUM(xx01_l);  TSUM(yy01_l);
-  TSUM(xx11);    TSUM(yy11);
-  #undef TSUM
-  { double s = T1 + T2, bb = s - T1; T2 = (T1 - (s - bb)) + (T2 - bb); T1 = s; }
-  { double s = T0 + T1, bb = s - T0; T1 = (T0 - (s - bb)) + (T1 - bb); T0 = s; }
+  tsum3(T0, T1, T2, xx00_h); tsum3(T0, T1, T2, yy00_h); tsum3(T0, T1, T2, -1.0);
+  tsum3(T0, T1, T2, xx01_h); tsum3(T0, T1, T2, yy01_h);
+  tsum3(T0, T1, T2, xx00_l); tsum3(T0, T1, T2, yy00_l);
+  tsum3(T0, T1, T2, xx01_l); tsum3(T0, T1, T2, yy01_l);
+  tsum3(T0, T1, T2, xx11);   tsum3(T0, T1, T2, yy11);
+  tsum3_finalize(T0, T1, T2);
   T1 += T2;
   double hi = T0 + T1;
   double lo = T1 - (hi - T0);

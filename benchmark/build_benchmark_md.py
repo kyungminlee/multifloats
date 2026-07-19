@@ -123,6 +123,59 @@ def speedup_pair_filter(row: ops_mod.UnifiedRow, system: dict) -> str:
     return f"{lookup('c', row.c_bench_key)} / {lookup('fortran', row.f_bench_key)}"
 
 
+def report_key_coverage(system: dict, rows: list[ops_mod.UnifiedRow]) -> None:
+    """Warn (stderr, non-fatal) about ops.py <-> JSON key mismatches.
+
+    A key expected by ops.py but absent from the JSON silently renders as
+    EMDASH (the ``.get()`` fallbacks above), and a JSON key no row references
+    is silently dropped — both usually mean a renamed bench label or a stale
+    ops.py entry. An entirely absent dict (e.g. a ``--skip-fuzz`` run has no
+    fuzz stats, a single-language JSON has no bench dict for the other side)
+    is normal and not reported key-by-key. ``fuzz=None`` / ``"exact"`` ops
+    and the one-language ``None`` bench keys expect nothing. Unreferenced
+    fuzz keys are reported as a count only: fuzz.cc deliberately covers far
+    more surface (ctors, assignments, …) than the table shows.
+    """
+    def fuzz_keys(spec: ops_mod.FuzzSpec) -> list[str]:
+        if spec is None or spec == "exact":
+            return []
+        if isinstance(spec, str):
+            return [spec]
+        return [key for _label, key in spec]
+
+    checks = [
+        ("c bench",
+         {r.c_bench_key for r in rows if r.c_bench_key is not None},
+         (system.get("c") or {}).get("bench") or {}, True),
+        ("fortran bench",
+         {r.f_bench_key for r in rows if r.f_bench_key is not None},
+         (system.get("fortran") or {}).get("bench") or {}, True),
+        ("fuzz",
+         {key for r in rows for key in fuzz_keys(r.fuzz)},
+         (system.get("c") or {}).get("fuzz") or {}, False),
+    ]
+    warnings: list[str] = []
+    for label, expected, data, list_unclaimed in checks:
+        if not data:
+            continue  # whole section absent from this JSON — legitimate
+        missing = sorted(expected - data.keys())
+        unclaimed = sorted(data.keys() - expected)
+        if missing:
+            warnings.append(f"{label}: {len(missing)} ops.py key(s) missing from"
+                            f" the JSON (rendered as {EMDASH}): {', '.join(missing)}")
+        if unclaimed and list_unclaimed:
+            warnings.append(f"{label}: {len(unclaimed)} JSON key(s) not referenced"
+                            f" by ops.py: {', '.join(unclaimed)}")
+        elif unclaimed:
+            warnings.append(f"{label}: {len(unclaimed)} JSON key(s) not shown in"
+                            f" the table (expected: fuzz coverage is a superset)")
+    if warnings:
+        print(f"build_benchmark_md: {len(warnings)} key-coverage warning(s):",
+              file=sys.stderr)
+        for w in warnings:
+            print(f"  - {w}", file=sys.stderr)
+
+
 def load_system(path: Path) -> dict:
     blob = json.loads(path.read_text())
     return {
@@ -172,6 +225,8 @@ def main() -> int:
     else:
         args.output.write_text(out)
         print(f"wrote {args.output}", file=sys.stderr)
+
+    report_key_coverage(system, ops_mod.unified_rows())
     return 0
 
 

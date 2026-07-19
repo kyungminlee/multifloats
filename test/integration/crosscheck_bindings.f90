@@ -1,41 +1,43 @@
 ! bind(c) wrappers over the NATIVE real64x2 elemental operators. Used
-! by the cross-language differential fuzz driver (test/crosscheck.cc) to
-! exercise both the C++ and Fortran implementations of the DD kernels
-! that are INDEPENDENTLY implemented on each side — add, sub, mul, div,
-! neg, abs, and the ordered/equality comparisons. A bit-for-bit
-! divergence on both limbs flags real algorithmic drift between
-! src/multifloats_math.cc and fsrc/multifloats.fypp.
+! by the cross-language differential fuzz driver
+! (test/integration/crosscheck.cc) to exercise both the C++ and Fortran
+! implementations of the DD kernels that are INDEPENDENTLY implemented
+! on each side — add, sub, mul, div, neg, abs, and the ordered/equality
+! comparisons. A bit-for-bit divergence on both limbs flags real
+! algorithmic drift between src/multifloats_math.cc and
+! fsrc/multifloats.fypp.
 !
-! Distinct from dd_bindc.f90 in intent: dd_bindc reimplements the DD
-! algorithm in pure Fortran to isolate ABI overhead in bench_abi, while
-! fnat_* delegates straight to `a + b` / sqrt(a) / etc. so the
-! differential compares two production code paths rather than a
-! hand-mirrored reimplementation.
+! Distinct in intent from the ABI-overhead benchmark
+! (test/unit/bench_abi.f90, which calls the C kernels directly through
+! the shared interfaces in test/support/c_abi_bindings.f90): fnat_*
+! delegates straight to `a + b` / sqrt(a) / etc. so the differential
+! compares two production code paths rather than a hand-mirrored
+! reimplementation.
 module crosscheck_bindings
   ! Import the whole module so the overloaded arithmetic / comparison
   ! operators and the `sqrt` / `abs` generics are visible. An `only:`
   ! list would drop the operator interfaces and the compiler would
   ! reject `type(real64x2) + type(real64x2)`.
   use multifloats
-  use, intrinsic :: iso_c_binding, only: c_double, c_int, c_long
+  ! dd_c mirrors the layout of real64x2 in include/multifloats/float64x2.h;
+  ! the type is shared with the ABI tests via test/support/c_abi_bindings.f90.
+  use c_abi_bindings, only: dd_c
+  use, intrinsic :: iso_c_binding, only: c_int, c_long
   implicit none
   private
 
-  ! Layout matches real64x2 in include/multifloats.h and dd_c in
-  ! dd_bindc.f90. Declared locally so this module does not depend on
-  ! dd_bindc (separate concern).
-  type, bind(c), public :: dd_c
-    real(c_double) :: limbs(2)
-  end type dd_c
+  public :: dd_c
 
   public :: fnat_add, fnat_sub, fnat_mul, fnat_div
   public :: fnat_neg, fnat_abs, fnat_sqrt
   public :: fnat_eq,  fnat_ne,  fnat_lt
-  ! fnat_le / fnat_ge intentionally omitted: the C++ `<=` is defined as
-  ! `!(r < *this)` which is true on NaN pairs (IEEE `<` is false, negation
-  ! flips it), whereas Fortran `<=` is IEEE-strict (false on NaN). Any
-  ! cross-check would fire on every NaN-bearing iteration for a
-  ! pre-existing semantic difference that is out of scope for PR-1.
+  ! fnat_le / fnat_ge omitted for historical reasons: the C++ `<=` used
+  ! to be `!(r < *this)`, which is true on NaN pairs, so a cross-check
+  ! against the IEEE-strict Fortran `<=` fired on every NaN-bearing
+  ! iteration. include/multifloats/float64x2.h now implements limbwise
+  ! IEEE-strict `<=` / `>=` (false on NaN — explicitly NOT the negation
+  ! form), matching Fortran, so extending the crosscheck to le/ge is a
+  ! viable follow-up.
   !
   ! Integer-returning rounding / decomposition ops — common routines
   ! implemented natively on BOTH sides (not routed through C_DELEGATE_*):

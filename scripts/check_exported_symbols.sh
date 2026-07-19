@@ -30,6 +30,7 @@
 # Usage:
 #   check_exported_symbols.sh <path/to/libmultifloats.a> <path/to/header>
 set -e
+. "$(dirname "$0")/lib/c_abi_symbols.sh"
 LIB="$1"
 HEADER="$2"
 if [ -z "$LIB" ] || [ -z "$HEADER" ]; then
@@ -48,11 +49,9 @@ MANGLED=$(mktemp)
 DEMANGLED=$(mktemp)
 trap 'rm -f "$CABI" "$MANGLED" "$DEMANGLED"' EXIT
 
-# (1) extern "C" C-ABI keep-list. The trailing sed strips a `(` left by the
-# grep and a leading `*`/`&` that hugs a pointer-returning name (e.g.
-# `char *to_charsdd(`). Mirrors the scan in check_fortran_abi_sync.sh.
-grep -oE "^MULTIFLOATS_API[^(]+\(" "$HEADER" \
-    | awk '{print $NF}' | sed -e 's/($//' -e 's/^[*&]*//' | sort -u > "$CABI"
+# (1) extern "C" C-ABI keep-list — the canonical scan shared with
+# check_fortran_abi_sync.sh / check_shared_exports.sh (lib/c_abi_symbols.sh).
+list_c_abi_symbols "$HEADER" > "$CABI"
 
 if [ ! -s "$CABI" ]; then
     echo "check_exported_symbols.sh: no MULTIFLOATS_API symbols found in $HEADER" >&2

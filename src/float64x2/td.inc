@@ -4,7 +4,7 @@
 // function-call hop per TD op, which is negligible against the polynomial
 // costs of the transcendental kernels that host them.
 //
-// Leaf helpers (two_sum, two_prod, tsum3, tsum3_finalize, three_sum) stay
+// Leaf helpers (two_sum, two_prod, tsum3, tsum3_finalize) stay
 // inline in the header — they're hot and tiny.
 
 float64x3 renorm3(double h, double m, double l) {

@@ -8,6 +8,7 @@
 // Boost.Math; Bessel / complex / π-trig / array kernels are out of scope.
 
 #include "test_common.hh"
+#include "test_common_boost.hh"
 
 #include <boost/multiprecision/cpp_double_fp.hpp>
 #include <boost/math/special_functions/erf.hpp>
@@ -27,24 +28,8 @@
 using boost::multiprecision::cpp_double_double;
 using multifloats_test::q_t;
 using multifloats_test::from_q;
+using multifloats_test::bdd_from_q;
 using clk = std::chrono::steady_clock;
-
-// =============================================================================
-// boost <-> qp adapters (same as test_boost_dd.cc).
-// =============================================================================
-
-static inline q_t bdd_to_q(cpp_double_double const &x) {
-  auto const &r = x.backend().crep();
-  return (q_t)r.first + (q_t)r.second;
-}
-static inline cpp_double_double bdd_from_q(q_t v) {
-  multifloats::float64x2 mf = from_q(v);
-  cpp_double_double out;
-  auto &r = out.backend().rep();
-  r.first  = mf.limbs[0];
-  r.second = mf.limbs[1];
-  return out;
-}
 
 // =============================================================================
 // fx:: overload set — picks the boost cpp_double_double or qp leg from one

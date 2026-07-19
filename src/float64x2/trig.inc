@@ -23,12 +23,7 @@ void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c);
 namespace {
 constexpr double kPiTrigArgumentCap = 0x1p52;
 inline bool pi_trig_arg_too_large(double a) { return !(a < kPiTrigArgumentCap); }
-inline float64x2 pi_trig_nan() {
-  float64x2 r;
-  r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-  r.limbs[1] = 0.0;
-  return r;
-}
+inline float64x2 pi_trig_nan() { return _nan_dd(); }
 // sin/cos/tan argument cap: through |x| ≤ 2^54, reduce_pi_half stays
 // sub-1-ulp; at |x| ≥ 2^55 the n·π/2 reduction walks off because
 // nearbyint(x·2/π) loses integer precision (ulp(x) ≥ 1). For normalized
@@ -221,11 +216,8 @@ void sincos_eval(float64x2 const &r, float64x2 &s, float64x2 &c) {
 // plus one sincos_eval, with the per-quadrant sign/swap applied last.
 void sincos(float64x2 const &x, float64x2 &s, float64x2 &c) {
   if (!std::isfinite(x.limbs[0]) || trig_arg_too_large(x.limbs[0])) {
-    float64x2 nan;
-    nan.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    nan.limbs[1] = 0.0;
-    s = nan;
-    c = nan;
+    s = _nan_dd();
+    c = _nan_dd();
     return;
   }
   if (x.limbs[0] == 0.0 && x.limbs[1] == 0.0) {  // sin(±0)=±0 (odd), cos(±0)=1

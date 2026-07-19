@@ -9,6 +9,7 @@
 // of scope (no native boost equivalent).
 
 #include "test_common.hh"
+#include "test_common_boost.hh"
 
 #include <boost/multiprecision/cpp_double_fp.hpp>
 #include <boost/math/special_functions/erf.hpp>
@@ -21,7 +22,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <random>
 
 #include <quadmath.h>
 
@@ -32,36 +32,10 @@ using multifloats_test::from_q;
 using multifloats_test::q_isfinite;
 using multifloats_test::q_isnan;
 using multifloats_test::qstr;
-
-// =============================================================================
-// boost <-> qp adapters. We renormalize through the existing fast_two_sum
-// path in test_common.hh so the boost limbs satisfy the same |lo| <= 0.5 ULP
-// of |hi| invariant the multifloats DD invariant maintains. Equivalent to
-// constructing `cpp_double_double(hi) + cpp_double_double(lo)` (boost
-// renormalizes on the constructor sum) but ~free.
-// =============================================================================
-
-static inline q_t bdd_to_q(cpp_double_double const &x) {
-  auto const &r = x.backend().crep();
-  return (q_t)r.first + (q_t)r.second;
-}
-
-static inline cpp_double_double bdd_from_q(q_t v) {
-  multifloats::float64x2 mf = from_q(v);
-  cpp_double_double out;
-  auto &r = out.backend().rep();
-  r.first  = mf.limbs[0];
-  r.second = mf.limbs[1];
-  return out;
-}
-
-static inline cpp_double_double bdd_from_d(double v) {
-  cpp_double_double out;
-  auto &r = out.backend().rep();
-  r.first  = v;
-  r.second = 0.0;
-  return out;
-}
+using multifloats_test::Rng;
+using multifloats_test::bdd_to_q;
+using multifloats_test::bdd_from_q;
+using multifloats_test::bdd_from_d;
 
 // =============================================================================
 // Per-op stats, classifier, failure printer — same shape as fuzz.cc.
@@ -210,65 +184,6 @@ static void check(char const *op, cpp_double_double const &got, q_t expected,
     }
   }
 }
-
-// =============================================================================
-// Random input generator — mirrors test/fuzz.cc Rng (verbatim).
-// =============================================================================
-
-struct Rng {
-  std::mt19937_64 engine;
-  std::uniform_real_distribution<double> u01{0.0, 1.0};
-
-  explicit Rng(uint64_t seed) : engine(seed) {}
-  double u() { return u01(engine); }
-
-  q_t pick_nonfinite(double r) {
-    if (r < 0.25) return (q_t) (+1.0 / 0.0);
-    if (r < 0.50) return (q_t) (-1.0 / 0.0);
-    if (r < 0.70) return (q_t) (0.0 / 0.0);
-    if (r < 0.85) return (q_t) (+0.0);
-    return (q_t) (-0.0);
-  }
-  q_t wide(double r, double rexp) {
-    int k = (int)(rexp * 60.0) - 30;
-    q_t mag = powq((q_t)10.0q, (q_t)k);
-    return (q_t)(r - 0.5) * mag;
-  }
-  void generate_pair(q_t &q1, q_t &q2) {
-    double r1 = u(), r2 = u(), r3 = u(), r4 = u();
-    int mode = (int)(r1 * 10.0);
-    switch (mode) {
-    case 0:
-      q1 = pick_nonfinite(r2); q2 = pick_nonfinite(r3); break;
-    case 1: {
-      int k = (int)(r3 * 20.0) - 10;
-      q1 = (q_t)(r2 - 0.5) * powq((q_t)10.0q, (q_t)k);
-      q2 = q1 * ((q_t)1.0q + (q_t)((r4 - 0.5) * 2e-15));
-      break;
-    }
-    case 2: {
-      int k = (int)(r3 * 20.0) - 10;
-      q1 = (q_t)(r2 - 0.5) * powq((q_t)10.0q, (q_t)k);
-      q2 = -q1 * ((q_t)1.0q + (q_t)((r4 - 0.5) * 2e-15));
-      break;
-    }
-    case 3: {
-      int k = (int)(r3 * 10.0) + 20;
-      q1 = (q_t)(r2 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      q2 = (q_t)(r4 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      break;
-    }
-    case 4: {
-      int k = -((int)(r3 * 10.0) + 20);
-      q1 = (q_t)(r2 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      q2 = (q_t)(r4 - 0.5) * 2.0q * powq((q_t)10.0q, (q_t)k);
-      break;
-    }
-    default:
-      q1 = wide(r2, r3); q2 = wide(r4, r1); break;
-    }
-  }
-};
 
 // =============================================================================
 // Driver
