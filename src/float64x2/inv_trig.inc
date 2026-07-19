@@ -62,10 +62,7 @@ float64x2 asin(float64x2 const &x) {
   }
   double ax_d = std::abs(x.limbs[0]);
   if (ax_d > 1.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   // asin(x) = x + x³/6 + …; for |x| < sqrt(3)·2⁻⁵³ ≈ 1.85e-16 the
   // cubic term is below 0.5 DD ulp, so identity is correct to DD.
@@ -108,10 +105,7 @@ float64x2 acos(float64x2 const &x) {
   }
   double ax_d = std::abs(x.limbs[0]);
   if (ax_d > 1.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
 
   float64x2 pi_half = float64x2(pi_half_cw1, pi_half_cw2);
@@ -264,10 +258,7 @@ float64x2 acosh(float64x2 const &x) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::acosh(d); });
   }
   if (x.limbs[0] < 1.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   if (x.limbs[0] > 1e150) {
     return log(x) + float64x2(ln_2_hi, ln_2_lo);
@@ -282,10 +273,7 @@ float64x2 atanh(float64x2 const &x) {
     return _nonfinite_scalar_fallback(x, [](double d) { return std::atanh(d); });
   }
   if (std::abs(x.limbs[0]) > 1.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   if (std::abs(x.limbs[0]) < 0.01) {
     // 15 coefs → degree 14 → Estrin case in neval.

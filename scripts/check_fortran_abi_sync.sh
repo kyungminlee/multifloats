@@ -16,6 +16,7 @@
 # Usage:
 #   check_fortran_abi_sync.sh <path/to/multifloats.h> <path/to/generated.f90>
 set -e
+. "$(dirname "$0")/lib/c_abi_symbols.sh"
 HEADER="$1"
 GENERATED_F90="$2"
 if [ -z "$HEADER" ] || [ -z "$GENERATED_F90" ]; then
@@ -33,8 +34,7 @@ C_API=$(mktemp)
 F_DD=$(mktemp)
 trap 'rm -f "$C_API" "$F_DD"' EXIT
 
-grep -oE "^MULTIFLOATS_API[^(]+\(" "$HEADER" \
-    | awk '{print $NF}' | sed 's/($//' | sort -u > "$C_API"
+list_c_abi_symbols "$HEADER" > "$C_API"
 
 grep -oE "bind\(c,\s*name\s*=\s*['\"][^'\"]+['\"]\)" "$GENERATED_F90" \
     | sed -E "s/.*name\s*=\s*['\"]([^'\"]+)['\"].*/\1/" \

@@ -111,7 +111,7 @@ FORTRAN_SECTIONS: list[Section] = [
         Op("atanh", "atanh", "original: Taylor series (\\|x\\|<0.01) or \u00bd\u00b7log((1+x)/(1\u2212x))", "full DD", "atanh"),
     ]),
     Section("Error / special functions", [
-        Op("erf",           "erf",           "piecewise rational approx (libquadmath erfq.c)",                "full DD", "erf"),
+        Op("erf",           "erf",           "piecewise rational approx (ported from libquadmath erfq.c)",    "full DD", "erf"),
         Op("erfc",          "erfc",          "piecewise rational approx + split exp(-x^2)",                   "full DD", "erfc"),
         Op("erfc_scaled",   "erfc\\_scaled", "exp(x^2)\u00b7erfc(x) with asymptotic cancellation",            "full DD", "erfcx"),
         Op("gamma",         "gamma",         "piecewise rational approx + Stirling + reflection",             "full DD", "gamma"),
@@ -142,7 +142,7 @@ FORTRAN_SECTIONS: list[Section] = [
             fuzz=[("re", "csqrt_re"), ("im", "csqrt_im")]),
         Op("cdd_exp",   "cdd\\_exp",   "original: exp(re)\u00b7(cos(im), sin(im))", "full DD",
             fuzz=[("re", "cexp_re"), ("im", "cexp_im")]),
-        Op("cdd_expm1", "cdd\\_expm1", "original: expm1 + complex rotation with cancellation-safe Re", "reduced DD",
+        Op("cdd_expm1", "cdd\\_expm1", "original: expm1(re)\u00b7cos(im) + (cos(im)\u22121) + i\u00b7exp(re)\u00b7sin(im)", "reduced DD",
             fuzz=[("re", "cexpm1_re"), ("im", "cexpm1_im")]),
         Op("cdd_log",   "cdd\\_log",   "original: (log(\\|z\\|), atan2(im,re))", "full DD",
             fuzz=[("re", "clog_re"), ("im", "clog_im")]),
@@ -170,7 +170,7 @@ FORTRAN_SECTIONS: list[Section] = [
             fuzz=[("re", "casin_re"), ("im", "casin_im")]),
         Op("cdd_acos",  "cdd\\_acos",  "original: \u03c0/2 \u2212 asin(z)", "full DD",
             fuzz=[("re", "cacos_re"), ("im", "cacos_im")]),
-        Op("cdd_atan",  "cdd\\_atan",  "original: (i/2)\u00b7log((i+z)/(i\u2212z))", "full DD",
+        Op("cdd_atan",  "cdd\\_atan",  "original: (\u2212i/2)\u00b7log((1+iz)/(1\u2212iz))", "full DD",
             fuzz=[("re", "catan_re"), ("im", "catan_im")]),
         Op("cdd_asinh", "cdd\\_asinh", "original: log(z+\u221a(z\u00b2+1))", "deriv / full DD",
             fuzz=[("re", "casinh_re"), ("im", "casinh_im")]),
@@ -195,23 +195,43 @@ FORTRAN_SECTIONS: list[Section] = [
 # C: C ABI (sindd / cdd_muldd / j0dd / ...) vs __float128
 #
 # Scope: every function exported from include/multifloats.h. Shared ops
-# (sin, cdd_mul, …) are duplicated between C_SECTIONS and FORTRAN_SECTIONS
-# so the Fortran-elemental ABI overhead is visible per-op. C-section-only
-# ops: none — everything here is also callable from Fortran via the
+# (sin, cdd_mul, \u2026) appear in both C_SECTIONS and FORTRAN_SECTIONS so
+# the Fortran-elemental ABI overhead is visible per-op; their metadata is
+# declared once in FORTRAN_SECTIONS and mirrored here via ``_shared()`` so
+# the two tables cannot drift apart. C-section-only
+# ops: none \u2014 everything here is also callable from Fortran via the
 # iso_c_binding bridge. Fortran-section-only ops (not in C ABI): array
-# reductions, numeric inquiry — see FORTRAN_SECTIONS.
+# reductions, numeric inquiry \u2014 see FORTRAN_SECTIONS.
 # ---------------------------------------------------------------------------
+
+_FORTRAN_OPS: dict[str, Op] = {
+    op.bench_key: op
+    for sect in FORTRAN_SECTIONS
+    for op in sect.ops
+}
+
+
+def _shared(bench_key: str) -> Op:
+    """C-side twin of the ``FORTRAN_SECTIONS`` op with the same ``bench_key``.
+
+    Single source of truth for ops present in both languages: ``display``,
+    ``approach`` and ``fuzz`` come from the Fortran entry. ``prec`` is
+    dropped \u2014 only the Fortran tables carry a precision column.
+    """
+    f_op = _FORTRAN_OPS[bench_key]
+    return Op(f_op.bench_key, f_op.display, f_op.approach, fuzz=f_op.fuzz)
+
 
 C_SECTIONS: list[Section] = [
     Section("Arithmetic", [
-        Op("add",   "add",   "Julia: two\\_sum EFT",                                        fuzz="add"),
-        Op("sub",   "sub",   "Julia: two\\_sum EFT (negate + add)",                         fuzz="sub"),
-        Op("mul",   "mul",   "Julia: two\\_prod EFT via FMA",                               fuzz="mul"),
-        Op("div",   "div",   "original: Newton refinement (1/y seed, one step)",            fuzz="div"),
-        Op("sqrt",  "sqrt",  "Julia: Karp\u2013Markstein (reciprocal sqrt seed + Newton)",  fuzz="sqrt"),
+        _shared("add"),
+        _shared("sub"),
+        _shared("mul"),
+        _shared("div"),
+        _shared("sqrt"),
         Op("fma",   "fma",   "original: x\\*y + z via DD ops",                              fuzz="fmadd"),
-        Op("abs",   "abs",   "original: sign-check + negate limbs",                         fuzz="abs"),
-        Op("neg",   "neg",   "original: negate both limbs",                                 fuzz="neg"),
+        _shared("abs"),
+        _shared("neg"),
     ]),
     Section("Rounding", [
         Op("trunc",     "trunc",     "original: signbit ? \u2212floor(\u2212x) : floor(x)", fuzz="exact"),
@@ -223,49 +243,47 @@ C_SECTIONS: list[Section] = [
         Op("fdim",     "fdim",     "original: DD comparison, then subtract or zero",             fuzz="fdim"),
         Op("copysign", "copysign", "original: sign-bit copy to hi, propagate to lo",             fuzz="copysign"),
         Op("fmod",     "fmod",     "sample: floor-multiple reduction loop; fallback to div chain", fuzz="fmod"),
-        Op("hypot",    "hypot",    "original: scaled sqrt(x\u00b2+y\u00b2)",                     fuzz="hypot"),
+        _shared("hypot"),
     ]),
     Section("Exponential / logarithmic", [
-        Op("exp",    "exp",    "Julia: exp2 polynomial (14-term Horner) + ldexp reconstruction",   fuzz="exp"),
+        _shared("exp"),
         Op("exp2",   "exp2",   "Julia: exp2 polynomial (14-term Horner)",                          fuzz="exp2"),
         Op("expm1",  "expm1",  "original: exp(x) \u2212 1 via DD sub",                             fuzz="expm1"),
-        Op("log",    "log",    "Julia: log2 table lookup (32 centers) + polynomial (7-term Horner)", fuzz="log"),
-        Op("log10",  "log10",  "Julia: log2 kernel \u00d7 DD log10(2)",                            fuzz="log10"),
+        _shared("log"),
+        _shared("log10"),
         Op("log2",   "log2",   "Julia: log2 table lookup + polynomial",                            fuzz="log2"),
         Op("log1p",  "log1p",  "original: log(1 + x) via DD add",                                  fuzz="log1p"),
-        Op("pow",    "pow",    "Julia: exp(y \u00d7 log(x))",                                      fuzz="pow"),
+        _shared("pow"),
     ]),
     Section("Trigonometric", [
-        Op("sin",    "sin",    "original: 13-term Taylor Horner + 3-part Cody\u2013Waite \u03c0/2 + \u03c0/8 split", fuzz="sin"),
-        Op("cos",    "cos",    "original: 13-term Taylor Horner + 3-part Cody\u2013Waite \u03c0/2 + \u03c0/8 split", fuzz="cos"),
-        Op("sincos", "sincos", "fused sin/cos: one range-reduction, two Taylor outputs",
-            fuzz=[("sin", "sincos_s"), ("cos", "sincos_c")]),
-        Op("sinpi",  "sinpi",  "Julia: sinpi Horner polynomial, direct",                            fuzz="sinpi"),
-        Op("cospi",  "cospi",  "Julia: cospi Horner polynomial, direct",                            fuzz="cospi"),
-        Op("tan",    "tan",    "original: sin/cos Taylor kernels + DD divide",                      fuzz="tan"),
-        Op("tanpi",  "tanpi",  "original: sinpi/cospi ratio",                                       fuzz="tanpi"),
-        Op("asin",   "asin",   "original: piecewise rational P/Q (3 regions, from libquadmath asinq.c)", fuzz="asin"),
-        Op("asinpi", "asinpi", "original: asin(x)/\u03c0 with exact-DD \u03c0 division",            fuzz="asinpi"),
-        Op("acos",   "acos",   "original: asin polynomial + half-angle identity",                   fuzz="acos"),
-        Op("acospi", "acospi", "original: acos(x)/\u03c0 with exact-DD \u03c0 division",            fuzz="acospi"),
-        Op("atan",   "atan",   "original: 84-entry table lookup + rational P(t\u00b2)/Q(t\u00b2) (from libquadmath atanq.c)", fuzz="atan"),
-        Op("atanpi", "atanpi", "original: atan(x)/\u03c0 with exact-DD \u03c0 division",            fuzz="atanpi"),
-        Op("atan2",  "atan2",  "original: table-based atan + quadrant correction",                  fuzz="atan2"),
-        Op("atan2pi","atan2pi","original: atan2(y,x)/\u03c0 with exact-DD \u03c0 division",         fuzz="atan2pi"),
+        _shared("sin"),
+        _shared("cos"),
+        _shared("sincos"),
+        _shared("sinpi"),
+        _shared("cospi"),
+        _shared("tan"),
+        _shared("tanpi"),
+        _shared("asin"),
+        _shared("asinpi"),
+        _shared("acos"),
+        _shared("acospi"),
+        _shared("atan"),
+        _shared("atanpi"),
+        _shared("atan2"),
+        _shared("atan2pi"),
     ]),
     Section("Hyperbolic", [
-        Op("sinh",  "sinh",  "original: Taylor series (\\|x\\|<0.5, n=13) or (exp\u2212exp\u207b\u00b9)/2",  fuzz="sinh"),
-        Op("cosh",  "cosh",  "original: (exp+exp\u207b\u00b9)/2",                                     fuzz="cosh"),
-        Op("sinhcosh", "sinhcosh", "fused sinh/cosh: one range-reduction, two outputs",
-            fuzz=[("sinh", "sinhcosh_s"), ("cosh", "sinhcosh_c")]),
-        Op("tanh",  "tanh",  "original: sinh/cosh (\\|x\\|<0.5) or (1\u2212e\u207b\u00b2\u02e3)/(1+e\u207b\u00b2\u02e3)", fuzz="tanh"),
-        Op("asinh", "asinh", "original: Taylor series (\\|x\\|<0.01) or log(x+\u221a(x\u00b2+1)) with Newton", fuzz="asinh"),
-        Op("acosh", "acosh", "original: log(x+\u221a(x\u00b2\u22121)) with Newton correction",        fuzz="acosh"),
-        Op("atanh", "atanh", "original: Taylor series (\\|x\\|<0.01) or \u00bd\u00b7log((1+x)/(1\u2212x))", fuzz="atanh"),
+        _shared("sinh"),
+        _shared("cosh"),
+        _shared("sinhcosh"),
+        _shared("tanh"),
+        _shared("asinh"),
+        _shared("acosh"),
+        _shared("atanh"),
     ]),
     Section("Error / special functions", [
-        Op("erf",           "erf",           "piecewise rational approx (ported from libquadmath erfq.c)",        fuzz="erf"),
-        Op("erfc",          "erfc",          "piecewise rational approx + split exp(-x^2)",                       fuzz="erfc"),
+        _shared("erf"),
+        _shared("erfc"),
         Op("erfcx",         "erfcx",         "exp(x\u00b2)\u00b7erfc(x); scaled form avoiding tail cancellation", fuzz="erfcx"),
         Op("tgamma",        "tgamma",        "piecewise rational approx + Stirling + reflection, exp(lgamma)",    fuzz="gamma"),
         Op("lgamma",        "lgamma",        "piecewise rational approx + Stirling asymptotic",                   fuzz="lngamma"),
@@ -278,65 +296,41 @@ C_SECTIONS: list[Section] = [
         Op("yn_range(0..5)","yn\\_range(0..5)", "single forward-recurrence sweep, 6 outputs / call",              fuzz="yn_range"),
     ]),
     Section("Complex arithmetic", [
-        Op("cdd_add",   "cdd\\_add",   "original: component-wise DD add",
-            fuzz=[("re", "cadd_re"), ("im", "cadd_im")]),
-        Op("cdd_sub",   "cdd\\_sub",   "original: component-wise DD sub",
-            fuzz=[("re", "csub_re"), ("im", "csub_im")]),
-        Op("cdd_mul",   "cdd\\_mul",   "original: (ac\u2212bd, ad+bc) via DD ops",
-            fuzz=[("re", "cmul_re"), ("im", "cmul_im")]),
-        Op("cdd_div",   "cdd\\_div",   "original: (ac+bd, bc\u2212ad)/(c\u00b2+d\u00b2)",
-            fuzz=[("re", "cdiv_re"), ("im", "cdiv_im")]),
-        Op("cdd_conjg", "cdd\\_conjg", "original: negate im limbs",                fuzz="exact"),
+        _shared("cdd_add"),
+        _shared("cdd_sub"),
+        _shared("cdd_mul"),
+        _shared("cdd_div"),
+        _shared("cdd_conjg"),
         Op("cdd_proj",  "cdd\\_proj",  "C99 Annex G Riemann-sphere projection (identity for finite z)",
             fuzz=[("re", "cproj_re"), ("im", "cproj_im")]),
-        Op("cdd_abs",   "cdd\\_abs",   "original: hypot(re, im)",                  fuzz="cabs"),
+        _shared("cdd_abs"),
         Op("cdd_arg",   "cdd\\_arg",   "original: atan2(im, re)",                  fuzz="carg"),
     ]),
     Section("Complex transcendentals", [
-        Op("cdd_sqrt",  "cdd\\_sqrt",  "original: Kahan-style (\\|z\\|+\\|a\\|)/2 with scaling",
-            fuzz=[("re", "csqrt_re"), ("im", "csqrt_im")]),
-        Op("cdd_exp",   "cdd\\_exp",   "original: exp(re)\u00b7(cos(im), sin(im))",
-            fuzz=[("re", "cexp_re"), ("im", "cexp_im")]),
-        Op("cdd_expm1", "cdd\\_expm1", "original: expm1(re)\u00b7cos(im) + (cos(im)\u22121) + i\u00b7exp(re)\u00b7sin(im)",
-            fuzz=[("re", "cexpm1_re"), ("im", "cexpm1_im")]),
-        Op("cdd_log",   "cdd\\_log",   "original: (log(\\|z\\|), atan2(im,re))",
-            fuzz=[("re", "clog_re"), ("im", "clog_im")]),
-        Op("cdd_log2",  "cdd\\_log2",  "original: clog / log(2) component-wise",
-            fuzz=[("re", "clog2_re"), ("im", "clog2_im")]),
-        Op("cdd_log10", "cdd\\_log10", "original: clog / log(10) component-wise",
-            fuzz=[("re", "clog10_re"), ("im", "clog10_im")]),
-        Op("cdd_log1p", "cdd\\_log1p", "original: cancellation-safe log(1+z) near z=0",
-            fuzz=[("re", "clog1p_re"), ("im", "clog1p_im")]),
-        Op("cdd_pow",   "cdd\\_pow",   "original: exp(w\u00b7log(z))",
-            fuzz=[("re", "cpow_re"), ("im", "cpow_im")]),
-        Op("cdd_sin",   "cdd\\_sin",   "original: sin(re)cosh(im), cos(re)sinh(im)",
-            fuzz=[("re", "csin_re"), ("im", "csin_im")]),
-        Op("cdd_cos",   "cdd\\_cos",   "original: cos(re)cosh(im), \u2212sin(re)sinh(im)",
-            fuzz=[("re", "ccos_re"), ("im", "ccos_im")]),
-        Op("cdd_tan",   "cdd\\_tan",   "original: complex sin/cos ratio",
-            fuzz=[("re", "ctan_re"), ("im", "ctan_im")]),
-        Op("cdd_sinpi", "cdd\\_sinpi", "original: csin(\u03c0\u00b7z) via π-scaled trig kernels",
+        _shared("cdd_sqrt"),
+        _shared("cdd_exp"),
+        _shared("cdd_expm1"),
+        _shared("cdd_log"),
+        _shared("cdd_log2"),
+        _shared("cdd_log10"),
+        _shared("cdd_log1p"),
+        _shared("cdd_pow"),
+        _shared("cdd_sin"),
+        _shared("cdd_cos"),
+        _shared("cdd_tan"),
+        Op("cdd_sinpi", "cdd\\_sinpi", "original: csin(\u03c0\u00b7z) via \u03c0-scaled trig kernels",
             fuzz=[("re", "csinpi_re"), ("im", "csinpi_im")]),
-        Op("cdd_cospi", "cdd\\_cospi", "original: ccos(\u03c0\u00b7z) via π-scaled trig kernels",
+        Op("cdd_cospi", "cdd\\_cospi", "original: ccos(\u03c0\u00b7z) via \u03c0-scaled trig kernels",
             fuzz=[("re", "ccospi_re"), ("im", "ccospi_im")]),
-        Op("cdd_sinh",  "cdd\\_sinh",  "original: sinh(re)cos(im), cosh(re)sin(im)",
-            fuzz=[("re", "csinh_re"), ("im", "csinh_im")]),
-        Op("cdd_cosh",  "cdd\\_cosh",  "original: cosh(re)cos(im), sinh(re)sin(im)",
-            fuzz=[("re", "ccosh_re"), ("im", "ccosh_im")]),
-        Op("cdd_tanh",  "cdd\\_tanh",  "original: complex tanh via sinh/cosh",
-            fuzz=[("re", "ctanh_re"), ("im", "ctanh_im")]),
-        Op("cdd_asin",  "cdd\\_asin",  "original: \u2212i\u00b7log(iz+\u221a(1\u2212z\u00b2))",
-            fuzz=[("re", "casin_re"), ("im", "casin_im")]),
-        Op("cdd_acos",  "cdd\\_acos",  "original: \u03c0/2 \u2212 asin(z)",
-            fuzz=[("re", "cacos_re"), ("im", "cacos_im")]),
-        Op("cdd_atan",  "cdd\\_atan",  "original: (\u2212i/2)\u00b7log((1+iz)/(1\u2212iz))",
-            fuzz=[("re", "catan_re"), ("im", "catan_im")]),
-        Op("cdd_asinh", "cdd\\_asinh", "original: log(z+\u221a(z\u00b2+1))",
-            fuzz=[("re", "casinh_re"), ("im", "casinh_im")]),
-        Op("cdd_acosh", "cdd\\_acosh", "original: log(z+\u221a(z\u00b2\u22121))",
-            fuzz=[("re", "cacosh_re"), ("im", "cacosh_im")]),
-        Op("cdd_atanh", "cdd\\_atanh", "original: \u00bd\u00b7log((1+z)/(1\u2212z))",
-            fuzz=[("re", "catanh_re"), ("im", "catanh_im")]),
+        _shared("cdd_sinh"),
+        _shared("cdd_cosh"),
+        _shared("cdd_tanh"),
+        _shared("cdd_asin"),
+        _shared("cdd_acos"),
+        _shared("cdd_atan"),
+        _shared("cdd_asinh"),
+        _shared("cdd_acosh"),
+        _shared("cdd_atanh"),
     ]),
 ]
 
@@ -347,9 +341,10 @@ class UnifiedRow:
 
     Built by ``unified_rows()`` by walking ``C_SECTIONS`` and
     ``FORTRAN_SECTIONS`` and merging entries that share a ``bench_key``.
-    For shared ops (most), the C and Fortran ``Op``s carry identical
-    ``approach``/``fuzz``; ``prec`` is only set on the Fortran side, so
-    we copy it from there.
+    For shared ops (most), the C ``Op`` is derived from the Fortran one
+    via ``_shared()``, so ``display``/``approach``/``fuzz`` are identical
+    by construction; ``prec`` is only set on the Fortran side, so we copy
+    it from there.
     """
     display: str
     scope: str           # "C" | "Fortran" | "both"
@@ -380,6 +375,12 @@ def unified_rows() -> list[UnifiedRow]:
         for c_op in sect.ops:
             f_op = f_remaining.pop(c_op.bench_key, None)
             if f_op is not None:
+                # Shared metadata is derived via _shared(); a hand-written
+                # C-side duplicate that drifted from the Fortran entry
+                # fails loudly here instead of silently rendering one copy.
+                assert (c_op.display, c_op.approach, c_op.fuzz) == (
+                    f_op.display, f_op.approach, f_op.fuzz), (
+                    f"ops.py: C/Fortran metadata drift for {c_op.bench_key!r}")
                 out.append(UnifiedRow(
                     display=f_op.display,
                     scope="both",

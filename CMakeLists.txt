@@ -106,6 +106,16 @@ if(BUILD_TESTING)
         COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_fortran_abi_sync.sh
                 ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats/float64x2.h
                 ${CMAKE_CURRENT_BINARY_DIR}/fsrc/generated/multifloats.f90)
+
+    # C23 `*f64x2` alias parity: every `*f64x2` declaration in the public
+    # header must have a hand-written forwarder (f64x2_aliases.inc, plus
+    # to_charsf64x2 in multifloats_io.cc) and vice versa. See
+    # scripts/check_f64x2_aliases.sh.
+    add_test(NAME f64x2_alias_parity
+        COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_f64x2_aliases.sh
+                ${CMAKE_CURRENT_SOURCE_DIR}/include/multifloats/float64x2.h
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/float64x2/f64x2_aliases.inc
+                ${CMAKE_CURRENT_SOURCE_DIR}/src/multifloats_io.cc)
 endif()
 
 # Optional micro-benchmarks (cpp_bench, fortran_bench, fortran_bench_abi).
@@ -201,6 +211,18 @@ function(mf_add_fortran_executable name source)
     target_link_libraries(${name} PRIVATE multifloatsf ${ARG_LINK})
 endfunction()
 
+# Shared bind(c) mirror of the scalar-DD C ABI (dd_c layout twin +
+# kernel interface block), consumed by fortran_abi_equivalence,
+# fortran_bench_abi and crosscheck-bindings so the declarations exist
+# in exactly one place. OBJECT library; the INTERFACE include dir
+# publishes the .mod to consumers.
+if(BUILD_TESTING OR MULTIFLOATS_BUILD_BENCH)
+    add_library(c-abi-bindings OBJECT ./test/support/c_abi_bindings.f90)
+    set_target_properties(c-abi-bindings PROPERTIES
+        Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fmod/test)
+    target_include_directories(c-abi-bindings INTERFACE ${CMAKE_BINARY_DIR}/fmod/test)
+endif()
+
 # ----------------------------------------------------------------------
 # Test executables and ctest registrations — gated on BUILD_TESTING.
 # ----------------------------------------------------------------------
@@ -256,7 +278,8 @@ if(BUILD_TESTING)
     # must produce bit-identical HI and near-identical LO (4 dp ULPs) on
     # the same inputs. Catches ABI drift between the Fortran-native operator
     # path and the C-ABI kernels in multifloats_math.cc.
-    mf_add_fortran_executable(fortran_abi_equivalence ./test/integration/abi_equivalence.f90)
+    mf_add_fortran_executable(fortran_abi_equivalence ./test/integration/abi_equivalence.f90
+        LINK c-abi-bindings)
     add_test(NAME precision_abi_equivalence COMMAND fortran_abi_equivalence)
 
     # Cross-language differential fuzz. Drives the C++ and Fortran kernels
@@ -268,7 +291,7 @@ if(BUILD_TESTING)
     # delegate to C++ on the Fortran side (see C_DELEGATE_UNARY_MAP in
     # fsrc/multifloats.fypp) and are covered by test/integration/abi_equivalence.f90.
     add_library(crosscheck-bindings OBJECT ./test/integration/crosscheck_bindings.f90)
-    target_link_libraries(crosscheck-bindings PRIVATE multifloatsf)
+    target_link_libraries(crosscheck-bindings PRIVATE multifloatsf c-abi-bindings)
     set_target_properties(crosscheck-bindings PROPERTIES
         Fortran_MODULE_DIRECTORY ${CMAKE_BINARY_DIR}/fmod/test)
 
@@ -342,7 +365,8 @@ if(MULTIFLOATS_BUILD_BENCH)
         DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test/unit/bench.fypp
         VERBATIM)
     mf_add_fortran_executable(fortran_bench ${_BENCH_F90})
-    mf_add_fortran_executable(fortran_bench_abi ./test/unit/bench_abi.f90)
+    mf_add_fortran_executable(fortran_bench_abi ./test/unit/bench_abi.f90
+        LINK c-abi-bindings)
 endif()
 
 # BLAS extensions (not installed). Compile-only smoke target, useful for

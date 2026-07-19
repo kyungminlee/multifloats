@@ -7,6 +7,7 @@
 // Build with -DMULTIFLOATS_BUILD_BOOST_COMPARE=ON; target name `bjn_probe`.
 
 #include "test_common.hh"
+#include "test_common_boost.hh"
 
 #include <boost/multiprecision/cpp_double_fp.hpp>
 #include <boost/math/special_functions/bessel.hpp>
@@ -24,11 +25,7 @@ using multifloats_test::q_t;
 using multifloats_test::to_q;
 using multifloats_test::from_q;
 using multifloats_test::qstr;
-
-static inline q_t bdd_to_q(cpp_double_double const &x) {
-  auto const &r = x.backend().crep();
-  return (q_t)r.first + (q_t)r.second;
-}
+using multifloats_test::bdd_to_q;
 
 static double q_rel_err(q_t got, q_t ref) {
   if (isnanq(got) || isnanq(ref)) return 0.0;

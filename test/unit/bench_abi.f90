@@ -14,84 +14,17 @@ program bench_abi
   ! Iteration counts are sized so each leg runs ~0.1-2 s; variance per op
   ! is printed so the reader can judge precision of the ratio.
   use multifloats
+  ! dd_c layout twin + bind(c) kernel interfaces shared with
+  ! test/integration/abi_equivalence.f90 (see test/support/c_abi_bindings.f90).
+  use c_abi_bindings
   use, intrinsic :: iso_fortran_env, only: int64, real64
-  use, intrinsic :: iso_c_binding,   only: c_double, c_int
+  use, intrinsic :: iso_c_binding,   only: c_int
   implicit none
 
   integer, parameter :: dp = 8
   integer, parameter :: N    = 4096      ! inner array length
   integer, parameter :: REPS = 16000     ! outer repeats (N*REPS ~= 6.5e7 ops)
   integer, parameter :: TRIALS = 5       ! trials per leg (report best, show spread)
-
-  type, bind(c) :: dd_c
-    real(c_double) :: limbs(2)
-  end type dd_c
-
-  interface
-    pure type(dd_c) function c_dd_add(a, b) bind(c, name='adddd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_dd_sub(a, b) bind(c, name='subdd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_dd_mul(a, b) bind(c, name='muldd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_dd_div(a, b) bind(c, name='divdd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_dd_neg(a) bind(c, name='negdd')
-      import :: dd_c; type(dd_c), value :: a
-    end function
-    pure type(dd_c) function c_dd_abs(a) bind(c, name='fabsdd')
-      import :: dd_c; type(dd_c), value :: a
-    end function
-    pure type(dd_c) function c_dd_trunc(a) bind(c, name='truncdd')
-      import :: dd_c; type(dd_c), value :: a
-    end function
-    pure type(dd_c) function c_dd_round(a) bind(c, name='rounddd')
-      import :: dd_c; type(dd_c), value :: a
-    end function
-    pure type(dd_c) function c_dd_sqrt(a) bind(c, name='sqrtdd')
-      import :: dd_c; type(dd_c), value :: a
-    end function
-    pure type(dd_c) function c_dd_min(a, b) bind(c, name='fmindd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_dd_max(a, b) bind(c, name='fmaxdd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_dd_copysign(a, b) bind(c, name='copysigndd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_dd_fdim(a, b) bind(c, name='fdimdd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-    pure integer(c_int) function c_dd_eq(a, b) bind(c, name='eqdd')
-      import :: dd_c, c_int; type(dd_c), value :: a, b
-    end function
-    pure integer(c_int) function c_dd_ne(a, b) bind(c, name='nedd')
-      import :: dd_c, c_int; type(dd_c), value :: a, b
-    end function
-    pure integer(c_int) function c_dd_lt(a, b) bind(c, name='ltdd')
-      import :: dd_c, c_int; type(dd_c), value :: a, b
-    end function
-    pure integer(c_int) function c_dd_le(a, b) bind(c, name='ledd')
-      import :: dd_c, c_int; type(dd_c), value :: a, b
-    end function
-    pure integer(c_int) function c_dd_gt(a, b) bind(c, name='gtdd')
-      import :: dd_c, c_int; type(dd_c), value :: a, b
-    end function
-    pure integer(c_int) function c_dd_ge(a, b) bind(c, name='gedd')
-      import :: dd_c, c_int; type(dd_c), value :: a, b
-    end function
-    pure type(dd_c) function c_powidd(a, n) bind(c, name='powidd')
-      import :: dd_c, c_int; type(dd_c), value :: a; integer(c_int), value :: n
-    end function
-    pure type(dd_c) function c_dd_modulo(a, b) bind(c, name='modulodd')
-      import :: dd_c; type(dd_c), value :: a, b
-    end function
-  end interface
 
   ! Data arrays (native Fortran type)
   type(real64x2), allocatable :: f1(:), f2(:), fres(:)
@@ -256,6 +189,7 @@ contains
     case ("pow7");   do r=1,REPS; do i=1,N; fres(i) = f1(i) ** 7;   end do; call dd_drain(f1); end do
     case ("pow20");  do r=1,REPS; do i=1,N; fres(i) = f1(i) ** 20;  end do; call dd_drain(f1); end do
     case ("modulo"); do r=1,REPS; do i=1,N; fres(i) = modulo(f1(i), f2(i)); end do; call dd_drain(f1); end do
+    case default; error stop "run_native: unknown op: "//trim(op)
     end select
     tsec = elapsed(t0)
   end subroutine
@@ -289,6 +223,7 @@ contains
     case ("pow7");   do r=1,REPS; do i=1,N; dres(i) = c_powidd(d1(i), 7_c_int);   end do; call cw_drain(d1); end do
     case ("pow20");  do r=1,REPS; do i=1,N; dres(i) = c_powidd(d1(i), 20_c_int);  end do; call cw_drain(d1); end do
     case ("modulo"); do r=1,REPS; do i=1,N; dres(i) = c_dd_modulo(d1(i), d2(i));   end do; call cw_drain(d1); end do
+    case default; error stop "run_cabi: unknown op: "//trim(op)
     end select
     tsec = elapsed(t0)
   end subroutine

@@ -207,7 +207,8 @@ def extract_float128_arrays(path):
 
 def collect_all():
     """Return ordered list of constant groups. Each is a dict with:
-       kind: 'scalar' | 'array' | 'cw3' | 'dp_array'
+       kind: 'scalar' | 'scalar_td' | 'array' | 'array_td' | 'dp_array'
+             | 'cw4' | 'exp2_clamp' | 'exp_clamp' | 'section'
        name, comment, and value data.
     """
     groups = []
@@ -1473,12 +1474,6 @@ def write_cpp(groups, f):
             f.write(f"inline constexpr double {g['name']}_hi  = {hx(g['hi'])};\n")
             f.write(f"inline constexpr double {g['name']}_lo  = {hx(g['mid'])};\n")
             f.write(f"inline constexpr double {g['name']}_lo2 = {hx(g['lo'])};\n\n")
-
-        elif kind == 'cw3':
-            f.write(f"// {g['comment']}\n")
-            f.write(f"inline constexpr double {g['name']}1 = {hx(g['v1'])};\n")
-            f.write(f"inline constexpr double {g['name']}2 = {hx(g['v2'])};\n")
-            f.write(f"inline constexpr double {g['name']}3 = {hx(g['v3'])};\n\n")
 
         elif kind == 'cw4':
             f.write(f"// {g['comment']}\n")

@@ -71,6 +71,41 @@ float64x2 exp2_from_reduced(double n_d, double rh, double rl) {
   return r;
 }
 
+// Compute 2^(h + l + e) from an accumulator triple (h, l, e) with
+// (h, l) a normalized DD pair and e the third limb. Split z ≈ h + l + e
+// into n + r with |r| ≤ 0.5. Build (T0, T1, T2) as the exact TD remainder
+// via the TSUM chain, then call DD exp2 on the leading (T0, T1) pair and
+// apply a linear correction for the discarded T2:
+//   exp2(arg + T2) ≈ exp2(arg) · (1 + ln2·T2)
+// |T2| ~ ulp(T1) ~ ulp_dd², so the next-order term (ln2·T2)²/2 sits
+// ~2⁻²¹⁰ — far below DD output precision. This recovers the ~10 DD
+// ulp amplification factor that exp2(arg + ε) would otherwise apply
+// to ulp-level rounding of a DD argument, at one double-mul + one
+// DD-add cost (vs the full TD-Horner exp2_td_from_reduced path which
+// is ~3× the runtime).
+float64x2 exp2_from_triple(double h, double l, double e) {
+  double n_d = std::nearbyint(h);
+  double rh, rt;
+  two_sum(h, -n_d, rh, rt);  // rh + rt = h − n_d exact
+  double T0 = rh, T1 = 0.0, T2 = 0.0;
+  tsum3(T0, T1, T2, rt);
+  tsum3(T0, T1, T2, l);
+  tsum3(T0, T1, T2, e);
+  tsum3_finalize(T0, T1, T2);
+
+  float64x2 res = exp2_from_reduced(n_d, T0, T1);
+  // At the overflow rim (|n_d| past the exp2 saturation cap) `res.limbs[0]`
+  // is ±inf or 0. The linear correction `res * LN2 * T2` would then be
+  // inf*finite (still inf, OK) or inf*0 = NaN (when T2 happens to be 0),
+  // and `res + NaN` poisons the answer. Skip the correction in that regime —
+  // the answer is already saturated to its ±inf / 0 sentinel.
+  if (!std::isfinite(res.limbs[0])) return res;
+  // 0x1.62e42fefa39efp-1 = round-to-nearest double of ln 2.
+  constexpr double LN2 = 0x1.62e42fefa39efp-1;
+  double corr = res.limbs[0] * (LN2 * T2);
+  return res + float64x2(corr);
+}
+
 float64x2 exp2_kernel(float64x2 const &x) {
   double n_d = std::nearbyint(x.limbs[0]);
   double rh, rl, t;
@@ -276,9 +311,7 @@ float64x2 log2_kernel(float64x2 const &x) {
 float64x2 log2(float64x2 const &x) {
   float64x2 r;
   if (std::isnan(x.limbs[0]) || x.limbs[0] < 0.0) {
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   if (x.limbs[0] == 0.0) {
     r.limbs[0] = -std::numeric_limits<double>::infinity();
@@ -325,10 +358,9 @@ float64x2 log10(float64x2 const &x) {
 // pipeline, avoiding the ulp_dd·|log2(10)|·|x| error amplification a plain
 // DD-mul would inject.
 //
-// Layout mirrors the `pow` accumulator: build (h, l, e) ≈ x · log2_10 as a
-// triple-double, split off the integer part n_d via Cody-Waite, feed the
-// reduced (T0, T1) into exp2_from_reduced, and apply the same linear T2
-// correction (1 + ln2·T2) that pow uses.
+// Layout matches the `pow` accumulator: build (h, l, e) ≈ x · log2_10 as a
+// triple-double, then hand it to the shared exp2_from_triple tail (integer
+// split, TSUM remainder, exp2_from_reduced, linear T2 correction).
 float64x2 exp10(float64x2 const &x) {
   if (!std::isfinite(x.limbs[0])) return _exp_nonfinite(x.limbs[0]);
   // 10^x ≈ inf  for x >  308.25; 10^x ≈ 0   for x < -323.6.
@@ -362,23 +394,7 @@ float64x2 exp10(float64x2 const &x) {
   two_sum(l, c, l, e);
   fast_two_sum(h, l, h, l);
 
-  // Split arg ≈ h + l + e into n_d (integer) + r with |r| ≤ 0.5, then
-  // build the TD remainder for exp2_from_reduced.
-  double n_d = std::nearbyint(h);
-  double rh, rt;
-  two_sum(h, -n_d, rh, rt);
-  double T0 = rh, T1 = 0.0, T2 = 0.0;
-  tsum3(T0, T1, T2, rt);
-  tsum3(T0, T1, T2, l);
-  tsum3(T0, T1, T2, e);
-  tsum3_finalize(T0, T1, T2);
-
-  float64x2 res = exp2_from_reduced(n_d, T0, T1);
-  if (!std::isfinite(res.limbs[0])) return res;
-  // Linear correction for the discarded T2 limb: 2^(arg+T2) ≈ 2^arg·(1+ln2·T2).
-  constexpr double LN2 = 0x1.62e42fefa39efp-1;
-  double corr = res.limbs[0] * (LN2 * T2);
-  return res + float64x2(corr);
+  return exp2_from_triple(h, l, e);
 }
 
 // ---- expm1 / log1p ---------------------------------------------------------
@@ -597,37 +613,7 @@ float64x2 pow(float64x2 const &x, float64x2 const &y) {
   two_sum(l, c, l, e);  // l + e = old_l + c exact
   fast_two_sum(h, l, h, l);  // normalize DD pair; e is third limb.
 
-  // Split z ≈ h + l + e into n + r with |r| ≤ 0.5. Build (T0, T1, T2)
-  // as the exact TD remainder via the TSUM chain, then call DD exp2 on
-  // the leading (T0, T1) pair and apply a linear correction for the
-  // discarded T2:
-  //   exp2(arg + T2) ≈ exp2(arg) · (1 + ln2·T2)
-  // |T2| ~ ulp(T1) ~ ulp_dd², so the next-order term (ln2·T2)²/2 sits
-  // ~2⁻²¹⁰ — far below DD output precision. This recovers the ~10 DD
-  // ulp amplification factor that exp2(arg + ε) would otherwise apply
-  // to ulp-level rounding of a DD argument, at one double-mul + one
-  // DD-add cost (vs the full TD-Horner exp2_td_from_reduced path which
-  // is ~3× the runtime).
-  double n_d = std::nearbyint(h);
-  double rh, rt;
-  two_sum(h, -n_d, rh, rt);  // rh + rt = h − n_d exact
-  double T0 = rh, T1 = 0.0, T2 = 0.0;
-  tsum3(T0, T1, T2, rt);
-  tsum3(T0, T1, T2, l);
-  tsum3(T0, T1, T2, e);
-  tsum3_finalize(T0, T1, T2);
-
-  float64x2 res = exp2_from_reduced(n_d, T0, T1);
-  // At the overflow rim (|n_d| past the exp2 saturation cap) `res.limbs[0]`
-  // is ±inf or 0. The linear correction `res * LN2 * T2` would then be
-  // inf*finite (still inf, OK) or inf*0 = NaN (when T2 happens to be 0),
-  // and `res + NaN` poisons the answer. Skip the correction in that regime —
-  // the answer is already saturated to its ±inf / 0 sentinel.
-  if (!std::isfinite(res.limbs[0])) return res;
-  // 0x1.62e42fefa39efp-1 = round-to-nearest double of ln 2.
-  constexpr double LN2 = 0x1.62e42fefa39efp-1;
-  double corr = res.limbs[0] * (LN2 * T2);
-  return res + float64x2(corr);
+  return exp2_from_triple(h, l, e);
 }
 
 // ---- C23 compoundn ---------------------------------------------------------
@@ -644,16 +630,10 @@ float64x2 compoundn(float64x2 const &x, int n) {
   if (n == 0) return float64x2(1.0);
   double xh = x.limbs[0];
   if (std::isnan(xh)) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   if (xh < -1.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   if (xh == -1.0 && x.limbs[1] == 0.0) {
     float64x2 r;
@@ -682,55 +662,34 @@ float64x2 powr(float64x2 const &x, float64x2 const &y) {
   // NaN propagation.
   double xh = x.limbs[0], yh = y.limbs[0];
   if (std::isnan(xh) || std::isnan(yh)) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   // Domain: x < 0 → NaN.
   if (xh < 0.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   // x = 0 with y = 0 → NaN; pow returns 1 in that case (C99 quirk).
   if (xh == 0.0 && yh == 0.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   // x = ±inf with y = 0 → NaN (exp(0·log∞) = exp(0·∞) = exp(NaN)); pow returns 1.
   if (std::isinf(xh) && yh == 0.0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   // x == 1, y = ±inf → NaN (pow returns 1).
   if (xh == 1.0 && x.limbs[1] == 0.0 && std::isinf(yh)) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   return pow(x, y);
 }
 
 float64x2 rootn(float64x2 const &x, int n) {
   if (n == 0) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   double xh = x.limbs[0];
   if (std::isnan(xh)) {
-    float64x2 r;
-    r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-    r.limbs[1] = 0.0;
-    return r;
+    return _nan_dd();
   }
   // x = 0: result is signed zero (n > 0 odd preserves sign of x; even n
   // forces +0; n < 0 produces signed inf).
@@ -750,10 +709,7 @@ float64x2 rootn(float64x2 const &x, int n) {
   // x < 0: only defined for odd n (then result = -pow(|x|, 1/n)).
   if (xh < 0.0) {
     if ((n & 1) == 0) {
-      float64x2 r;
-      r.limbs[0] = std::numeric_limits<double>::quiet_NaN();
-      r.limbs[1] = 0.0;
-      return r;
+      return _nan_dd();
     }
     return -pow(-x, float64x2(1.0) / float64x2(static_cast<double>(n)));
   }

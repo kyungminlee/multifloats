@@ -21,6 +21,7 @@
 # Usage:
 #   check_shared_exports.sh <path/to/libmultifloats.so> <path/to/header>
 set -e
+. "$(dirname "$0")/lib/c_abi_symbols.sh"
 LIB="$1"
 HEADER="$2"
 if [ -z "$LIB" ] || [ -z "$HEADER" ]; then
@@ -40,9 +41,9 @@ DEMANGLED=$(mktemp)
 trap 'rm -f "$CABI" "$MANGLED" "$DEMANGLED"' EXIT
 
 # extern "C" C-ABI keep-list — every `MULTIFLOATS_API <type> <name>(` in the
-# header. Same scan as check_exported_symbols.sh / check_fortran_abi_sync.sh.
-grep -oE "^MULTIFLOATS_API[^(]+\(" "$HEADER" \
-    | awk '{print $NF}' | sed -e 's/($//' -e 's/^[*&]*//' | sort -u > "$CABI"
+# header; the canonical scan shared with check_exported_symbols.sh /
+# check_fortran_abi_sync.sh (lib/c_abi_symbols.sh).
+list_c_abi_symbols "$HEADER" > "$CABI"
 
 if [ ! -s "$CABI" ]; then
     echo "check_shared_exports.sh: no MULTIFLOATS_API symbols found in $HEADER" >&2

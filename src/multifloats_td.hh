@@ -22,17 +22,6 @@ struct float64x3 {
   constexpr float64x3(double h, double m, double l) : limbs{h, m, l} {}
 };
 
-// a + b + c = s + t + u, exact. Two_sum variant; input ordering is not
-// required. Outputs are not renormalized — callers that need the
-// normalized form should follow with renorm3.
-inline void three_sum(double a, double b, double c,
-                      double &s, double &t, double &u) {
-  double u1, v1, w;
-  two_sum(a, b, u1, v1);   // a + b = u1 + v1 exact
-  two_sum(u1, c, s, w);    // (a+b) + c = s + w exact
-  two_sum(v1, w, t, u);    // v1 + w = t + u exact
-}
-
 // Single-step TSUM accumulator: (T0, T1, T2) += x with two sequential
 // two_sums. Residuals cascade down; the last residual is absorbed into
 // T2 with a plain `+=` (its magnitude sits below ulp(T1), so the rounding
