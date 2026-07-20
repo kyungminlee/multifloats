@@ -546,10 +546,26 @@ jobs:
           path: ${{ env.ARCHIVE }}
 
   # ===========================================================================
+  # User documentation (compiler-independent, built once on Linux)
+  # ===========================================================================
+  build-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/build-docs
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-html
+          path: doc/_build/html
+
+  # ===========================================================================
   # Create GitHub Release with all artifacts
   # ===========================================================================
   release:
-    needs: [build-lto, build-non-lto, build-lto-mac, build-non-lto-mac]
+    needs: [build-lto, build-non-lto, build-lto-mac, build-non-lto-mac, build-docs]
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts
@@ -577,12 +593,25 @@ jobs:
             esac
           done
 
+          # Offline user manual (built once by build-docs) under the
+          # conventional prefix location in each combined bundle.
+          for prefix in combined-linux combined-mac; do
+            mkdir -p "$prefix/share/doc/multifloats"
+            cp -r artifacts/docs-html "$prefix/share/doc/multifloats/html"
+          done
+
           COMBINED_LINUX="libmultifloats-${TAG}-linux-x86_64.tar.gz"
           COMBINED_MAC="libmultifloats-${TAG}-darwin-arm64.tar.gz"
           tar czf "${COMBINED_LINUX}" -C combined-linux .
           tar czf "${COMBINED_MAC}" -C combined-mac .
           echo "COMBINED_LINUX=${COMBINED_LINUX}" >> $GITHUB_ENV
           echo "COMBINED_MAC=${COMBINED_MAC}" >> $GITHUB_ENV
+
+          # Standalone docs tarball for consumers who don't want a binary
+          # bundle. Same extract-into-a-directory layout as the bundles.
+          DOCS_ARCHIVE="multifloats-${TAG}-docs-html.tar.gz"
+          tar czf "${DOCS_ARCHIVE}" -C artifacts/docs-html .
+          echo "DOCS_ARCHIVE=${DOCS_ARCHIVE}" >> $GITHUB_ENV
 
       - name: Create release
         if: startsWith(github.ref, 'refs/tags/v')
@@ -591,5 +620,6 @@ jobs:
           files: |
             ${{ env.COMBINED_LINUX }}
             ${{ env.COMBINED_MAC }}
+            ${{ env.DOCS_ARCHIVE }}
             artifacts/**/*.tar.gz
           generate_release_notes: true

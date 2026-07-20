@@ -15,6 +15,7 @@ on:
       - 'CHANGELOG.md'
       - 'include/**'
       - '.github/workflows/docs.yml'
+      - '.github/actions/build-docs/**'
   workflow_dispatch:
 
 # Permissions required by the Pages deployment action.
@@ -34,23 +35,9 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
-        with:
-          python-version: '3.x'
-
-      - name: Install Doxygen
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y doxygen
-
-      - name: Install uv + Sphinx toolchain
-        run: |
-          python -m pip install --upgrade uv
-          uv venv doc/.venv
-          uv pip install --python doc/.venv -r doc/requirements.txt
-
-      - name: Build docs (Doxygen XML -> Sphinx HTML)
-        run: ./doc/build.sh
+      # Shared with release.yml, which bundles the same HTML into the
+      # combined release tarballs.
+      - uses: ./.github/actions/build-docs
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
