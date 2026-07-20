@@ -65,4 +65,8 @@ breathe_domain_by_extension = {"h": "cpp"}  # treat .h as C++
 html_theme = "furo"
 html_title = "multifloats"
 html_static_path = ["_static"]
+# Copied verbatim into the output root: the index.html -> user/index.html
+# redirect, so the site root and an offline copy both land on the manual
+# despite root_doc living under user/.
+html_extra_path = ["_extra"]
 templates_path = ["_templates"]
