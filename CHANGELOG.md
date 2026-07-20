@@ -6,6 +6,31 @@ the project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Dates are ISO-8601 UTC.
 
+## [0.10.3] — 2026-07-20
+
+Packaging and documentation delivery only — no changes to numeric behavior,
+the ABI, the public headers, or the compiled contents of the shipped
+libraries.
+
+### Added
+
+- **Offline user manual in the release artifacts.** The combined
+  per-platform bundles now include the HTML manual under
+  `share/doc/multifloats/html/`, and each release additionally attaches a
+  standalone `multifloats-vX.Y.Z-docs-html.tar.gz`. The manual is built once
+  per release by a new `build-docs` workflow job that shares its build
+  recipe (composite action `.github/actions/build-docs`) with the GitHub
+  Pages publish, so the two cannot drift.
+- **Docs root redirect.** The built site's root `index.html` now redirects
+  to the user manual (`user/index.html`); previously the site root — both
+  published and offline — had no entry page.
+
+### Fixed
+
+- The unanchored `build-*/` pattern in `.gitignore` matched unrelated
+  directories (it silently swallowed `.github/actions/build-docs/`); it is
+  now anchored to the repository root.
+
 ## [0.10.2] — 2026-07-19
 
 Internal refactoring and tooling hardening from a whole-repository code-smell
