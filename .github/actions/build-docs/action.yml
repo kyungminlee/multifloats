@@ -1,0 +1,33 @@
+# Composite action: build the Sphinx + Breathe + MyST documentation
+# (Doxygen XML -> Sphinx HTML) into doc/_build/html.
+#
+# Shared by docs.yml (GitHub Pages publish) and release.yml (offline copy
+# bundled into the combined release tarballs) so the build recipe cannot
+# drift between the two. The caller must check out the repository first.
+
+name: Build docs
+description: Build the Sphinx documentation into doc/_build/html
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.x'
+
+    - name: Install Doxygen
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y doxygen
+
+    - name: Install uv + Sphinx toolchain
+      shell: bash
+      run: |
+        python -m pip install --upgrade uv
+        uv venv doc/.venv
+        uv pip install --python doc/.venv -r doc/requirements.txt
+
+    - name: Build docs (Doxygen XML -> Sphinx HTML)
+      shell: bash
+      run: ./doc/build.sh

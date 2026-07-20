@@ -1,6 +1,8 @@
-# Build trees (including per-preset build/<preset>/ from CMakePresets.json)
+# Build trees (including per-preset build/<preset>/ from CMakePresets.json).
+# build-*/ is root-anchored: unanchored it would also swallow unrelated
+# directories like .github/actions/build-docs/.
 build/
-build-*/
+/build-*/
 .cache/
 .claude/
 compile_commands.json
