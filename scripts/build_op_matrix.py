@@ -3,7 +3,7 @@
 # harnesses' textual reports. Reads /tmp/{mf,bd}_{fuzz,bench}.txt (paths
 # overridable via --mf-fuzz / --bd-fuzz / --mf-bench / --bd-bench) and
 # emits Markdown to stdout, suitable for splicing into
-# doc/dev/BOOST_OP_MATRIX.md.
+# doc/dev/boost-op-matrix.md.
 #
 # Run after:
 #   ./build/cpp_fuzz       1000000 42 > /tmp/mf_fuzz.txt
@@ -229,7 +229,7 @@ def main():
     print("./build/boost_dd_fuzz  1000000 42 > /tmp/bd_fuzz.txt")
     print("./build/cpp_bench                  > /tmp/mf_bench.txt")
     print("./build/boost_dd_bench             > /tmp/bd_bench.txt")
-    print("python3 scripts/build_op_matrix.py > doc/dev/BOOST_OP_MATRIX.md")
+    print("python3 scripts/build_op_matrix.py > doc/dev/boost-op-matrix.md")
     print("```")
     print()
     print("Boost's `cpp_double_double` backend natively implements only")

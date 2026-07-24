@@ -16,7 +16,7 @@ oracle as `cpp_fuzz` and `cpp_bench`.
 For the exhaustive op-by-op matrix (every operation either side
 implements, with `max_rel` and bench timings side-by-side, including
 multifloats-only surfaces such as the complex DD kernels and the
-π-scaled trig family) see [`BOOST_OP_MATRIX.md`](BOOST_OP_MATRIX.md).
+π-scaled trig family) see [`boost-op-matrix.md`](boost-op-matrix.md).
 Regenerate it with `scripts/build_op_matrix.py` after re-running the
 four harnesses.
 

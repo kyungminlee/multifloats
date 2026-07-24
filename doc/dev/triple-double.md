@@ -119,7 +119,7 @@ Adding a new TD kernel? The checklist:
 Always compute the cheap DD half-angle form; fall through to TD only
 when the two Re terms cancel enough for the DD floor to dominate.
 
-```cpp
+```text
 // DD path (fast, always run)
 Re_dd = expm1(a)·cos(b) − 2·sin²(b/2)
 

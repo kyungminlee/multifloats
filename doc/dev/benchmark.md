@@ -23,7 +23,7 @@ under `benchmark/` only drives them and renders the results.
 
 ## The harness
 
-Everything under [`benchmark/`](../../benchmark/) is a Python analysis harness
+Everything under [`benchmark/`](https://github.com/kyungminlee/multifloats/tree/main/benchmark) is a Python analysis harness
 (no compiled code):
 
 ```
@@ -36,7 +36,7 @@ benchmark/
 ```
 
 Curated, committed per-system JSONs are kept under
-[`benchmark/baseline/`](benchmark/baseline/); `results.md` is rendered from
+[`benchmark/baseline/`](https://github.com/kyungminlee/multifloats/tree/main/doc/dev/benchmark/baseline); `results.md` is rendered from
 one of them.
 
 ## Reproducing
@@ -50,7 +50,7 @@ python3 benchmark/build_benchmark_md.py doc/dev/benchmark/baseline/benchmark-m1-
 
 `run_benchmarks.py` needs the build toolchain (CMake, GCC, fypp);
 `build_benchmark_md.py` needs only Jinja2. See
-[`benchmark/README.md`](../../benchmark/README.md) for the full option list,
+[`benchmark/README.md`](https://github.com/kyungminlee/multifloats/blob/main/benchmark/README.md) for the full option list,
 the JSON schema, and how to adjust which ops appear in the tables.
 
 To commit a refreshed run, promote the JSON from `benchmark/data/` into
@@ -58,3 +58,9 @@ To commit a refreshed run, promote the JSON from `benchmark/data/` into
 
 See [Architecture](architecture.md) for the precision envelope these speedups
 trade against.
+
+```{toctree}
+:hidden:
+
+benchmark/results
+```

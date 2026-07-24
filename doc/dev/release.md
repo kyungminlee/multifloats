@@ -58,11 +58,11 @@ Jobs, all gating the release:
 - **`build-non-lto`** / **`build-non-lto-mac`** — the portable compiler-agnostic
   archive + the shared library; run the suite, and `build-non-lto` additionally
   audits the shipped `.so`'s dynamic symbol table (`check_shared_exports.sh`).
-- **`build-docs`** — builds the Sphinx user manual once (Linux; same composite
-  action as the Docs workflow, `.github/actions/build-docs`).
 - **`release`** — needs all builds; merges artifacts into per-platform combined
-  tarballs (each gets the HTML manual under `share/doc/multifloats/html/`) and
-  publishes a GitHub Release with auto-generated notes.
+  tarballs and publishes a GitHub Release with auto-generated notes. Rendered
+  HTML documentation is not a release asset — it is published to GitHub Pages
+  (https://kyungminlee.github.io/multifloats/) by the Docs workflow; every
+  install tree carries the Markdown user guide under `share/doc/multifloats/`.
 
 A test failure or a symbol-audit failure (`check_exported_symbols`,
 `check_shared_exports`) fails the build and blocks the release. Before this was
@@ -77,10 +77,10 @@ Per release, on the GitHub Release page:
   per-platform bundle a consumer wants: every per-compiler archive + the
   portable non-LTO archive + shared library, under one install prefix whose
   `multifloatsConfig.cmake` routes `find_package` to the best-fit archive.
-  Includes the offline HTML user manual under `share/doc/multifloats/html/`.
+  Includes the Markdown user guide under `share/doc/multifloats/` (README,
+  LICENSE, CHANGELOG, `user/*.md`).
 - **`multifloats-vX.Y.Z-<platform>-<lto|nolto>-<compiler>.tar.gz`** — the
   individual per-compiler archives that compose the bundle.
-- **`multifloats-vX.Y.Z-docs-html.tar.gz`** — the HTML manual on its own.
 
 ## Dry-run
 

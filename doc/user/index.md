@@ -1,4 +1,4 @@
-# multifloats
+# Using multifloats
 
 **Double-double arithmetic for Fortran, C and C++.**
 
@@ -33,7 +33,6 @@ error-handling
 :caption: Reference
 
 api/index
-/changelog
 ```
 
 ## Quick taste
@@ -75,8 +74,7 @@ surface is documented narratively in the guides and in the project README.
 ```
 
 ```{note}
-Working *on* multifloats rather than *with* it? The contributor
-documentation (configure, build, test, debug, release, internals) lives in
-[`doc/dev/`](https://github.com/kyungminlee/multifloats/tree/main/doc/dev)
-and is read from the source tree, not this site.
+Working *on* multifloats rather than *with* it? See the
+[developer guide](../dev/index.md) — configure, build, test, debug,
+release, and the internals reference.
 ```

@@ -1,27 +1,17 @@
-# Sphinx configuration for the multifloats documentation.
-#
-# This is a template: @MULTIFLOATS_VERSION@ is substituted from the root VERSION
-# file by doc/build.sh (or the doc/Makefile) to produce the generated conf.py.
-#
-# Build (after `doxygen Doxyfile` has produced the XML):
-#     doc/.venv/bin/sphinx-build -b html doc doc/_build/html
-# or use the Makefile / build.sh in this directory.
+# Sphinx configuration template (shared shape across eplinalg /
+# epblas-parallel / multifloats). ./doc/build.sh substitutes
+# @PROJECT_VERSION@ from the repo-root VERSION file and writes conf.py
+# (git-ignored) next to this template, then runs sphinx-build.
 
 import os.path
 
-# -- Project information -----------------------------------------------------
 project = "multifloats"
 author = "Kyungmin Lee"
 copyright = "2026, Kyungmin Lee"
 
 # Single source of truth: the root VERSION file (see doc/build.sh).
-version = "@MULTIFLOATS_VERSION@"  # X.Y.Z, shown in the docs
-release = "@MULTIFLOATS_VERSION@"  # full version string
-
-# -- General configuration ---------------------------------------------------
-# The user manual lives under doc/user/; its index is the site root. The
-# doc/dev/ tree is contributor-only and excluded below.
-root_doc = "user/index"
+version = "@PROJECT_VERSION@"
+release = "@PROJECT_VERSION@"
 
 extensions = [
     "myst_parser",        # Markdown (MyST) authoring
@@ -30,19 +20,6 @@ extensions = [
     "sphinx_design",      # grids / cards / tabs
 ]
 
-# Files and directories ignored by the builder.
-exclude_patterns = [
-    "_build",
-    ".venv",
-    "_doxygen",
-    "Doxyfile",
-    "*.in",               # conf.py.in / Doxyfile.in templates
-    "requirements.txt",
-    "README.md",          # build instructions, not a doc page
-    "dev",                # contributor-only notes, not part of the user docs
-]
-
-# -- MyST (Markdown) ---------------------------------------------------------
 myst_enable_extensions = [
     "colon_fence",   # ::: fenced directives
     "deflist",       # definition lists
@@ -61,12 +38,19 @@ breathe_default_project = "multifloats"
 breathe_default_members = ("members",)
 breathe_domain_by_extension = {"h": "cpp"}  # treat .h as C++
 
-# -- HTML output -------------------------------------------------------------
+source_suffix = {".md": "markdown", ".rst": "restructuredtext"}
+root_doc = "index"
+exclude_patterns = [
+    "_build",
+    "_doxygen",
+    ".venv",
+    "Doxyfile",
+    "*.in",               # conf.py.in / Doxyfile.in templates
+    "requirements.txt",
+    "README.md",          # build instructions, not a doc page
+]
+
 html_theme = "furo"
 html_title = "multifloats"
 html_static_path = ["_static"]
-# Copied verbatim into the output root: the index.html -> user/index.html
-# redirect, so the site root and an offline copy both land on the manual
-# despite root_doc living under user/.
-html_extra_path = ["_extra"]
 templates_path = ["_templates"]

@@ -8,7 +8,7 @@ hashes lived in `doc/dev/AUDIT_TODO.md` and
 `doc/dev/PROGRESS-PRECISION.md`, both of which were removed
 from the tree post-audit and now exist only in git history.
 
-Companion: `doc/dev/TRIPLE_DOUBLE.md` covers the narrow TD path
+Companion: `doc/dev/triple-double.md` covers the narrow TD path
 (`float64x3`, `exp_full_td`, `sincos_full_td`, `cexpm1dd` regime
 split). This file points into it wherever the TD infrastructure is
 the answer to a question raised here.
@@ -187,7 +187,7 @@ the sqrt rewrite. Not a regression gate yet; informational.
 
 ### (Open) `bjn` precision: 19× behind boost.math
 
-See `doc/dev/BOOST_COMPARISON.md`. multifloats `jn(int, x)` uses
+See `doc/dev/boost-comparison.md`. multifloats `jn(int, x)` uses
 2 dispatch regimes (forward when `n ≤ x`, Miller's CF1 when `n > x`),
 boost uses 4 (asymptotic / forward / power-series / CF1+backward) and
 its CF1 path stabilizes seed error in the regime where multifloats
@@ -258,7 +258,7 @@ Entry points for contributors trying to find the subtle pieces.
 | `fmoddd` gap-aware reduction            | `gap = ilogb(r) − ilogb(y)` selects between scalar `trunc(r_hi/y_hi)` (gap ≤ 53) and DD-level `trunc(r/y)` (gap > 53). The DD path carries ~106 integer bits per step and converges even for huge gaps. Residual floor ~2.5e9 DD ulp is intrinsic to DD when gap > 106 — fixing it requires TD/QD, out of scope. |
 | `casinhdd` / `catanhdd` branch schedules | Ported from libquadmath `__quadmath_kernel_casinhq` / `catanhq`. Each picks between ~8–10 regions on `(|Re|, |Im|)` and uses `log1p` of a positive sum (via `dd_x2y2m1` / `dd_cross_diff`) instead of `log(z + √(1+z²))` where the textbook form would collapse. `cacosh` / `cpow` on the unit circle share the `dd_x2y2m1` helper. |
 | `cmuldd` cancellation-gated compensation | Computes the cheap 4-mul form first, then fires `dd_cross_diff` per component when the leading-limb ratio `|R|/max(|p|,|q|) < 2⁻⁴` (same shape as `cexpm1dd`'s `kCancelThresh`). 2⁻⁴ caps cheap-path rel-err at ~16 ulp_dd while firing on ~6% of uniform-quadrant inputs; tighter 2⁻¹ > halves the bench speedup, looser 2⁻⁸ lets 100+-ulp regimes through. Fuzz: 248 → 9 ulp_dd on Re, 183 → 9.6 ulp_dd on Im. ~40% bench cost — the floor is the compensated branch existing in the function body, not detector arithmetic. |
-| `float64x3` + `td_mul_td` (multifloats.h) | Triple-double primitives for kernels whose DD intermediates cancel. Consumers today: `cexpm1dd` Re path via `exp_full_td` (`exp_log.inc`) + `sincos_full_td` (`trig.inc`). See `TRIPLE_DOUBLE.md` for the "constants must also be TD" rule and the `kCancelThresh` regime-split pattern. |
+| `float64x3` + `td_mul_td` (multifloats.h) | Triple-double primitives for kernels whose DD intermediates cancel. Consumers today: `cexpm1dd` Re path via `exp_full_td` (`exp_log.inc`) + `sincos_full_td` (`trig.inc`). See `triple-double.md` for the "constants must also be TD" rule and the `kCancelThresh` regime-split pattern. |
 
 ## 7. How to validate a precision or speed change
 
@@ -310,7 +310,7 @@ pay off but have not crossed the cost threshold yet.
   `multifloats.h` as a future release item.
 The `cexpm1dd` Re cancellation surface (`cos(b)·e^a = 1`, formerly
 deferred) has been resolved by the TD path — see
-`TRIPLE_DOUBLE.md` for the shipped regime split and the
+`triple-double.md` for the shipped regime split and the
 precision / speed numbers.
 
 ---
