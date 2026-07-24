@@ -13,6 +13,7 @@ on:
     paths:
       - 'doc/**'
       - 'CHANGELOG.md'
+      - 'VERSION'
       - 'include/**'
       - '.github/workflows/docs.yml'
       - '.github/actions/build-docs/**'
@@ -35,8 +36,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Shared with release.yml, which bundles the same HTML into the
-      # combined release tarballs.
+      # Shared with ci.yml's docs build check.
       - uses: ./.github/actions/build-docs
 
       - name: Upload Pages artifact

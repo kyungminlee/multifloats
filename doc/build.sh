@@ -25,9 +25,9 @@ if [[ ! -x "$SPHINX" ]]; then
 fi
 
 echo ">> configure (VERSION -> conf.py, Doxyfile)"
-MF_VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
-sed "s/@MULTIFLOATS_VERSION@/$MF_VERSION/g" "$DOC_DIR/conf.py.in"   > "$DOC_DIR/conf.py"
-sed "s/@MULTIFLOATS_VERSION@/$MF_VERSION/g" "$DOC_DIR/Doxyfile.in" > "$DOC_DIR/Doxyfile"
+EP_VERSION="$(tr -d '[:space:]' < "$ROOT_DIR/VERSION")"
+sed "s/@PROJECT_VERSION@/$EP_VERSION/g" "$DOC_DIR/conf.py.in"   > "$DOC_DIR/conf.py"
+sed "s/@PROJECT_VERSION@/$EP_VERSION/g" "$DOC_DIR/Doxyfile.in" > "$DOC_DIR/Doxyfile"
 
 echo ">> doxygen (header -> XML)"
 ( cd "$DOC_DIR" && doxygen Doxyfile )

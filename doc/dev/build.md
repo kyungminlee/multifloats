@@ -54,4 +54,4 @@ Prefer the default (source) unless you control both ends of the toolchain.
 ## Build the docs
 
 The Sphinx + Doxygen documentation has its own toolchain and driver; see
-[`doc/README.md`](../README.md).
+[`doc/README.md`](https://github.com/kyungminlee/multifloats/blob/main/doc/README.md).

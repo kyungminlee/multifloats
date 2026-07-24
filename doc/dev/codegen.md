@@ -10,7 +10,7 @@ output drifts from its generator.
 | `fsrc/multifloats.fypp` (fypp) | `multifloats-{quad,noquad}.f90` | no (build-time) | `fortran_abi_sync` |
 
 The standalone generator (`gen_constants.py`) and its `requirements.txt` live
-under [`codegen/`](../../codegen/). The `.fypp` sources stay next to the
+under [`codegen/`](https://github.com/kyungminlee/multifloats/tree/main/codegen). The `.fypp` sources stay next to the
 artifacts they compile into — `fsrc/multifloats.fypp` is also installed as
 source for downstream consumers, and the `test/*.fypp` harnesses belong with
 the test suite — so only the constants generator was relocated.

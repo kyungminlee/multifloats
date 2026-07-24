@@ -12,10 +12,6 @@ Testing/
 # into the build tree, never committed.
 *.mod
 
-# Generated docs config (substituted from the .in templates by doc/build.sh).
-doc/conf.py
-doc/Doxyfile
-
 # Transient benchmark run output; curated results live in
 # doc/dev/benchmark/baseline/ and are committed explicitly.
 benchmark/data/*.json

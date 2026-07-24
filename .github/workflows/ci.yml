@@ -15,6 +15,18 @@ permissions:
   contents: read
 
 jobs:
+  # ── Documentation build check ────────────────────────────────────
+  # Same recipe as docs.yml (GitHub Pages) via the shared composite
+  # action, so a Sphinx/Doxygen breakage is caught on push instead of
+  # after a merge to main.
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/build-docs
+
   build-and-test-linux:
     runs-on: ubuntu-latest
     steps:

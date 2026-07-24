@@ -384,3 +384,19 @@ install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/multifloatsConfigVersion.cmake"
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/multifloats)
+
+# User-facing documentation ships with every install (and therefore every
+# release tarball): the top-level project docs plus the Markdown user guide.
+# Rendered HTML (Sphinx + Doxygen, built by ./doc/build.sh) is published to
+# GitHub Pages by .github/workflows/docs.yml, not an install component.
+install(FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/../README.md
+    ${CMAKE_CURRENT_SOURCE_DIR}/../LICENSE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../CHANGELOG.md
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/multifloats)
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/../doc/user/
+    DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/doc/multifloats/user
+    FILES_MATCHING PATTERN "*.md")
+# (DATAROOTDIR/doc/multifloats spelled out rather than CMAKE_INSTALL_DOCDIR:
+# DOCDIR is keyed to the calling project() name, which differs when this
+# directory is consumed via add_subdirectory from a parent project.)

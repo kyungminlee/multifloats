@@ -39,7 +39,7 @@ else is opt-in through the options below.
 | `-DBUILD_TESTING=ON` | OFF | C++ + Fortran test/fuzz executables and ctest registrations. |
 | `-DMULTIFLOATS_BUILD_BENCH=ON` | OFF | `cpp_bench`, `fortran_bench`, `fortran_bench_abi` micro-benchmarks. See [Benchmark](benchmark.md). |
 | `-DBUILD_MPFR_TESTS=ON` | OFF | `cpp_fuzz_mpfr` 3-way precision test (needs `libmpfr-dev`). Implies `BUILD_TESTING`. |
-| `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89). See [BOOST_COMPARISON.md](BOOST_COMPARISON.md). |
+| `-DMULTIFLOATS_BUILD_BOOST_COMPARE=ON` | OFF | `boost_dd_fuzz` / `boost_dd_bench` / `bjn_probe` against `boost::multiprecision::cpp_double_double` (fetches Boost ≥ 1.89). See [boost-comparison.md](boost-comparison.md). |
 | `-DMULTIFLOATS_USE_LTO=ON/OFF` | ON | LTO + fat-LTO objects on the installed archives. When ON the C++ archive is named `libmultifloats-lto-<compiler>.a`; when OFF it is the portable compiler-agnostic `libmultifloats-nolto.a`. |
 | `-DMULTIFLOATS_HIDDEN_VISIBILITY=ON/OFF` | ON | `-fvisibility=hidden` so only the `extern "C" dd_*` ABI is exported. Turn OFF for full C++ symbol visibility (debugging, profiling, re-export). |
 | `-DMULTIFLOATS_MM_DISPATCH=ON/OFF` | ON | Compile the matmul kernels twice (a portable baseline + an AVX2+FMA copy that vectorizes to packed `vfmadd…pd`) and pick one by CPUID at runtime — a single binary that uses packed FMA where the CPU supports it and runs anywhere otherwise. Only effective on x86-64 GCC (only GCC's vectorizer packs this loop); a no-op on Clang/icx, AArch64, and Apple. Turn OFF for a single baseline build. |
